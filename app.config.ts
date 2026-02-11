@@ -32,7 +32,7 @@ const env = {
   appSlug: "knowledge_vault",
   // S3 URL of the app logo - set this to the URL returned by generate_image when creating custom logo
   // Leave empty to use the default icon from assets/images/icon.png
-  logoUrl: "",
+  logoUrl: "https://private-us-east-1.manuscdn.com/sessionFile/k5Skf98nxEDp6PM4wCYmWA/sandbox/YXVL0EvW1jaEUAabIiqYu0-img-1_1770799904000_na1fn_aWNvbg.png?x-oss-process=image/resize,w_1920,h_1920/format,webp/quality,q_80&Expires=1798761600&Policy=eyJTdGF0ZW1lbnQiOlt7IlJlc291cmNlIjoiaHR0cHM6Ly9wcml2YXRlLXVzLWVhc3QtMS5tYW51c2Nkbi5jb20vc2Vzc2lvbkZpbGUvazVTa2Y5OG54RURwNlBNNHdDWW1XQS9zYW5kYm94L1lYVkwwRXZXMWphRVVBYWJJaXFZdTAtaW1nLTFfMTc3MDc5OTkwNDAwMF9uYTFmbl9hV052YmcucG5nP3gtb3NzLXByb2Nlc3M9aW1hZ2UvcmVzaXplLHdfMTkyMCxoXzE5MjAvZm9ybWF0LHdlYnAvcXVhbGl0eSxxXzgwIiwiQ29uZGl0aW9uIjp7IkRhdGVMZXNzVGhhbiI6eyJBV1M6RXBvY2hUaW1lIjoxNzk4NzYxNjAwfX19XX0_&Key-Pair-Id=K2HSFNDJXOU9YS&Signature=W-X1VtVsjXgjSwiTaNJ631u4rhsCw6ZV9yGCYcF6x~DeR9aL--fdvr4N8Zg76M~7CLTe-j0OORRDhCbBJe8OCbI9jj~EDwTjPRlyIvMo9nPPVzkI9q9BgQJEtKuw4bubx8x7IBtTQCh0VsbGTpkDZ7RPnvMTJ0XE~EASxVk5f6YILXn31YDnWaO9tXHbHjWdw7Q5PQehoaU95qTZ5iir6Qu3j7l3XliIycD8GHDZedVCj4B-j68IcualBkhNwQLqx1kAv4QIA2iKRLplIIYCLvRuW8SK06Tk9qe1lQ~iYZzootBewe4k2c1p-7u0By6cim13y~szgVPipaX1DLFKPg__",
   scheme: schemeFromBundleId,
   iosBundleId: bundleId,
   androidPackage: bundleId,
