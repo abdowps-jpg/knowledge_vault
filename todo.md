@@ -3,25 +3,29 @@
 ## Phase 1: Core Setup & Inbox (Week 1)
 
 ### Database & Storage
-- [ ] Set up SQLite database schema with all entities (Item, Quote, Note, Task, JournalEntry, Tag, Category, Attachment, ReviewSchedule)
-- [ ] Implement AsyncStorage wrapper for offline-first persistence
+- [x] Set up SQLite database schema with all entities (Item, Quote, Note, Task, JournalEntry, Tag, Category, Attachment, ReviewSchedule)
+- [x] Implement AsyncStorage wrapper for offline-first persistence
 - [ ] Create migration system for schema updates
 - [ ] Implement local backup/export functionality
 
 ### Inbox Screen
-- [ ] Design and implement Inbox screen layout
-- [ ] Create list component for displaying inbox items
-- [ ] Implement item type icons (Note, Quote, Link, Audio, Task, Journal)
-- [ ] Add pull-to-refresh functionality
-- [ ] Implement swipe actions (archive, delete)
-- [ ] Add long-press context menu
+- [x] Design and implement Inbox screen layout with header and FAB
+- [x] Create list component for displaying inbox items with type icons
+- [x] Implement item type icons and labels (Note, Quote, Link, Audio, Task, Journal)
+- [x] Add pull-to-refresh functionality
+- [x] Implement swipe/delete actions
+- [x] Add long-press context menu with Move to Library, Convert to Task options
+- [x] Implement move to Library functionality
+- [x] Implement convert to Task functionality
 
 ### Quick Add Feature
-- [ ] Create Quick Add modal/bottom sheet
-- [ ] Implement text input for notes/quotes
-- [ ] Implement link input with validation
-- [ ] Implement audio recording and transcription
-- [ ] Add save functionality to Inbox
+- [x] Create Quick Add modal/bottom sheet with tabs (Note, Quote, Link, Audio, Task)
+- [x] Implement text input for notes/quotes with character counter
+- [x] Implement link input with URL validation
+- [ ] Implement audio recording UI with record/stop/play buttons
+- [x] Add save functionality to Inbox with success feedback
+- [x] Implement move to Library from Inbox
+- [x] Implement convert to Task from Inbox
 - [ ] Test offline functionality
 
 ### Audio Recording & Transcription
