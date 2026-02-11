@@ -40,26 +40,26 @@
 ## Phase 2: Library & Actions (Week 2)
 
 ### Library Screen
-- [ ] Design and implement Library screen layout
-- [ ] Create category/tag filter bar
+- [x] Design and implement Library screen layout
+- [x] Create category/tag filter bar
 - [ ] Implement category management (CRUD)
 - [ ] Implement tag management (CRUD)
-- [ ] Add favorites functionality
+- [x] Add favorites functionality
 - [ ] Add archive/restore functionality
 - [ ] Implement bulk actions (select multiple, archive, delete, tag)
-- [ ] Add search/filter by text in library
+- [x] Add search/filter by text in library
 
 ### Actions Screen (Task Management)
-- [ ] Design and implement Actions screen layout
-- [ ] Create task list with sorting (due date, priority)
+- [x] Design and implement Actions screen layout
+- [x] Create task list with sorting (due date, priority)
 - [ ] Implement task creation form
 - [ ] Add due date picker
-- [ ] Add priority selector (Low, Medium, High)
+- [x] Add priority selector (Low, Medium, High)
 - [ ] Implement recurrence patterns (daily, weekly, monthly)
 - [ ] Add subtask functionality
-- [ ] Implement task completion checkbox
+- [x] Implement task completion checkbox
 - [ ] Add task editing functionality
-- [ ] Implement task deletion
+- [x] Implement task deletion
 
 ### Item Detail Screen
 - [ ] Create detail view for all item types
