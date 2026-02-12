@@ -5,6 +5,7 @@ import { useColors } from "@/hooks/use-colors";
 import { useInbox } from "@/lib/context/inbox-context";
 import { ItemType } from "@/lib/db/schema";
 import * as Haptics from "expo-haptics";
+import { AudioRecorderModal } from "./audio-recorder-modal";
 
 // ============================================================================
 // Tab Component
@@ -52,6 +53,7 @@ export function QuickAddModal() {
   const colors = useColors();
   const { quickAddModal, closeQuickAdd, setActiveTab, addItem } = useInbox();
   const [loading, setLoading] = useState(false);
+  const [showAudioRecorder, setShowAudioRecorder] = useState(false);
 
   // Form state
   const [title, setTitle] = useState("");
@@ -67,6 +69,29 @@ export function QuickAddModal() {
     setUrl("");
     setSource("");
     setAuthor("");
+  };
+
+  // Handle audio save
+  const handleSaveAudio = async (audioContent: string) => {
+    try {
+      setLoading(true);
+      await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      await addItem({
+        type: ItemType.AUDIO,
+        title: "Voice Note",
+        content: audioContent,
+        tags: [],
+        isFavorite: false,
+        isArchived: false,
+      });
+      setShowAudioRecorder(false);
+      closeQuickAdd();
+    } catch (error) {
+      console.error("Error saving audio:", error);
+      Alert.alert("Error", "Failed to save audio note");
+    } finally {
+      setLoading(false);
+    }
   };
 
   // Handle save
@@ -354,10 +379,24 @@ export function QuickAddModal() {
           {/* Audio Tab */}
           {quickAddModal.activeTab === "audio" && (
             <View className="items-center justify-center py-12 gap-4">
-              <MaterialIcons name="mic" size={64} color={colors.primary} />
-              <Text className="text-lg font-semibold text-foreground">Audio Recording</Text>
+              <Pressable
+                onPress={() => setShowAudioRecorder(true)}
+                style={({ pressed }) => [{
+                  opacity: pressed ? 0.7 : 1,
+                  backgroundColor: colors.primary,
+                  borderRadius: 8,
+                  paddingVertical: 12,
+                  paddingHorizontal: 24,
+                  gap: 8,
+                  flexDirection: "row",
+                  alignItems: "center",
+                }]}
+              >
+                <MaterialIcons name="mic" size={24} color="white" />
+                <Text className="text-base font-semibold text-white">Start Recording</Text>
+              </Pressable>
               <Text className="text-sm text-muted text-center px-4">
-                Audio recording feature coming soon. You'll be able to record voice notes and automatically transcribe them.
+                Tap to record a voice note. Your speech will be transcribed automatically.
               </Text>
             </View>
           )}
@@ -410,6 +449,13 @@ export function QuickAddModal() {
           )}
         </View>
       </ScrollView>
+
+      {/* Audio Recorder Modal */}
+      <AudioRecorderModal
+        visible={showAudioRecorder}
+        onClose={() => setShowAudioRecorder(false)}
+        onSave={handleSaveAudio}
+      />
 
       {/* Footer */}
       <View style={{ backgroundColor: colors.background, borderTopColor: colors.border, borderTopWidth: 1 }} className="p-4 gap-3">

@@ -22,18 +22,21 @@
 - [x] Create Quick Add modal/bottom sheet with tabs (Note, Quote, Link, Audio, Task)
 - [x] Implement text input for notes/quotes with character counter
 - [x] Implement link input with URL validation
-- [ ] Implement audio recording UI with record/stop/play buttons
+- [x] Implement audio recording UI with record/stop/play buttons
 - [x] Add save functionality to Inbox with success feedback
 - [x] Implement move to Library from Inbox
 - [x] Implement convert to Task from Inbox
 - [ ] Test offline functionality
 
 ### Audio Recording & Transcription
-- [ ] Integrate expo-audio for recording
+- [x] Create audio recording modal component
+- [x] Implement record/stop/play controls
+- [x] Add duration timer and display
+- [x] Implement transcription display and editing
+- [x] Integrate audio recorder into Quick Add modal
+- [ ] Integrate expo-audio for actual recording
 - [ ] Implement audio file storage
 - [ ] Integrate speech-to-text API (using server LLM)
-- [ ] Display transcribed text in UI
-- [ ] Handle audio playback
 
 ---
 
@@ -82,13 +85,13 @@
 ## Phase 3: Journal, Search & Notifications (Week 3)
 
 ### Journal Screen
-- [ ] Design and implement Journal screen layout
-- [ ] Create calendar view component
-- [ ] Implement date selection
-- [ ] Create journal entry list for selected date
-- [ ] Add journal entry creation form
-- [ ] Implement mood selector (emoji/scale)
-- [ ] Add optional location capture
+- [x] Design and implement Journal screen layout
+- [x] Create calendar view component
+- [x] Implement date selection
+- [x] Create journal entry list for selected date
+- [x] Add journal entry creation form
+- [x] Implement mood selector (emoji/scale)
+- [x] Add optional location capture
 - [ ] Add optional weather display
 - [ ] Implement photo attachment
 - [ ] Implement audio recording for journal entries
@@ -103,15 +106,15 @@
 - [ ] Add mood/location/weather editing
 
 ### Search Screen
-- [ ] Design and implement Search screen layout
-- [ ] Implement real-time search functionality
-- [ ] Create filter chips (Type, Date, Tag, Status)
-- [ ] Implement type filtering
+- [x] Design and implement Search screen layout
+- [x] Implement real-time search functionality
+- [x] Create filter chips (Type, Date, Tag, Status)
+- [x] Implement type filtering
 - [ ] Implement date range filtering
 - [ ] Implement tag filtering
 - [ ] Implement status filtering (for tasks)
 - [ ] Display search results with highlighting
-- [ ] Add empty state for no results
+- [x] Add empty state for no results
 
 ### Notifications System
 - [ ] Implement task reminder notifications
