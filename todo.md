@@ -302,3 +302,24 @@
 - [ ] Add in-app help tooltips
 - [ ] Document API endpoints
 - [ ] Create developer documentation
+
+
+## Phase 8: Direct Creation & Cross-Section Conversion
+
+### Direct Item Creation
+- [x] Add "+" button to Actions screen
+- [ ] Add "+" button to Library screen
+- [x] Create modal for direct task creation in Actions
+- [ ] Create modal for direct item creation in Library
+- [x] Implement form validation for new items
+- [ ] Add success feedback after creation
+
+### Cross-Section Conversion
+- [x] Implement convert Inbox item to Library item
+- [x] Implement convert Inbox item to Action task
+- [x] Implement convert Library item to Action task
+- [x] Implement convert Action task to Library item
+- [x] Implement convert Journal entry to Library item
+- [x] Create conversion service with all conversion logic
+- [x] Create conversion modal component
+- [x] Preserve data during conversions (content, tags, etc.)

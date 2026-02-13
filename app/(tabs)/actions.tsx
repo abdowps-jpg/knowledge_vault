@@ -1,10 +1,10 @@
 import React, { useState } from "react";
-import { FlatList, Text, View, Pressable, RefreshControl, Alert } from "react-native";
+import { FlatList, Text, View, Pressable, RefreshControl, Alert, Modal, TextInput, ScrollView } from "react-native";
 import { ScreenContainer } from "@/components/screen-container";
 import { useColors } from "@/hooks/use-colors";
 import { MaterialIcons } from "@expo/vector-icons";
 import { useActions } from "@/lib/context/actions-context";
-import { Item } from "@/lib/db/schema";
+import { Item, ItemType } from "@/lib/db/schema";
 import * as Haptics from "expo-haptics";
 
 // ============================================================================
@@ -211,6 +211,10 @@ export default function ActionsScreen() {
     getTaskStats,
   } = useActions();
   const [refreshing, setRefreshing] = useState(false);
+  const [showCreateModal, setShowCreateModal] = useState(false);
+  const [newTaskTitle, setNewTaskTitle] = useState("");
+  const [newTaskDescription, setNewTaskDescription] = useState("");
+  const [newTaskPriority, setNewTaskPriority] = useState("medium");
   const stats = getTaskStats();
 
   const handleRefresh = async () => {
@@ -313,6 +317,127 @@ export default function ActionsScreen() {
           scrollEnabled={filteredTasks.length > 0}
         />
       )}
+
+      {/* FAB Button */}
+      <Pressable
+        onPress={() => setShowCreateModal(true)}
+        style={({ pressed }) => [
+          {
+            position: "absolute",
+            bottom: 24,
+            right: 24,
+            width: 56,
+            height: 56,
+            borderRadius: 28,
+            backgroundColor: colors.primary,
+            justifyContent: "center",
+            alignItems: "center",
+            opacity: pressed ? 0.8 : 1,
+            shadowColor: "#000",
+            shadowOffset: { width: 0, height: 2 },
+            shadowOpacity: 0.25,
+            shadowRadius: 3.84,
+            elevation: 5,
+          },
+        ]}
+      >
+        <MaterialIcons name="add" size={28} color="white" />
+      </Pressable>
+
+      {/* Create Task Modal */}
+      <Modal
+        visible={showCreateModal}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setShowCreateModal(false)}
+      >
+        <View className="flex-1 bg-black/50 justify-end">
+          <View className="bg-surface rounded-t-3xl p-6 max-h-3/4" style={{ backgroundColor: colors.surface }}>
+            <Text className="text-xl font-bold text-foreground mb-4">New Task</Text>
+            <ScrollView showsVerticalScrollIndicator={false}>
+              <TextInput
+                placeholder="Task title"
+                placeholderTextColor={colors.muted}
+                value={newTaskTitle}
+                onChangeText={setNewTaskTitle}
+                className="bg-background border border-border rounded-lg p-3 text-foreground mb-3"
+                style={{ color: colors.foreground }}
+              />
+              <TextInput
+                placeholder="Description (optional)"
+                placeholderTextColor={colors.muted}
+                value={newTaskDescription}
+                onChangeText={setNewTaskDescription}
+                multiline
+                numberOfLines={4}
+                className="bg-background border border-border rounded-lg p-3 text-foreground mb-3"
+                style={{ color: colors.foreground }}
+              />
+              <View className="mb-4">
+                <Text className="text-sm font-semibold text-foreground mb-2">Priority</Text>
+                <View className="flex-row gap-2">
+                  {["low", "medium", "high"].map((p) => (
+                    <Pressable
+                      key={p}
+                      onPress={() => setNewTaskPriority(p)}
+                      style={({ pressed }) => [
+                        {
+                          flex: 1,
+                          paddingVertical: 8,
+                          borderRadius: 8,
+                          backgroundColor: newTaskPriority === p ? colors.primary : colors.background,
+                          borderColor: colors.border,
+                          borderWidth: 1,
+                          opacity: pressed ? 0.7 : 1,
+                        },
+                      ]}
+                    >
+                      <Text
+                        style={{
+                          textAlign: "center",
+                          color: newTaskPriority === p ? "white" : colors.foreground,
+                          fontWeight: "600",
+                          fontSize: 12,
+                          textTransform: "capitalize",
+                        }}
+                      >
+                        {p}
+                      </Text>
+                    </Pressable>
+                  ))}
+                </View>
+              </View>
+            </ScrollView>
+            <View className="flex-row gap-3 mt-4">
+              <Pressable
+                onPress={() => setShowCreateModal(false)}
+                style={({ pressed }) => [{ flex: 1, opacity: pressed ? 0.7 : 1 }]}
+              >
+                <View className="bg-border rounded-lg py-3 items-center">
+                  <Text className="text-foreground font-semibold">Cancel</Text>
+                </View>
+              </Pressable>
+              <Pressable
+                onPress={() => {
+                  if (newTaskTitle.trim()) {
+                    setShowCreateModal(false);
+                    setNewTaskTitle("");
+                    setNewTaskDescription("");
+                    setNewTaskPriority("medium");
+                  } else {
+                    Alert.alert("Error", "Please enter a task title");
+                  }
+                }}
+                style={({ pressed }) => [{ flex: 1, opacity: pressed ? 0.7 : 1 }]}
+              >
+                <View className="bg-primary rounded-lg py-3 items-center">
+                  <Text className="text-white font-semibold">Create</Text>
+                </View>
+              </Pressable>
+            </View>
+          </View>
+        </View>
+      </Modal>
     </ScreenContainer>
   );
 }
