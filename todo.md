@@ -117,29 +117,29 @@
 - [x] Add empty state for no results
 
 ### Notifications System
-- [ ] Implement task reminder notifications
-- [ ] Set up notification scheduling
-- [ ] Create notification settings UI
-- [ ] Implement spaced repetition algorithm (SM-2)
-- [ ] Implement spaced repetition notifications
-- [ ] Add notification permission handling
+- [x] Implement task reminder notifications
+- [x] Set up notification scheduling
+- [x] Create notification settings UI
+- [x] Implement spaced repetition algorithm (SM-2)
+- [x] Implement spaced repetition notifications
+- [x] Add notification permission handling
 - [ ] Test notifications on iOS and Android
 
 ### Settings Screen
-- [ ] Design and implement Settings screen layout
+- [x] Design and implement Settings screen layout
 - [ ] Create account section (username, email, password)
-- [ ] Implement notification preferences
-- [ ] Add privacy settings (biometric lock, entry lock)
-- [ ] Implement data export functionality
-- [ ] Implement data backup functionality
+- [x] Implement notification preferences
+- [x] Add privacy settings (biometric lock, entry lock)
+- [x] Implement data export functionality
+- [x] Implement data backup functionality
 - [ ] Add sync settings (if backend enabled)
-- [ ] Create about section (version, links, contact)
+- [x] Create about section (version, links, contact)
 
 ### Biometric Authentication
-- [ ] Integrate expo-secure-store for secure storage
-- [ ] Implement app-level biometric lock
-- [ ] Implement entry-level biometric lock
-- [ ] Add fallback PIN option
+- [x] Integrate expo-secure-store for secure storage
+- [x] Implement app-level biometric lock
+- [x] Implement entry-level biometric lock
+- [x] Add fallback PIN option
 
 ---
 
