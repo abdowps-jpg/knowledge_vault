@@ -209,3 +209,96 @@
 ## Completed Features
 
 (Items will be moved here as they are completed)
+
+## Phase 5: Audio Recording & Transcription
+
+### Real Audio Recording
+- [x] Integrate expo-audio for actual recording
+- [x] Implement audio file storage with unique naming
+- [x] Add audio playback with duration tracking
+- [ ] Implement audio waveform visualization
+- [x] Add record/stop/pause controls
+- [ ] Integrate server LLM for speech-to-text transcription
+- [ ] Display transcription in real-time
+- [x] Add automatic audio file cleanup on discard
+- [ ] Implement audio file size limits
+
+---
+
+## Phase 6: Cloud Sync
+
+### Backend Integration
+- [ ] Set up Drizzle ORM schema for cloud storage
+- [ ] Create API endpoints for CRUD operations
+- [ ] Implement user authentication with OAuth
+- [ ] Add data encryption for sensitive fields
+
+### Sync Mechanism
+- [x] Implement offline-first sync queue
+- [x] Add conflict resolution strategy (last-write-wins)
+- [ ] Create background sync service
+- [ ] Implement selective sync (choose what to sync)
+- [ ] Add sync status indicators in UI
+- [ ] Implement bandwidth-aware sync
+
+### Settings Integration
+- [ ] Add cloud sync toggle in Settings
+- [ ] Create sync status display
+- [ ] Add manual sync button
+- [ ] Implement sync scheduling options
+- [ ] Add data deletion from cloud option
+
+---
+
+## Phase 7: Rich Text Editor
+
+### Markdown Support
+- [x] Integrate markdown parser library
+- [x] Implement markdown rendering in item display
+- [x] Create markdown input with live preview
+- [x] Add markdown formatting shortcuts
+
+### Formatting Toolbar
+- [x] Create formatting toolbar component
+- [x] Implement bold/italic/underline buttons
+- [x] Add heading levels (H1-H3)
+- [x] Implement bullet/numbered lists
+- [x] Add code block formatting
+- [x] Implement link insertion
+- [x] Add quote formatting
+
+### Editor Features
+- [ ] Implement auto-save functionality
+- [ ] Add undo/redo support
+- [x] Create markdown preview toggle
+- [x] Implement text statistics (word count, char count)
+- [ ] Add syntax highlighting for code blocks
+- [ ] Implement search and replace
+
+---
+
+## Phase 8: Polish & Testing
+
+### Testing
+- [ ] Write unit tests for audio service
+- [ ] Write integration tests for cloud sync
+- [ ] Write tests for rich text editor
+- [ ] Perform end-to-end testing
+- [ ] Test on iOS and Android devices
+- [ ] Test offline functionality
+- [ ] Performance testing and optimization
+
+### Polish
+- [ ] Add loading animations
+- [ ] Implement error handling and user feedback
+- [ ] Add haptic feedback for all interactions
+- [ ] Optimize app performance
+- [ ] Add app icon and splash screen
+- [ ] Create app store listings
+- [ ] Add onboarding tutorial
+
+### Documentation
+- [ ] Create user guide
+- [ ] Add in-app help tooltips
+- [ ] Document API endpoints
+- [ ] Create developer documentation
