@@ -1,350 +1,301 @@
-import React, { useState } from "react";
-import { FlatList, Text, View, Pressable, RefreshControl, Alert, Modal, TextInput, ScrollView } from "react-native";
-import { ScreenContainer } from "@/components/screen-container";
-import { useColors } from "@/hooks/use-colors";
+import React from "react";
+import {
+  ActivityIndicator,
+  Alert,
+  Modal,
+  Pressable,
+  ScrollView,
+  Text,
+  TextInput,
+  View,
+} from "react-native";
 import { MaterialIcons } from "@expo/vector-icons";
-import { useActions } from "@/lib/context/actions-context";
-import { Item, ItemType } from "@/lib/db/schema";
-import * as Haptics from "expo-haptics";
+import { ScreenContainer } from "@/components/screen-container";
+import { ErrorState } from "@/components/error-state";
+import { useColors } from "@/hooks/use-colors";
+import { trpc } from "@/lib/trpc";
 
-// ============================================================================
-// Helper Functions
-// ============================================================================
+type FilterTab = "all" | "today" | "completed" | "high";
 
-function formatDate(date: Date): string {
+const PRIORITY_ORDER: Record<string, number> = {
+  high: 3,
+  medium: 2,
+  low: 1,
+};
+
+const PRIORITY_BADGE: Record<string, string> = {
+  high: "🔴 High",
+  medium: "🟡 Medium",
+  low: "⚪ Low",
+};
+
+function toDate(value: unknown): Date | null {
+  if (!value) return null;
+  const date = new Date(value as string | number | Date);
+  return Number.isNaN(date.getTime()) ? null : date;
+}
+
+function isToday(date: Date | null): boolean {
+  if (!date) return false;
   const now = new Date();
-  const itemDate = new Date(date);
-  const diffMs = now.getTime() - itemDate.getTime();
-  const diffMins = Math.floor(diffMs / 60000);
-  const diffHours = Math.floor(diffMs / 3600000);
-  const diffDays = Math.floor(diffMs / 86400000);
-
-  if (diffMins < 1) return "Just now";
-  if (diffMins < 60) return `${diffMins}m ago`;
-  if (diffHours < 24) return `${diffHours}h ago`;
-  if (diffDays < 7) return `${diffDays}d ago`;
-  return itemDate.toLocaleDateString();
+  return (
+    date.getFullYear() === now.getFullYear() &&
+    date.getMonth() === now.getMonth() &&
+    date.getDate() === now.getDate()
+  );
 }
 
-function getPriorityColor(priority: string, colors: any): string {
-  switch (priority) {
-    case "high":
-      return colors.error;
-    case "medium":
-      return colors.warning;
-    case "low":
-      return colors.success;
-    default:
-      return colors.muted;
-  }
-}
-
-function getDueDateStatus(dueDate: Date | undefined): { label: string; color: string } {
-  if (!dueDate) return { label: "No due date", color: "muted" };
-
-  const now = new Date();
-  const due = new Date(dueDate);
-  const diffMs = due.getTime() - now.getTime();
-  const diffDays = Math.ceil(diffMs / (24 * 60 * 60 * 1000));
-
-  if (diffDays < 0) return { label: `${Math.abs(diffDays)}d overdue`, color: "error" };
-  if (diffDays === 0) return { label: "Due today", color: "warning" };
-  if (diffDays === 1) return { label: "Due tomorrow", color: "warning" };
-  if (diffDays <= 7) return { label: `Due in ${diffDays}d`, color: "success" };
-  return { label: `Due in ${diffDays}d`, color: "muted" };
-}
-
-// ============================================================================
-// Task Item Component
-// ============================================================================
-
-interface TaskItemProps {
-  task: Item;
-  onToggleComplete: (taskId: string) => Promise<void>;
-  onDelete: (taskId: string) => Promise<void>;
-}
-
-function TaskItem({ task, onToggleComplete, onDelete }: TaskItemProps) {
+export default function ActionsScreen() {
   const colors = useColors();
-  const [loading, setLoading] = useState(false);
-  const isCompleted = (task as any).isCompleted;
-  const dueDate = (task as any).dueDate ? new Date((task as any).dueDate) : undefined;
-  const priority = (task as any).priority || "medium";
-  const dueDateStatus = getDueDateStatus(dueDate);
+  const utils = trpc.useUtils();
 
-  const handleToggleComplete = async () => {
+  const [activeTab, setActiveTab] = React.useState<FilterTab>("all");
+  const [showCreateModal, setShowCreateModal] = React.useState(false);
+  const [newTaskTitle, setNewTaskTitle] = React.useState("");
+  const [newTaskDescription, setNewTaskDescription] = React.useState("");
+  const [newTaskDueDate, setNewTaskDueDate] = React.useState("");
+  const [newTaskPriority, setNewTaskPriority] = React.useState<"low" | "medium" | "high">("medium");
+  const [togglingTaskId, setTogglingTaskId] = React.useState<string | null>(null);
+  const [deletingTaskId, setDeletingTaskId] = React.useState<string | null>(null);
+
+  const { data: tasks = [], isLoading, error, refetch } = trpc.tasks.list.useQuery({
+    sortOrder: "asc",
+    limit: 200,
+  });
+
+  React.useEffect(() => {
+    if (error) {
+      console.error("Actions query failed:", error);
+    }
+  }, [error]);
+
+  const createTask = trpc.tasks.create.useMutation({
+    onSuccess: () => {
+      utils.tasks.list.invalidate();
+      setShowCreateModal(false);
+      setNewTaskTitle("");
+      setNewTaskDescription("");
+      setNewTaskDueDate("");
+      setNewTaskPriority("medium");
+    },
+  });
+
+  const toggleTask = trpc.tasks.toggle.useMutation({
+    onSuccess: () => {
+      utils.tasks.list.invalidate();
+    },
+    onSettled: () => {
+      setTogglingTaskId(null);
+    },
+  });
+
+  const deleteTask = trpc.tasks.delete.useMutation({
+    onSuccess: () => {
+      utils.tasks.list.invalidate();
+    },
+    onSettled: () => {
+      setDeletingTaskId(null);
+    },
+  });
+
+  const filteredAndSortedTasks = React.useMemo(() => {
+    const filtered = (tasks as any[]).filter((task) => {
+      const dueDate = toDate(task.dueDate);
+      const isCompleted = Boolean(task.isCompleted);
+      const priority = (task.priority || "medium") as string;
+
+      if (activeTab === "today") return isToday(dueDate) && !isCompleted;
+      if (activeTab === "completed") return isCompleted;
+      if (activeTab === "high") return priority === "high" && !isCompleted;
+      return true;
+    });
+
+    return filtered.sort((a, b) => {
+      const aDue = toDate(a.dueDate);
+      const bDue = toDate(b.dueDate);
+
+      const aDueTime = aDue ? aDue.getTime() : Number.MAX_SAFE_INTEGER;
+      const bDueTime = bDue ? bDue.getTime() : Number.MAX_SAFE_INTEGER;
+
+      if (aDueTime !== bDueTime) return aDueTime - bDueTime;
+
+      const aPriority = PRIORITY_ORDER[a.priority || "medium"] || 0;
+      const bPriority = PRIORITY_ORDER[b.priority || "medium"] || 0;
+      return bPriority - aPriority;
+    });
+  }, [tasks, activeTab]);
+
+  const handleCreateTask = async () => {
+    const title = newTaskTitle.trim();
+    if (!title) {
+      Alert.alert("Error", "Please enter a task title");
+      return;
+    }
+
     try {
-      setLoading(true);
-      await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-      await onToggleComplete(task.id);
-    } catch (error) {
-      console.error("Error toggling task:", error);
-      Alert.alert("Error", "Failed to update task");
-    } finally {
-      setLoading(false);
+      await createTask.mutateAsync({
+        title,
+        description: newTaskDescription.trim() || undefined,
+        dueDate: newTaskDueDate.trim() || undefined,
+        priority: newTaskPriority,
+      });
+    } catch (err) {
+      console.error("Failed to create task:", err);
+      Alert.alert("Error", "Failed to create task");
     }
   };
 
-  const handleDelete = async () => {
+  const handleToggleTask = async (id: string) => {
+    try {
+      setTogglingTaskId(id);
+      await toggleTask.mutateAsync({ id });
+    } catch (err) {
+      console.error("Failed to toggle task:", err);
+      Alert.alert("Error", "Failed to update task");
+    }
+  };
+
+  const handleDeleteTask = (id: string) => {
     Alert.alert("Delete Task", "Are you sure you want to delete this task?", [
-      { text: "Cancel", onPress: () => {} },
+      { text: "Cancel", style: "cancel" },
       {
         text: "Delete",
+        style: "destructive",
         onPress: async () => {
           try {
-            setLoading(true);
-            await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-            await onDelete(task.id);
-          } catch (error) {
-            console.error("Error deleting task:", error);
+            setDeletingTaskId(id);
+            await deleteTask.mutateAsync({ id });
+          } catch (err) {
+            console.error("Failed to delete task:", err);
             Alert.alert("Error", "Failed to delete task");
-          } finally {
-            setLoading(false);
           }
         },
-        style: "destructive",
       },
     ]);
   };
 
   return (
-    <View
-      style={{
-        backgroundColor: colors.surface,
-        borderBottomColor: colors.border,
-        borderBottomWidth: 1,
-        paddingHorizontal: 16,
-        paddingVertical: 12,
-        opacity: isCompleted ? 0.6 : 1,
-      }}
-    >
-      <View className="flex-row items-start gap-3">
-        {/* Checkbox */}
-        <Pressable
-          onPress={handleToggleComplete}
-          disabled={loading}
-          style={({ pressed }) => [
-            {
-              opacity: pressed || loading ? 0.6 : 1,
-              marginTop: 2,
-            },
-          ]}
-        >
-          <MaterialIcons
-            name={isCompleted ? "check-circle" : "radio-button-unchecked"}
-            size={24}
-            color={isCompleted ? colors.success : colors.muted}
-          />
-        </Pressable>
-
-        {/* Content */}
-        <View className="flex-1">
-          <Text
-            className="text-base font-semibold text-foreground"
-            numberOfLines={1}
-            style={{ textDecorationLine: isCompleted ? "line-through" : "none" }}
+    <ScreenContainer>
+      <View className="p-4 border-b border-border">
+        <View className="flex-row items-center justify-between">
+          <View className="flex-row items-center">
+            <MaterialIcons name="check-circle" size={32} color={colors.primary} />
+            <Text className="text-2xl font-bold text-foreground ml-2">Actions</Text>
+          </View>
+          <Pressable
+            onPress={() => setShowCreateModal(true)}
+            className="bg-primary rounded-lg p-2 items-center justify-center"
           >
-            {task.title}
-          </Text>
+            <MaterialIcons name="add" size={22} color="white" />
+          </Pressable>
+        </View>
+      </View>
 
-          {/* Metadata */}
-          <View className="flex-row items-center gap-2 mt-2 flex-wrap">
-            {/* Priority Badge */}
-            <View
+      <View className="px-4 py-3 border-b border-border">
+        <View className="flex-row">
+          {[
+            { label: "All", value: "all" as const },
+            { label: "Today", value: "today" as const },
+            { label: "Completed", value: "completed" as const },
+            { label: "High Priority", value: "high" as const },
+          ].map((tab) => (
+            <Pressable
+              key={tab.value}
+              onPress={() => setActiveTab(tab.value)}
+              className="mr-2 px-3 py-1 rounded-full border"
               style={{
-                backgroundColor: getPriorityColor(priority, colors),
-                borderRadius: 4,
-                paddingHorizontal: 6,
-                paddingVertical: 2,
+                borderColor: colors.border,
+                backgroundColor: activeTab === tab.value ? colors.primary : colors.surface,
               }}
             >
-              <Text style={{ color: "white", fontSize: 10, fontWeight: "600" }}>
-                {priority.charAt(0).toUpperCase() + priority.slice(1)}
-              </Text>
-            </View>
-
-            {/* Due Date */}
-            {dueDate && (
-              <Text
-                style={{
-                  color: getPriorityColor(dueDateStatus.color, colors),
-                  fontSize: 12,
-                  fontWeight: "500",
-                }}
-              >
-                {dueDateStatus.label}
-              </Text>
-            )}
-
-            {/* Created Date */}
-            <Text className="text-xs text-muted">{formatDate(task.createdAt)}</Text>
-          </View>
-        </View>
-
-        {/* Delete Button */}
-        <Pressable
-          onPress={handleDelete}
-          disabled={loading}
-          style={({ pressed }) => [{ opacity: pressed || loading ? 0.6 : 0.8, padding: 8 }]}
-        >
-          <MaterialIcons name="delete" size={20} color={colors.muted} />
-        </Pressable>
-      </View>
-    </View>
-  );
-}
-
-// ============================================================================
-// Actions Screen
-// ============================================================================
-
-export default function ActionsScreen() {
-  const colors = useColors();
-  const {
-    filteredTasks,
-    loading,
-    filters,
-    setStatus,
-    loadTasks,
-    completeTask,
-    deleteTask,
-    getTaskStats,
-  } = useActions();
-  const [refreshing, setRefreshing] = useState(false);
-  const [showCreateModal, setShowCreateModal] = useState(false);
-  const [newTaskTitle, setNewTaskTitle] = useState("");
-  const [newTaskDescription, setNewTaskDescription] = useState("");
-  const [newTaskPriority, setNewTaskPriority] = useState("medium");
-  const stats = getTaskStats();
-
-  const handleRefresh = async () => {
-    setRefreshing(true);
-    await loadTasks();
-    setRefreshing(false);
-  };
-
-  return (
-    <ScreenContainer className="bg-background" containerClassName="bg-background">
-      {/* Header */}
-      <View className="px-4 py-4 border-b border-border">
-        <Text className="text-2xl font-bold text-foreground">Actions</Text>
-        <View className="flex-row gap-4 mt-2">
-          <View>
-            <Text className="text-xs text-muted">Total</Text>
-            <Text className="text-lg font-bold text-foreground">{stats.total}</Text>
-          </View>
-          <View>
-            <Text className="text-xs text-muted">Completed</Text>
-            <Text className="text-lg font-bold text-success">{stats.completed}</Text>
-          </View>
-          <View>
-            <Text className="text-xs text-muted">Overdue</Text>
-            <Text className="text-lg font-bold text-error">{stats.overdue}</Text>
-          </View>
-        </View>
-      </View>
-
-      {/* Status Filter */}
-      <View className="px-4 py-3 border-b border-border gap-2">
-        <View className="flex-row gap-2">
-          {[
-            { label: "Active", value: "active" },
-            { label: "Completed", value: "completed" },
-            { label: "Overdue", value: "overdue" },
-          ].map((option) => (
-            <Pressable
-              key={option.value}
-              onPress={() => setStatus(option.value as any)}
-              style={({ pressed }) => [
-                {
-                  opacity: pressed ? 0.7 : 1,
-                  backgroundColor: filters.status === option.value ? colors.primary : colors.surface,
-                  borderColor: colors.border,
-                  borderWidth: 1,
-                  borderRadius: 20,
-                  paddingHorizontal: 12,
-                  paddingVertical: 6,
-                },
-              ]}
-            >
-              <Text
-                style={{
-                  color: filters.status === option.value ? "white" : colors.foreground,
-                  fontSize: 12,
-                  fontWeight: "600",
-                }}
-              >
-                {option.label}
+              <Text style={{ color: activeTab === tab.value ? "white" : colors.foreground, fontSize: 12 }}>
+                {tab.label}
               </Text>
             </Pressable>
           ))}
         </View>
       </View>
 
-      {/* Tasks List */}
-      {loading ? (
-        <View className="flex-1 items-center justify-center">
-          <MaterialIcons name="hourglass-empty" size={48} color={colors.muted} />
-          <Text className="text-muted mt-4">Loading...</Text>
-        </View>
-      ) : filteredTasks.length === 0 ? (
-        <View className="flex-1 items-center justify-center gap-3">
-          <MaterialIcons name="check-circle" size={64} color={colors.muted} />
-          <Text className="text-lg font-semibold text-foreground">
-            {filters.status === "completed" ? "No Completed Tasks" : "No Active Tasks"}
-          </Text>
-          <Text className="text-sm text-muted text-center px-4 max-w-xs">
-            {filters.status === "completed"
-              ? "Complete some tasks to see them here"
-              : "Convert items from Inbox to create tasks"}
-          </Text>
-        </View>
-      ) : (
-        <FlatList
-          data={filteredTasks}
-          keyExtractor={(item) => item.id}
-          renderItem={({ item }) => (
-            <TaskItem
-              task={item}
-              onToggleComplete={completeTask}
-              onDelete={deleteTask}
-            />
-          )}
-          refreshControl={
-            <RefreshControl refreshing={refreshing} onRefresh={handleRefresh} tintColor={colors.primary} />
-          }
-          contentContainerStyle={{ flexGrow: 1 }}
-          scrollEnabled={filteredTasks.length > 0}
-        />
-      )}
+      <ScrollView className="flex-1 p-4">
+        {isLoading ? (
+          <View className="items-center mt-8">
+            <ActivityIndicator size="large" color={colors.primary} />
+            <Text className="text-muted mt-4">Loading tasks...</Text>
+          </View>
+        ) : error ? (
+          <ErrorState error={error} onRetry={refetch} />
+        ) : filteredAndSortedTasks.length === 0 ? (
+          <View className="items-center justify-center mt-8">
+            <MaterialIcons name="assignment-turned-in" size={64} color={colors.muted} />
+            <Text className="text-muted text-center mt-4">No tasks found</Text>
+            <Text className="text-muted text-center mt-2 text-sm">
+              Tap + to create your first task
+            </Text>
+          </View>
+        ) : (
+          filteredAndSortedTasks.map((task: any) => {
+            const completed = Boolean(task.isCompleted);
+            const dueDate = toDate(task.dueDate);
+            const priority = task.priority || "medium";
+            const isToggling = toggleTask.isPending && togglingTaskId === task.id;
+            const isDeleting = deleteTask.isPending && deletingTaskId === task.id;
 
-      {/* FAB Button */}
-      <Pressable
-        onPress={() => setShowCreateModal(true)}
-        style={({ pressed }) => [
-          {
-            position: "absolute",
-            bottom: 24,
-            right: 24,
-            width: 56,
-            height: 56,
-            borderRadius: 28,
-            backgroundColor: colors.primary,
-            justifyContent: "center",
-            alignItems: "center",
-            opacity: pressed ? 0.8 : 1,
-            shadowColor: "#000",
-            shadowOffset: { width: 0, height: 2 },
-            shadowOpacity: 0.25,
-            shadowRadius: 3.84,
-            elevation: 5,
-          },
-        ]}
-      >
-        <MaterialIcons name="add" size={28} color="white" />
-      </Pressable>
+            return (
+              <View
+                key={task.id}
+                className="bg-surface p-4 rounded-lg mb-3 border border-border"
+                style={{ opacity: completed ? 0.6 : 1 }}
+              >
+                <View className="flex-row items-start justify-between">
+                  <Pressable onPress={() => handleToggleTask(task.id)} disabled={isToggling} className="mr-3 mt-0.5">
+                    {isToggling ? (
+                      <ActivityIndicator size="small" color={colors.primary} />
+                    ) : (
+                      <MaterialIcons
+                        name={completed ? "check-box" : "check-box-outline-blank"}
+                        size={22}
+                        color={completed ? colors.primary : colors.muted}
+                      />
+                    )}
+                  </Pressable>
 
-      {/* Create Task Modal */}
+                  <View className="flex-1">
+                    <Text
+                      className="font-semibold text-foreground"
+                      style={{ textDecorationLine: completed ? "line-through" : "none" }}
+                    >
+                      {task.title}
+                    </Text>
+                    {task.description ? (
+                      <Text
+                        className="text-muted text-sm mt-1"
+                        style={{ textDecorationLine: completed ? "line-through" : "none" }}
+                      >
+                        {task.description}
+                      </Text>
+                    ) : null}
+                    <View className="flex-row items-center mt-2">
+                      <Text className="text-muted text-xs mr-3">
+                        {dueDate ? dueDate.toLocaleDateString("en-US") : "No due date"}
+                      </Text>
+                      <Text className="text-xs">{PRIORITY_BADGE[priority] || PRIORITY_BADGE.medium}</Text>
+                    </View>
+                  </View>
+
+                  <Pressable onPress={() => handleDeleteTask(task.id)} disabled={isDeleting} className="ml-3 mt-0.5">
+                    {isDeleting ? (
+                      <ActivityIndicator size="small" color={colors.error} />
+                    ) : (
+                      <MaterialIcons name="delete" size={20} color={colors.error} />
+                    )}
+                  </Pressable>
+                </View>
+              </View>
+            );
+          })
+        )}
+      </ScrollView>
+
       <Modal
         visible={showCreateModal}
         transparent
@@ -369,28 +320,33 @@ export default function ActionsScreen() {
                 value={newTaskDescription}
                 onChangeText={setNewTaskDescription}
                 multiline
-                numberOfLines={4}
+                numberOfLines={3}
+                className="bg-background border border-border rounded-lg p-3 text-foreground mb-3"
+                style={{ color: colors.foreground }}
+              />
+              <TextInput
+                placeholder="Due date (YYYY-MM-DD, optional)"
+                placeholderTextColor={colors.muted}
+                value={newTaskDueDate}
+                onChangeText={setNewTaskDueDate}
                 className="bg-background border border-border rounded-lg p-3 text-foreground mb-3"
                 style={{ color: colors.foreground }}
               />
               <View className="mb-4">
                 <Text className="text-sm font-semibold text-foreground mb-2">Priority</Text>
                 <View className="flex-row gap-2">
-                  {["low", "medium", "high"].map((p) => (
+                  {(["low", "medium", "high"] as const).map((p) => (
                     <Pressable
                       key={p}
                       onPress={() => setNewTaskPriority(p)}
-                      style={({ pressed }) => [
-                        {
-                          flex: 1,
-                          paddingVertical: 8,
-                          borderRadius: 8,
-                          backgroundColor: newTaskPriority === p ? colors.primary : colors.background,
-                          borderColor: colors.border,
-                          borderWidth: 1,
-                          opacity: pressed ? 0.7 : 1,
-                        },
-                      ]}
+                      style={{
+                        flex: 1,
+                        paddingVertical: 8,
+                        borderRadius: 8,
+                        backgroundColor: newTaskPriority === p ? colors.primary : colors.background,
+                        borderColor: colors.border,
+                        borderWidth: 1,
+                      }}
                     >
                       <Text
                         style={{
@@ -409,29 +365,18 @@ export default function ActionsScreen() {
               </View>
             </ScrollView>
             <View className="flex-row gap-3 mt-4">
-              <Pressable
-                onPress={() => setShowCreateModal(false)}
-                style={({ pressed }) => [{ flex: 1, opacity: pressed ? 0.7 : 1 }]}
-              >
+              <Pressable onPress={() => setShowCreateModal(false)} style={{ flex: 1 }}>
                 <View className="bg-border rounded-lg py-3 items-center">
                   <Text className="text-foreground font-semibold">Cancel</Text>
                 </View>
               </Pressable>
-              <Pressable
-                onPress={() => {
-                  if (newTaskTitle.trim()) {
-                    setShowCreateModal(false);
-                    setNewTaskTitle("");
-                    setNewTaskDescription("");
-                    setNewTaskPriority("medium");
-                  } else {
-                    Alert.alert("Error", "Please enter a task title");
-                  }
-                }}
-                style={({ pressed }) => [{ flex: 1, opacity: pressed ? 0.7 : 1 }]}
-              >
+              <Pressable onPress={handleCreateTask} disabled={createTask.isPending} style={{ flex: 1 }}>
                 <View className="bg-primary rounded-lg py-3 items-center">
-                  <Text className="text-white font-semibold">Create</Text>
+                  {createTask.isPending ? (
+                    <ActivityIndicator color="white" />
+                  ) : (
+                    <Text className="text-white font-semibold">Create</Text>
+                  )}
                 </View>
               </Pressable>
             </View>

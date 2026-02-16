@@ -1,17 +1,17 @@
-import { mysqlTable, varchar, text, timestamp, boolean, mysqlEnum, index } from 'drizzle-orm/mysql-core';
+import { sqliteTable, text, integer, index } from 'drizzle-orm/sqlite-core';
 
-export const items = mysqlTable('items', {
-  id: varchar('id', { length: 36 }).primaryKey(),
-  userId: varchar('user_id', { length: 36 }).notNull(),
-  type: mysqlEnum('type', ['note', 'quote', 'link', 'audio']).notNull(),
-  title: varchar('title', { length: 255 }).notNull(),
+export const items = sqliteTable('items', {
+  id: text('id').primaryKey(),
+  userId: text('user_id').notNull(),
+  type: text('type', { enum: ['note', 'quote', 'link', 'audio'] }).notNull(),
+  title: text('title').notNull(),
   content: text('content'),
-  url: varchar('url', { length: 500 }),
-  location: mysqlEnum('location', ['inbox', 'library', 'archive']).default('inbox'),
-  isFavorite: boolean('is_favorite').default(false),
-  createdAt: timestamp('created_at').defaultNow(),
-  updatedAt: timestamp('updated_at').defaultNow(),
-  deletedAt: timestamp('deleted_at'),
+  url: text('url'),
+  location: text('location', { enum: ['inbox', 'library', 'archive'] }).default('inbox'),
+  isFavorite: integer('is_favorite', { mode: 'boolean' }).default(false),
+  createdAt: integer('created_at', { mode: 'timestamp' }).$defaultFn(() => new Date()),
+  updatedAt: integer('updated_at', { mode: 'timestamp' }).$defaultFn(() => new Date()),
+  deletedAt: integer('deleted_at', { mode: 'timestamp' }),
 }, (table) => ({
   userIdx: index('user_idx').on(table.userId),
   typeIdx: index('type_idx').on(table.type),

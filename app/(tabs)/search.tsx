@@ -1,6 +1,7 @@
-import React, { useState, useEffect } from "react";
-import { FlatList, Text, View, Pressable, TextInput, ScrollView } from "react-native";
+import React, { useEffect } from "react";
+import { FlatList, Text, View, Pressable, TextInput, ScrollView, ActivityIndicator } from "react-native";
 import { ScreenContainer } from "@/components/screen-container";
+import { ErrorState } from "@/components/error-state";
 import { useColors } from "@/hooks/use-colors";
 import { MaterialIcons } from "@expo/vector-icons";
 import { useSearch } from "@/lib/context/search-context";
@@ -80,15 +81,7 @@ function SearchResultItem({ item }: SearchResultItemProps) {
   const colors = useColors();
 
   return (
-    <View
-      style={{
-        backgroundColor: colors.surface,
-        borderBottomColor: colors.border,
-        borderBottomWidth: 1,
-        paddingHorizontal: 16,
-        paddingVertical: 12,
-      }}
-    >
+    <View className="bg-surface p-4 rounded-lg mb-3 border border-border">
       <View className="flex-row items-start gap-3">
         {/* Icon */}
         <View className="mt-1">
@@ -144,12 +137,18 @@ function SearchResultItem({ item }: SearchResultItemProps) {
 
 export default function SearchScreen() {
   const colors = useColors();
-  const { searchResults, loading, filters, setSearchText, setType, clearFilters, loadAllItems } =
+  const { searchResults, loading, error, filters, setSearchText, setType, clearFilters, loadAllItems } =
     useSearch();
 
   useEffect(() => {
     loadAllItems();
   }, [loadAllItems]);
+
+  useEffect(() => {
+    if (error) {
+      console.error("Search query failed:", error);
+    }
+  }, [error]);
 
   const typeOptions = [
     { label: "All", value: "all" },
@@ -165,8 +164,11 @@ export default function SearchScreen() {
     <ScreenContainer className="bg-background" containerClassName="bg-background">
       {/* Header */}
       <View className="px-4 py-4 border-b border-border">
-        <Text className="text-2xl font-bold text-foreground">Search</Text>
-        <Text className="text-xs text-muted mt-1">Find anything across your knowledge</Text>
+        <View className="flex-row items-center mb-2">
+          <MaterialIcons name="search" size={32} color={colors.primary} />
+          <Text className="text-2xl font-bold text-foreground ml-2">Search</Text>
+        </View>
+        <Text className="text-xs text-muted">Find anything across your knowledge</Text>
       </View>
 
       {/* Search Bar */}
@@ -253,24 +255,26 @@ export default function SearchScreen() {
       {/* Results */}
       {loading ? (
         <View className="flex-1 items-center justify-center">
-          <MaterialIcons name="hourglass-empty" size={48} color={colors.muted} />
+          <ActivityIndicator size="large" color={colors.primary} />
           <Text className="text-muted mt-4">Loading...</Text>
         </View>
+      ) : error ? (
+        <ErrorState error={error} onRetry={loadAllItems} />
       ) : searchResults.length === 0 ? (
-        <View className="flex-1 items-center justify-center gap-3 px-4">
+        <View className="flex-1 items-center justify-center px-4">
           {filters.searchText.length > 0 ? (
             <>
               <MaterialIcons name="search-off" size={64} color={colors.muted} />
-              <Text className="text-lg font-semibold text-foreground">No results found</Text>
-              <Text className="text-sm text-muted text-center">
+              <Text className="text-muted text-center mt-4">No results found</Text>
+              <Text className="text-muted text-center mt-2 text-sm">
                 Try different keywords or filters
               </Text>
             </>
           ) : (
             <>
               <MaterialIcons name="search" size={64} color={colors.muted} />
-              <Text className="text-lg font-semibold text-foreground">Start searching</Text>
-              <Text className="text-sm text-muted text-center">
+              <Text className="text-muted text-center mt-4">Start searching</Text>
+              <Text className="text-muted text-center mt-2 text-sm">
                 Type to search across all your items
               </Text>
             </>

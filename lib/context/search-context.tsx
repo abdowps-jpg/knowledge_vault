@@ -19,6 +19,7 @@ export interface SearchContextType {
   // Search
   searchResults: Item[];
   loading: boolean;
+  error: Error | null;
   filters: SearchFilters;
 
   // Filter handlers
@@ -47,6 +48,7 @@ const SearchContext = createContext<SearchContextType | undefined>(undefined);
 export function SearchProvider({ children }: { children: React.ReactNode }) {
   const [allItems, setAllItems] = useState<Item[]>([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<Error | null>(null);
   const [filters, setFilters] = useState<SearchFilters>({
     searchText: "",
     type: "all",
@@ -57,10 +59,12 @@ export function SearchProvider({ children }: { children: React.ReactNode }) {
   const loadAllItems = useCallback(async () => {
     try {
       setLoading(true);
+      setError(null);
       const items = await storage.getAllItems();
       setAllItems(items);
     } catch (error) {
       console.error("Error loading items:", error);
+      setError(error instanceof Error ? error : new Error("Failed to load search data"));
     } finally {
       setLoading(false);
     }
@@ -189,6 +193,7 @@ export function SearchProvider({ children }: { children: React.ReactNode }) {
   const value: SearchContextType = {
     searchResults,
     loading,
+    error,
     filters,
     setSearchText,
     setType,

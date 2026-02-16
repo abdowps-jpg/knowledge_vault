@@ -1,7 +1,9 @@
 import express from 'express';
 import { createExpressMiddleware } from '@trpc/server/adapters/express';
-import { router } from '../trpc';
+import { createTRPCContext, router, publicProcedure } from '../trpc';
 import { itemsRouter } from '../routers/items';
+import { tasksRouter } from '../routers/tasks';
+import { journalRouter } from '../routers/journal';
 
 const app = express();
 const port = process.env.PORT || 3000;
@@ -9,15 +11,24 @@ const port = process.env.PORT || 3000;
 // إنشاء main router
 const appRouter = router({
   items: itemsRouter,
+  tasks: tasksRouter,
+  journal: journalRouter,
+  // test endpoint
+  hello: publicProcedure.query(() => {
+    return { message: 'Hello from tRPC!' };
+  }),
 });
 
 export type AppRouter = typeof appRouter;
+
+// Required for tRPC POST/JSON batch requests
+app.use(express.json());
 
 // CORS middleware
 app.use((req, res, next) => {
   res.header('Access-Control-Allow-Origin', '*');
   res.header('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
-  res.header('Access-Control-Allow-Headers', 'Content-Type');
+  res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization, x-trpc-source');
   if (req.method === 'OPTIONS') {
     return res.sendStatus(200);
   }
@@ -29,6 +40,7 @@ app.use(
   '/trpc',
   createExpressMiddleware({
     router: appRouter,
+    createContext: createTRPCContext,
   })
 );
 
