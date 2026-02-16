@@ -121,5 +121,29 @@ db.exec(`
   CREATE INDEX IF NOT EXISTS idx_attachments_journal_id ON attachments(journal_id);
 `);
 
+// إنشاء جدول التصنيفات
+db.exec(`
+  CREATE TABLE IF NOT EXISTS categories (
+    id TEXT PRIMARY KEY,
+    user_id TEXT NOT NULL,
+    name TEXT NOT NULL,
+    icon TEXT,
+    created_at TEXT DEFAULT (datetime('now')),
+    updated_at TEXT DEFAULT (datetime('now'))
+  );
+
+  CREATE INDEX IF NOT EXISTS idx_categories_user_id ON categories(user_id);
+
+  CREATE TABLE IF NOT EXISTS item_categories (
+    id TEXT PRIMARY KEY,
+    item_id TEXT NOT NULL,
+    category_id TEXT NOT NULL,
+    created_at TEXT DEFAULT (datetime('now'))
+  );
+
+  CREATE INDEX IF NOT EXISTS idx_item_categories_item_id ON item_categories(item_id);
+  CREATE INDEX IF NOT EXISTS idx_item_categories_category_id ON item_categories(category_id);
+`);
+
 console.log('✅ Database tables created successfully!');
 db.close();

@@ -9,11 +9,16 @@ import {
   TextInput,
   View,
 } from "react-native";
+import { FlashList } from "@shopify/flash-list";
 import { MaterialIcons } from "@expo/vector-icons";
+import { useLocalSearchParams } from "expo-router";
 import { ScreenContainer } from "@/components/screen-container";
 import { ErrorState } from "@/components/error-state";
+import { RichTextEditor } from "@/components/rich-text-editor";
 import { useColors } from "@/hooks/use-colors";
 import { trpc } from "@/lib/trpc";
+import { offlineManager } from "@/lib/offline-manager";
+import Markdown from "react-native-markdown-display";
 
 const MOOD_EMOJI: Record<string, string> = {
   happy: "😄",
@@ -40,6 +45,7 @@ function getTimeLabel(value: unknown): string {
 
 export default function JournalScreen() {
   const colors = useColors();
+  const params = useLocalSearchParams<{ openCreate?: string }>();
   const utils = trpc.useUtils();
 
   const today = React.useMemo(() => getTodayDateString(), []);
@@ -54,11 +60,21 @@ export default function JournalScreen() {
   const [contentError, setContentError] = React.useState("");
   const [deletingEntryId, setDeletingEntryId] = React.useState<string | null>(null);
 
-  const { data: entries = [], isLoading, error, refetch } = trpc.journal.list.useQuery({
-    startDate: today,
-    endDate: today,
-    limit: 100,
-  });
+  const journalQuery = trpc.journal.list.useInfiniteQuery(
+    {
+      startDate: today,
+      endDate: today,
+      limit: 25,
+    },
+    {
+      getNextPageParam: (lastPage) => lastPage.nextCursor,
+    }
+  );
+  const entries = React.useMemo(
+    () => journalQuery.data?.pages.flatMap((page) => page.items ?? []) ?? [],
+    [journalQuery.data]
+  );
+  const { isLoading, error, refetch, fetchNextPage, hasNextPage, isFetchingNextPage } = journalQuery;
 
   React.useEffect(() => {
     if (error) {
@@ -95,14 +111,25 @@ export default function JournalScreen() {
 
     setContentError("");
     try {
-      await createEntry.mutateAsync({
+      const input = {
         entryDate: today,
         title: title.trim() || null,
         content: cleanContent,
         mood: mood.trim() || null,
         location: null,
         weather: null,
-      });
+      };
+      const result = await offlineManager.runOrQueueMutation("journal.create", input, () =>
+        createEntry.mutateAsync(input)
+      );
+      if ("queued" in (result as any)) {
+        Alert.alert("Queued", "Journal entry will sync when you're back online.");
+        setShowCreateModal(false);
+        setTitle("");
+        setContent("");
+        setMood("");
+        return;
+      }
     } catch (err) {
       console.error("Failed to create journal entry:", err);
       Alert.alert("Error", "Failed to create journal entry");
@@ -118,10 +145,17 @@ export default function JournalScreen() {
         onPress: async () => {
           try {
             setDeletingEntryId(id);
-            await deleteEntry.mutateAsync({ id });
+            const result = await offlineManager.runOrQueueMutation("journal.delete", { id }, () =>
+              deleteEntry.mutateAsync({ id })
+            );
+            if ("queued" in (result as any)) {
+              Alert.alert("Queued", "Entry deletion will sync when you're back online.");
+            }
           } catch (err) {
             console.error("Failed to delete journal entry:", err);
             Alert.alert("Error", "Failed to delete journal entry");
+          } finally {
+            setDeletingEntryId(null);
           }
         },
       },
@@ -132,6 +166,12 @@ export default function JournalScreen() {
     setSelectedEntry(entry);
     setShowEntryModal(true);
   };
+
+  React.useEffect(() => {
+    if (params.openCreate === "1") {
+      setShowCreateModal(true);
+    }
+  }, [params.openCreate]);
 
   return (
     <ScreenContainer>
@@ -151,25 +191,44 @@ export default function JournalScreen() {
         <Text className="text-muted mt-2">{new Date().toLocaleDateString("ar-EG")}</Text>
       </View>
 
-      <ScrollView className="flex-1 p-4">
-        {isLoading ? (
-          <View className="items-center mt-8">
-            <ActivityIndicator size="large" color={colors.primary} />
-            <Text className="text-muted mt-4">Loading entries...</Text>
-          </View>
-        ) : error ? (
+      {isLoading ? (
+        <View className="flex-1 items-center mt-8">
+          <ActivityIndicator size="large" color={colors.primary} />
+          <Text className="text-muted mt-4">Loading entries...</Text>
+        </View>
+      ) : error ? (
+        <View className="flex-1 p-4">
           <ErrorState error={error} onRetry={refetch} />
-        ) : entries.length === 0 ? (
-          <View className="items-center justify-center mt-8">
-            <MaterialIcons name="menu-book" size={64} color={colors.muted} />
-            <Text className="text-muted text-center mt-4">No entries for today</Text>
-          </View>
-        ) : (
-          (entries as any[]).map((entry) => {
+        </View>
+      ) : entries.length === 0 ? (
+        <View className="flex-1 items-center justify-center mt-8">
+          <MaterialIcons name="menu-book" size={64} color={colors.muted} />
+          <Text className="text-muted text-center mt-4">No entries for today</Text>
+        </View>
+      ) : (
+        <FlashList
+          data={entries as any[]}
+          estimatedItemSize={140}
+          keyExtractor={(entry: any) => entry.id}
+          contentContainerStyle={{ padding: 16 }}
+          onEndReachedThreshold={0.35}
+          onEndReached={() => {
+            if (hasNextPage && !isFetchingNextPage) {
+              fetchNextPage();
+            }
+          }}
+          ListFooterComponent={
+            isFetchingNextPage ? (
+              <View className="py-4">
+                <ActivityIndicator size="small" color={colors.primary} />
+              </View>
+            ) : null
+          }
+          renderItem={({ item: entry }: { item: any }) => {
             const moodEmoji = entry.mood ? MOOD_EMOJI[entry.mood] || "🙂" : "🙂";
             const isDeleting = deleteEntry.isPending && deletingEntryId === entry.id;
 
-            return (
+              return (
               <View key={entry.id} className="bg-surface p-4 rounded-lg mb-3 border border-border">
                 <View className="flex-row items-start justify-between">
                   <Pressable onPress={() => openEntry(entry)} className="flex-1 mr-3">
@@ -179,9 +238,17 @@ export default function JournalScreen() {
                         {entry.title || "Untitled Entry"}
                       </Text>
                     </View>
-                    <Text className="text-muted text-sm" numberOfLines={3}>
+                    <Markdown
+                      style={{
+                        body: { color: colors.muted, fontSize: 14, lineHeight: 20 },
+                        paragraph: { color: colors.muted, fontSize: 14, lineHeight: 20, marginBottom: 0 },
+                        heading1: { color: colors.foreground, fontSize: 18, fontWeight: "700" as const, marginBottom: 4 },
+                        strong: { color: colors.foreground, fontWeight: "700" as const },
+                        em: { color: colors.muted, fontStyle: "italic" as const },
+                      }}
+                    >
                       {entry.content}
-                    </Text>
+                    </Markdown>
                     <Text className="text-muted text-xs mt-2">{getTimeLabel(entry.createdAt)}</Text>
                   </Pressable>
 
@@ -194,10 +261,10 @@ export default function JournalScreen() {
                   </Pressable>
                 </View>
               </View>
-            );
-          })
-        )}
-      </ScrollView>
+              );
+            }}
+        />
+      )}
 
       <Modal visible={showCreateModal} transparent animationType="fade" onRequestClose={() => setShowCreateModal(false)}>
         <View className="flex-1 bg-black/50 justify-end">
@@ -212,18 +279,14 @@ export default function JournalScreen() {
                 className="bg-background border border-border rounded-lg p-3 text-foreground mb-3"
                 style={{ color: colors.foreground }}
               />
-              <TextInput
-                placeholder="How was your day?"
-                placeholderTextColor={colors.muted}
+              <RichTextEditor
                 value={content}
-                onChangeText={(value) => {
+                onChange={(value) => {
                   setContent(value);
                   if (contentError) setContentError("");
                 }}
-                multiline
-                numberOfLines={5}
-                className="bg-background border border-border rounded-lg p-3 text-foreground mb-1"
-                style={{ color: colors.foreground, textAlignVertical: "top" }}
+                placeholder="How was your day? (Markdown supported)"
+                minHeight={180}
               />
               {contentError ? (
                 <Text className="text-xs mb-3" style={{ color: colors.error }}>
@@ -281,7 +344,19 @@ export default function JournalScreen() {
                   </Text>
                 </View>
                 <Text className="text-muted text-xs mb-3">{getTimeLabel(selectedEntry.createdAt)}</Text>
-                <Text className="text-foreground leading-6">{selectedEntry.content}</Text>
+                <Markdown
+                  style={{
+                    body: { color: colors.foreground, fontSize: 15, lineHeight: 24 },
+                    paragraph: { color: colors.foreground, fontSize: 15, lineHeight: 24, marginBottom: 8 },
+                    heading1: { color: colors.foreground, fontSize: 22, fontWeight: "700" as const, marginBottom: 6 },
+                    strong: { color: colors.foreground, fontWeight: "700" as const },
+                    em: { color: colors.foreground, fontStyle: "italic" as const },
+                    code_inline: { color: colors.primary, backgroundColor: colors.background },
+                    link: { color: colors.primary },
+                  }}
+                >
+                  {selectedEntry.content}
+                </Markdown>
               </ScrollView>
             ) : null}
           </View>

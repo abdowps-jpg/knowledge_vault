@@ -1,13 +1,27 @@
-import React, { useState, useEffect } from "react";
-import { FlatList, Text, View, Pressable, RefreshControl, GestureResponderEvent } from "react-native";
+import React, { Suspense, useState } from "react";
+import { FlatList, Text, View, Pressable, RefreshControl, Modal, ActivityIndicator, TextInput, Alert } from "react-native";
 import { ScreenContainer } from "@/components/screen-container";
 import { useColors } from "@/hooks/use-colors";
 import { MaterialIcons } from "@expo/vector-icons";
 import { useInbox } from "@/lib/context/inbox-context";
 import { Item, ItemType } from "@/lib/db/schema";
-import { QuickAddModal } from "@/components/quick-add-modal";
-import { ItemContextMenu } from "@/components/item-context-menu";
+import { trpc } from "@/lib/trpc";
 import * as Haptics from "expo-haptics";
+import Markdown from "react-native-markdown-display";
+import { Image as ExpoImage } from "expo-image";
+
+const QuickAddModal = React.lazy(() =>
+  import("@/components/quick-add-modal").then((mod) => ({ default: mod.QuickAddModal }))
+);
+const ItemContextMenu = React.lazy(() =>
+  import("@/components/item-context-menu").then((mod) => ({ default: mod.ItemContextMenu }))
+);
+const QuickActionsFab = React.lazy(() =>
+  import("@/components/quick-actions-fab").then((mod) => ({ default: mod.QuickActionsFab }))
+);
+const RichTextEditor = React.lazy(() =>
+  import("@/components/rich-text-editor").then((mod) => ({ default: mod.RichTextEditor }))
+);
 
 // ============================================================================
 // Helper Functions
@@ -76,13 +90,17 @@ function getPreview(content: string, maxLength: number = 50): string {
 
 interface InboxItemProps {
   item: Item;
+  onPress: (item: Item) => void;
   onLongPress: (item: Item) => void;
   onDelete: (itemId: string) => void;
 }
 
-function InboxItem({ item, onLongPress, onDelete }: InboxItemProps) {
+function InboxItem({ item, onPress, onLongPress, onDelete }: InboxItemProps) {
   const colors = useColors();
-  const [showDelete, setShowDelete] = useState(false);
+  const [previewImageUri, setPreviewImageUri] = useState<string | null>(null);
+  const { data: attachments = [], isLoading: isAttachmentsLoading } = trpc.attachments.list.useQuery({
+    itemId: item.id,
+  });
 
   const handleDelete = async () => {
     await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
@@ -96,6 +114,7 @@ function InboxItem({ item, onLongPress, onDelete }: InboxItemProps) {
 
   return (
     <Pressable
+      onPress={() => onPress(item)}
       onLongPress={handleLongPress}
       delayLongPress={500}
       style={({ pressed }) => [
@@ -120,14 +139,49 @@ function InboxItem({ item, onLongPress, onDelete }: InboxItemProps) {
           <Text className="text-base font-semibold text-foreground" numberOfLines={1}>
             {item.title || "(Untitled)"}
           </Text>
-          <Text className="text-sm text-muted mt-1" numberOfLines={2}>
-            {getPreview(item.content)}
-          </Text>
+          <View className="mt-1">
+            <Markdown
+              style={{
+                body: { color: colors.muted, fontSize: 14, lineHeight: 20 },
+                paragraph: { color: colors.muted, fontSize: 14, lineHeight: 20, marginBottom: 0 },
+                heading1: { color: colors.foreground, fontSize: 18, fontWeight: "700" as const, marginBottom: 4 },
+                strong: { color: colors.foreground, fontWeight: "700" as const },
+                em: { color: colors.muted, fontStyle: "italic" as const },
+                code_inline: { color: colors.primary, backgroundColor: colors.background },
+              }}
+            >
+              {getPreview(item.content)}
+            </Markdown>
+          </View>
           <View className="flex-row items-center gap-2 mt-2">
             <Text className="text-xs text-muted">{getItemTypeLabel(item.type)}</Text>
             <Text className="text-xs text-muted">•</Text>
             <Text className="text-xs text-muted">{formatDate(item.createdAt)}</Text>
           </View>
+          {isAttachmentsLoading ? (
+            <View className="mt-2">
+              <ActivityIndicator size="small" color={colors.primary} />
+            </View>
+          ) : attachments.length > 0 ? (
+            <View className="flex-row items-center gap-2 mt-3">
+              {attachments.slice(0, 3).map((attachment) => (
+                <Pressable key={attachment.id} onPress={() => setPreviewImageUri(attachment.fileUrl)}>
+                  <ExpoImage
+                    source={{ uri: attachment.fileUrl }}
+                    cachePolicy="memory-disk"
+                    contentFit="cover"
+                    style={{
+                      width: 56,
+                      height: 56,
+                      borderRadius: 8,
+                      borderWidth: 1,
+                      borderColor: colors.border,
+                    }}
+                  />
+                </Pressable>
+              ))}
+            </View>
+          ) : null}
         </View>
 
         {/* Delete Button */}
@@ -143,6 +197,32 @@ function InboxItem({ item, onLongPress, onDelete }: InboxItemProps) {
           <MaterialIcons name="close" size={20} color={colors.muted} />
         </Pressable>
       </View>
+      <Modal
+        visible={!!previewImageUri}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setPreviewImageUri(null)}
+      >
+        <Pressable
+          onPress={() => setPreviewImageUri(null)}
+          style={{
+            flex: 1,
+            backgroundColor: "rgba(0,0,0,0.9)",
+            justifyContent: "center",
+            alignItems: "center",
+            padding: 16,
+          }}
+        >
+          {previewImageUri ? (
+            <ExpoImage
+              source={{ uri: previewImageUri }}
+              cachePolicy="memory-disk"
+              contentFit="contain"
+              style={{ width: "100%", height: "80%", borderRadius: 12 }}
+            />
+          ) : null}
+        </Pressable>
+      </Modal>
     </Pressable>
   );
 }
@@ -153,10 +233,14 @@ function InboxItem({ item, onLongPress, onDelete }: InboxItemProps) {
 
 export default function InboxScreen() {
   const colors = useColors();
-  const { items, loading, openQuickAdd, loadInboxItems, deleteItem } = useInbox();
+  const { items, loading, openQuickAdd, loadInboxItems, deleteItem, updateItem } = useInbox();
   const [refreshing, setRefreshing] = useState(false);
   const [selectedItem, setSelectedItem] = useState<Item | null>(null);
   const [showContextMenu, setShowContextMenu] = useState(false);
+  const [editingItem, setEditingItem] = useState<Item | null>(null);
+  const [editTitle, setEditTitle] = useState("");
+  const [editContent, setEditContent] = useState("");
+  const [savingEdit, setSavingEdit] = useState(false);
 
   // Handle refresh
   const handleRefresh = async () => {
@@ -169,6 +253,12 @@ export default function InboxScreen() {
   const handleItemLongPress = (item: Item) => {
     setSelectedItem(item);
     setShowContextMenu(true);
+  };
+
+  const handleItemPress = (item: Item) => {
+    setEditingItem(item);
+    setEditTitle(item.title ?? "");
+    setEditContent(item.content ?? "");
   };
 
   // Handle delete
@@ -184,6 +274,30 @@ export default function InboxScreen() {
   const handleQuickAdd = () => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     openQuickAdd("note");
+  };
+
+  const handleSaveEdit = async () => {
+    if (!editingItem) return;
+    if (!editTitle.trim()) {
+      Alert.alert("Validation", "Title is required");
+      return;
+    }
+
+    try {
+      setSavingEdit(true);
+      await updateItem(editingItem.id, {
+        title: editTitle.trim(),
+        content: editContent.trim() || editTitle.trim(),
+      });
+      setEditingItem(null);
+      setEditTitle("");
+      setEditContent("");
+    } catch (error) {
+      console.error("Error updating item:", error);
+      Alert.alert("Error", "Failed to update item");
+    } finally {
+      setSavingEdit(false);
+    }
   };
 
   return (
@@ -230,6 +344,7 @@ export default function InboxScreen() {
           renderItem={({ item }) => (
             <InboxItem
               item={item}
+              onPress={handleItemPress}
               onLongPress={handleItemLongPress}
               onDelete={handleDelete}
             />
@@ -243,17 +358,79 @@ export default function InboxScreen() {
       )}
 
       {/* Quick Add Modal */}
-      <QuickAddModal />
+      <Suspense fallback={null}>
+        <QuickAddModal />
+      </Suspense>
+
+      {/* Item Detail Edit Modal */}
+      <Modal visible={!!editingItem} transparent animationType="slide" onRequestClose={() => setEditingItem(null)}>
+        <View className="flex-1 bg-black/50 justify-end">
+          <View className="rounded-t-3xl p-6 max-h-[85%]" style={{ backgroundColor: colors.surface }}>
+            <View className="flex-row items-center justify-between mb-4">
+              <Text className="text-lg font-bold text-foreground">Edit Item</Text>
+              <Pressable onPress={() => setEditingItem(null)}>
+                <MaterialIcons name="close" size={22} color={colors.foreground} />
+              </Pressable>
+            </View>
+
+            <TextInput
+              placeholder="Title"
+              placeholderTextColor={colors.muted}
+              value={editTitle}
+              onChangeText={setEditTitle}
+              style={{
+                backgroundColor: colors.background,
+                borderColor: colors.border,
+                borderWidth: 1,
+                borderRadius: 8,
+                paddingHorizontal: 12,
+                paddingVertical: 10,
+                color: colors.foreground,
+                marginBottom: 12,
+              }}
+            />
+
+            <Suspense fallback={<ActivityIndicator color={colors.primary} style={{ marginTop: 24 }} />}>
+              <RichTextEditor
+                value={editContent}
+                onChange={setEditContent}
+                placeholder="Write content in markdown..."
+                minHeight={220}
+              />
+            </Suspense>
+
+            <View className="flex-row gap-3 mt-4">
+              <Pressable onPress={() => setEditingItem(null)} style={{ flex: 1 }}>
+                <View className="rounded-lg py-3 items-center" style={{ backgroundColor: colors.border }}>
+                  <Text className="text-foreground font-semibold">Cancel</Text>
+                </View>
+              </Pressable>
+              <Pressable onPress={handleSaveEdit} disabled={savingEdit} style={{ flex: 1 }}>
+                <View className="rounded-lg py-3 items-center" style={{ backgroundColor: colors.primary }}>
+                  {savingEdit ? <ActivityIndicator color="white" /> : <Text className="text-white font-semibold">Save</Text>}
+                </View>
+              </Pressable>
+            </View>
+          </View>
+        </View>
+      </Modal>
 
       {/* Context Menu */}
-      <ItemContextMenu
-        item={selectedItem}
-        isVisible={showContextMenu}
-        onClose={() => {
-          setShowContextMenu(false);
-          setSelectedItem(null);
-        }}
-      />
+      <Suspense fallback={null}>
+        <ItemContextMenu
+          item={selectedItem}
+          isVisible={showContextMenu}
+          onClose={() => {
+            setShowContextMenu(false);
+            setSelectedItem(null);
+          }}
+        />
+      </Suspense>
+
+      {/* Quick Actions FAB */}
+      <Suspense fallback={null}>
+        <QuickActionsFab />
+      </Suspense>
     </ScreenContainer>
   );
 }

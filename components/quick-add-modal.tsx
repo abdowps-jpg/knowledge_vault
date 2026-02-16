@@ -4,8 +4,13 @@ import { MaterialIcons } from "@expo/vector-icons";
 import { useColors } from "@/hooks/use-colors";
 import { useInbox } from "@/lib/context/inbox-context";
 import { ItemType } from "@/lib/db/schema";
+import * as ImagePicker from "expo-image-picker";
+import * as ImageManipulator from "expo-image-manipulator";
 import * as Haptics from "expo-haptics";
 import { AudioRecorderModal } from "./audio-recorder-modal";
+import { trpc } from "@/lib/trpc";
+import { RichTextEditor } from "./rich-text-editor";
+import { Image as ExpoImage } from "expo-image";
 
 // ============================================================================
 // Tab Component
@@ -52,8 +57,18 @@ function Tab({ label, icon, isActive, onPress }: TabProps) {
 export function QuickAddModal() {
   const colors = useColors();
   const { quickAddModal, closeQuickAdd, setActiveTab, addItem } = useInbox();
+  const utils = trpc.useUtils();
   const [loading, setLoading] = useState(false);
   const [showAudioRecorder, setShowAudioRecorder] = useState(false);
+  const [selectedImageUri, setSelectedImageUri] = useState<string | null>(null);
+  const [selectedImageBase64, setSelectedImageBase64] = useState<string | null>(null);
+  const [selectedImageName, setSelectedImageName] = useState<string | null>(null);
+
+  const createAttachment = trpc.attachments.create.useMutation({
+    onSuccess: () => {
+      utils.attachments.list.invalidate();
+    },
+  });
 
   // Form state
   const [title, setTitle] = useState("");
@@ -69,7 +84,73 @@ export function QuickAddModal() {
     setUrl("");
     setSource("");
     setAuthor("");
+    setSelectedImageUri(null);
+    setSelectedImageBase64(null);
+    setSelectedImageName(null);
   };
+
+  const handlePickImage = async () => {
+    try {
+      const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
+      if (!permission.granted) {
+        Alert.alert("Permission Required", "Please allow photo access to attach images.");
+        return;
+      }
+
+      const result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ImagePicker.MediaTypeOptions.Images,
+        allowsEditing: true,
+        quality: 0.5,
+        base64: true,
+      });
+
+      if (result.canceled || !result.assets || result.assets.length === 0) {
+        return;
+      }
+
+      const asset = result.assets[0];
+      const mimeType = asset.mimeType || "image/jpeg";
+      let base64Payload = asset.base64 || "";
+
+      // Compress image before storing in base64 to reduce memory and DB size.
+      if (asset.uri) {
+        const manipulated = await ImageManipulator.manipulateAsync(
+          asset.uri,
+          [{ resize: { width: Math.min(asset.width || 1200, 1200) } }],
+          { compress: 0.45, format: ImageManipulator.SaveFormat.JPEG, base64: true }
+        );
+        if (manipulated.base64) {
+          base64Payload = manipulated.base64;
+        }
+      }
+
+      if (!base64Payload) {
+        Alert.alert("Error", "Could not read selected image.");
+        return;
+      }
+
+      setSelectedImageUri(asset.uri);
+      setSelectedImageBase64(`data:${mimeType};base64,${base64Payload}`);
+      setSelectedImageName(asset.fileName || `image-${Date.now()}.jpg`);
+    } catch (error) {
+      console.error("Error selecting image:", error);
+      Alert.alert("Error", "Failed to select image");
+    }
+  };
+
+  React.useEffect(() => {
+    if (!quickAddModal.isOpen) return;
+    if (!quickAddModal.autoPickImage) return;
+    if (selectedImageUri) return;
+    if (quickAddModal.activeTab !== "note") return;
+
+    handlePickImage();
+  }, [
+    quickAddModal.isOpen,
+    quickAddModal.autoPickImage,
+    quickAddModal.activeTab,
+    selectedImageUri,
+  ]);
 
   // Handle audio save
   const handleSaveAudio = async (audioContent: string) => {
@@ -125,7 +206,16 @@ export function QuickAddModal() {
         itemData.url = url.trim();
       }
 
-      await addItem(itemData);
+      const newItem = await addItem(itemData);
+
+      if (newItem?.id && selectedImageBase64 && selectedImageName) {
+        await createAttachment.mutateAsync({
+          itemId: newItem.id,
+          fileUrl: selectedImageBase64,
+          filename: selectedImageName,
+          type: "image",
+        });
+      }
 
       await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
 
@@ -196,6 +286,48 @@ export function QuickAddModal() {
       {/* Content */}
       <ScrollView className="flex-1 bg-background">
         <View className="p-4 gap-4">
+          {/* Image Attachment */}
+          <View>
+            <Pressable
+              onPress={handlePickImage}
+              style={({ pressed }) => [
+                {
+                  opacity: pressed ? 0.7 : 1,
+                  backgroundColor: colors.surface,
+                  borderColor: colors.border,
+                  borderWidth: 1,
+                  borderRadius: 8,
+                  paddingVertical: 10,
+                  paddingHorizontal: 12,
+                  flexDirection: "row",
+                  alignItems: "center",
+                },
+              ]}
+            >
+              <Text className="text-foreground font-semibold">📎 Attach Image</Text>
+            </Pressable>
+
+            {selectedImageUri ? (
+              <View className="mt-2 flex-row items-center">
+                <ExpoImage
+                  source={{ uri: selectedImageUri }}
+                  contentFit="cover"
+                  cachePolicy="memory-disk"
+                  style={{ width: 72, height: 72, borderRadius: 8, marginRight: 10 }}
+                />
+                <Pressable
+                  onPress={() => {
+                    setSelectedImageUri(null);
+                    setSelectedImageBase64(null);
+                    setSelectedImageName(null);
+                  }}
+                >
+                  <MaterialIcons name="close" size={20} color={colors.error} />
+                </Pressable>
+              </View>
+            ) : null}
+          </View>
+
           {/* Note Tab */}
           {quickAddModal.activeTab === "note" && (
             <>
@@ -220,24 +352,11 @@ export function QuickAddModal() {
               </View>
               <View>
                 <Text className="text-sm font-semibold text-foreground mb-2">Content</Text>
-                <TextInput
-                  placeholder="Write your note..."
+                <RichTextEditor
                   value={content}
-                  onChangeText={setContent}
-                  placeholderTextColor={colors.muted}
-                  multiline
-                  numberOfLines={6}
-                  style={{
-                    backgroundColor: colors.surface,
-                    color: colors.foreground,
-                    borderColor: colors.border,
-                    borderWidth: 1,
-                    borderRadius: 8,
-                    paddingHorizontal: 12,
-                    paddingVertical: 10,
-                    fontSize: 16,
-                    textAlignVertical: "top",
-                  }}
+                  onChange={setContent}
+                  placeholder="Write your note in markdown..."
+                  minHeight={180}
                 />
               </View>
             </>

@@ -1,301 +1,434 @@
-import React, { useEffect } from "react";
-import { FlatList, Text, View, Pressable, TextInput, ScrollView, ActivityIndicator } from "react-native";
+import React from "react";
+import {
+  ActivityIndicator,
+  Modal,
+  Pressable,
+  ScrollView,
+  Text,
+  TextInput,
+  View,
+} from "react-native";
+import { FlashList } from "@shopify/flash-list";
+import { MaterialIcons } from "@expo/vector-icons";
 import { ScreenContainer } from "@/components/screen-container";
 import { ErrorState } from "@/components/error-state";
 import { useColors } from "@/hooks/use-colors";
-import { MaterialIcons } from "@expo/vector-icons";
-import { useSearch } from "@/lib/context/search-context";
-import { Item, ItemType } from "@/lib/db/schema";
-import * as Haptics from "expo-haptics";
+import { trpc } from "@/lib/trpc";
 
-// ============================================================================
-// Helper Functions
-// ============================================================================
+type FilterType = "all" | "notes" | "tasks" | "journal";
+type ResultType = "notes" | "tasks" | "journal";
 
-function getItemTypeIcon(type: string): string {
-  switch (type) {
-    case ItemType.NOTE:
-      return "description";
-    case ItemType.QUOTE:
-      return "format-quote";
-    case ItemType.LINK:
-      return "link";
-    case ItemType.AUDIO:
-      return "mic";
-    case ItemType.TASK:
-      return "check-circle";
-    case ItemType.JOURNAL:
-      return "today";
-    default:
-      return "note";
+interface SearchResult {
+  id: string;
+  type: ResultType;
+  title: string;
+  content: string;
+  createdAt: Date;
+  score: number;
+  raw: any;
+}
+
+type SearchListRow =
+  | { kind: "header"; key: string; label: string; icon: "description" | "check-circle" | "menu-book"; count: number }
+  | { kind: "result"; key: string; result: SearchResult };
+
+function parseDate(value: unknown): Date {
+  const date = new Date(value as string | number | Date);
+  if (Number.isNaN(date.getTime())) {
+    return new Date(0);
   }
+  return date;
 }
 
-function getItemTypeLabel(type: string): string {
-  switch (type) {
-    case ItemType.NOTE:
-      return "Note";
-    case ItemType.QUOTE:
-      return "Quote";
-    case ItemType.LINK:
-      return "Link";
-    case ItemType.AUDIO:
-      return "Audio";
-    case ItemType.TASK:
-      return "Task";
-    case ItemType.JOURNAL:
-      return "Journal";
-    default:
-      return "Item";
+function escapeRegex(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function countMatches(text: string, term: string): number {
+  if (!term.trim()) return 0;
+  const normalizedText = text.toLowerCase();
+  const normalizedTerm = term.toLowerCase();
+  let count = 0;
+  let index = 0;
+
+  while (true) {
+    const found = normalizedText.indexOf(normalizedTerm, index);
+    if (found === -1) break;
+    count += 1;
+    index = found + normalizedTerm.length;
   }
+
+  return count;
 }
 
-function formatDate(date: Date): string {
-  const now = new Date();
-  const itemDate = new Date(date);
-  const diffMs = now.getTime() - itemDate.getTime();
-  const diffMins = Math.floor(diffMs / 60000);
-  const diffHours = Math.floor(diffMs / 3600000);
-  const diffDays = Math.floor(diffMs / 86400000);
-
-  if (diffMins < 1) return "Just now";
-  if (diffMins < 60) return `${diffMins}m ago`;
-  if (diffHours < 24) return `${diffHours}h ago`;
-  if (diffDays < 7) return `${diffDays}d ago`;
-  return itemDate.toLocaleDateString();
-}
-
-function getPreview(content: string, maxLength: number = 60): string {
-  return content.length > maxLength ? `${content.substring(0, maxLength)}...` : content;
-}
-
-// ============================================================================
-// Search Result Item Component
-// ============================================================================
-
-interface SearchResultItemProps {
-  item: Item;
-}
-
-function SearchResultItem({ item }: SearchResultItemProps) {
+function HighlightedText({
+  text,
+  term,
+  textClassName,
+}: {
+  text: string;
+  term: string;
+  textClassName?: string;
+}) {
   const colors = useColors();
+  const query = term.trim();
+
+  if (!query) {
+    return <Text className={textClassName}>{text}</Text>;
+  }
+
+  const pattern = new RegExp(`(${escapeRegex(query)})`, "ig");
+  const parts = text.split(pattern);
 
   return (
-    <View className="bg-surface p-4 rounded-lg mb-3 border border-border">
-      <View className="flex-row items-start gap-3">
-        {/* Icon */}
-        <View className="mt-1">
-          <MaterialIcons name={getItemTypeIcon(item.type) as any} size={20} color={colors.primary} />
-        </View>
-
-        {/* Content */}
-        <View className="flex-1">
-          <View className="flex-row items-center gap-2 mb-1">
-            <Text className="text-xs font-semibold text-primary">
-              {getItemTypeLabel(item.type)}
-            </Text>
-            <Text className="text-xs text-muted">•</Text>
-            <Text className="text-xs text-muted">{formatDate(item.createdAt)}</Text>
-          </View>
-          <Text className="text-base font-semibold text-foreground" numberOfLines={1}>
-            {item.title || "(Untitled)"}
+    <Text className={textClassName}>
+      {parts.map((part, index) => {
+        const isMatch = part.toLowerCase() === query.toLowerCase();
+        return (
+          <Text
+            key={`${part}-${index}`}
+            style={
+              isMatch
+                ? {
+                    color: colors.primary,
+                    fontWeight: "700",
+                  }
+                : undefined
+            }
+          >
+            {part}
           </Text>
-          <Text className="text-sm text-muted mt-1" numberOfLines={2}>
-            {getPreview(item.content)}
-          </Text>
-          {item.tags.length > 0 && (
-            <View className="flex-row gap-1 mt-2 flex-wrap">
-              {item.tags.slice(0, 2).map((tag) => (
-                <View
-                  key={tag}
-                  style={{
-                    backgroundColor: colors.primary,
-                    borderRadius: 4,
-                    paddingHorizontal: 6,
-                    paddingVertical: 2,
-                  }}
-                >
-                  <Text style={{ color: "white", fontSize: 10, fontWeight: "600" }}>
-                    {tag}
-                  </Text>
-                </View>
-              ))}
-              {item.tags.length > 2 && (
-                <Text className="text-xs text-muted">+{item.tags.length - 2}</Text>
-              )}
-            </View>
-          )}
-        </View>
-      </View>
-    </View>
+        );
+      })}
+    </Text>
   );
 }
 
-// ============================================================================
-// Search Screen
-// ============================================================================
-
 export default function SearchScreen() {
   const colors = useColors();
-  const { searchResults, loading, error, filters, setSearchText, setType, clearFilters, loadAllItems } =
-    useSearch();
+  const [activeFilter, setActiveFilter] = React.useState<FilterType>("all");
+  const [searchText, setSearchText] = React.useState("");
+  const [debouncedSearchText, setDebouncedSearchText] = React.useState("");
+  const [selectedResult, setSelectedResult] = React.useState<SearchResult | null>(null);
 
-  useEffect(() => {
-    loadAllItems();
-  }, [loadAllItems]);
+  const itemsQuery = trpc.items.list.useInfiniteQuery(
+    { limit: 25 },
+    { getNextPageParam: (lastPage) => lastPage.nextCursor }
+  );
+  const tasksQuery = trpc.tasks.list.useInfiniteQuery(
+    { sortOrder: "desc", limit: 25 },
+    { getNextPageParam: (lastPage) => lastPage.nextCursor }
+  );
+  const journalQuery = trpc.journal.list.useInfiniteQuery(
+    { limit: 25 },
+    { getNextPageParam: (lastPage) => lastPage.nextCursor }
+  );
 
-  useEffect(() => {
+  React.useEffect(() => {
+    const timer = setTimeout(() => {
+      setDebouncedSearchText(searchText);
+    }, 300);
+    return () => clearTimeout(timer);
+  }, [searchText]);
+
+  const isLoading = itemsQuery.isLoading || tasksQuery.isLoading || journalQuery.isLoading;
+  const error = itemsQuery.error || tasksQuery.error || journalQuery.error;
+
+  React.useEffect(() => {
     if (error) {
       console.error("Search query failed:", error);
     }
   }, [error]);
 
-  const typeOptions = [
-    { label: "All", value: "all" },
-    { label: "Notes", value: "note" },
-    { label: "Quotes", value: "quote" },
-    { label: "Links", value: "link" },
-    { label: "Audio", value: "audio" },
-    { label: "Tasks", value: "task" },
-    { label: "Journal", value: "journal" },
-  ];
+  const retryAll = async () => {
+    await Promise.all([itemsQuery.refetch(), tasksQuery.refetch(), journalQuery.refetch()]);
+  };
+
+  const combinedResults = React.useMemo(() => {
+    const term = debouncedSearchText.trim();
+    if (!term) return [] as SearchResult[];
+
+    const items = itemsQuery.data?.pages.flatMap((page) => page.items ?? []) ?? [];
+    const tasks = tasksQuery.data?.pages.flatMap((page) => page.items ?? []) ?? [];
+    const journals = journalQuery.data?.pages.flatMap((page) => page.items ?? []) ?? [];
+
+    const itemResults: SearchResult[] = items
+      .map((item) => {
+        const title = item.title || "";
+        const content = item.content || "";
+        const score = countMatches(title, term) * 3 + countMatches(content, term);
+        if (score === 0) return null;
+        return {
+          id: item.id,
+          type: "notes",
+          title: title || "Untitled Note",
+          content,
+          createdAt: parseDate(item.createdAt),
+          score,
+          raw: item,
+        };
+      })
+      .filter(Boolean) as SearchResult[];
+
+    const taskResults: SearchResult[] = tasks
+      .map((task) => {
+        const title = task.title || "";
+        const content = task.description || "";
+        const score = countMatches(title, term) * 3 + countMatches(content, term);
+        if (score === 0) return null;
+        return {
+          id: task.id,
+          type: "tasks",
+          title: title || "Untitled Task",
+          content,
+          createdAt: parseDate(task.createdAt),
+          score,
+          raw: task,
+        };
+      })
+      .filter(Boolean) as SearchResult[];
+
+    const journalResults: SearchResult[] = journals
+      .map((entry) => {
+        const title = entry.title || "";
+        const content = entry.content || "";
+        const score = countMatches(title, term) * 3 + countMatches(content, term);
+        if (score === 0) return null;
+        return {
+          id: entry.id,
+          type: "journal",
+          title: title || "Untitled Entry",
+          content,
+          createdAt: parseDate(entry.createdAt),
+          score,
+          raw: entry,
+        };
+      })
+      .filter(Boolean) as SearchResult[];
+
+    const merged = [...itemResults, ...taskResults, ...journalResults];
+
+    return merged.sort((a, b) => {
+      if (a.score !== b.score) return b.score - a.score;
+      return b.createdAt.getTime() - a.createdAt.getTime();
+    });
+  }, [debouncedSearchText, itemsQuery.data, tasksQuery.data, journalQuery.data]);
+
+  const filteredResults = React.useMemo(() => {
+    if (activeFilter === "all") return combinedResults;
+    return combinedResults.filter((result) => result.type === activeFilter);
+  }, [combinedResults, activeFilter]);
+
+  const groupedResults = React.useMemo(() => {
+    return {
+      notes: filteredResults.filter((result) => result.type === "notes"),
+      tasks: filteredResults.filter((result) => result.type === "tasks"),
+      journal: filteredResults.filter((result) => result.type === "journal"),
+    };
+  }, [filteredResults]);
+  const listRows = React.useMemo(() => {
+    const rows: SearchListRow[] = [];
+    const sections: Array<{ key: ResultType; label: string; icon: "description" | "check-circle" | "menu-book"; data: SearchResult[] }> = [
+      { key: "notes", label: "Notes", icon: "description", data: groupedResults.notes },
+      { key: "tasks", label: "Tasks", icon: "check-circle", data: groupedResults.tasks },
+      { key: "journal", label: "Journal", icon: "menu-book", data: groupedResults.journal },
+    ];
+
+    for (const section of sections) {
+      if (!section.data.length) continue;
+      rows.push({
+        kind: "header",
+        key: `header-${section.key}`,
+        label: section.label,
+        icon: section.icon,
+        count: section.data.length,
+      });
+      for (const result of section.data) {
+        rows.push({
+          kind: "result",
+          key: `${result.type}-${result.id}`,
+          result,
+        });
+      }
+    }
+
+    return rows;
+  }, [groupedResults]);
+
+  const hasNextPage = Boolean(itemsQuery.hasNextPage || tasksQuery.hasNextPage || journalQuery.hasNextPage);
+  const isFetchingNextPage = Boolean(
+    itemsQuery.isFetchingNextPage || tasksQuery.isFetchingNextPage || journalQuery.isFetchingNextPage
+  );
 
   return (
-    <ScreenContainer className="bg-background" containerClassName="bg-background">
-      {/* Header */}
-      <View className="px-4 py-4 border-b border-border">
-        <View className="flex-row items-center mb-2">
+    <ScreenContainer>
+      <View className="p-4 border-b border-border">
+        <View className="flex-row items-center mb-3">
           <MaterialIcons name="search" size={32} color={colors.primary} />
           <Text className="text-2xl font-bold text-foreground ml-2">Search</Text>
         </View>
-        <Text className="text-xs text-muted">Find anything across your knowledge</Text>
-      </View>
 
-      {/* Search Bar */}
-      <View className="px-4 py-3 border-b border-border gap-3">
-        <View className="flex-row items-center gap-2 bg-surface rounded-8 px-3 py-2 border border-border">
+        <View className="flex-row items-center bg-surface rounded-lg border border-border px-3 py-2">
           <MaterialIcons name="search" size={20} color={colors.muted} />
           <TextInput
-            placeholder="Search notes, quotes, tasks..."
-            value={filters.searchText}
+            value={searchText}
             onChangeText={setSearchText}
+            placeholder="Search notes, tasks, journal..."
             placeholderTextColor={colors.muted}
-            style={{
-              flex: 1,
-              color: colors.foreground,
-              fontSize: 16,
-            }}
+            className="flex-1 ml-2 text-foreground"
+            style={{ color: colors.foreground, fontSize: 16 }}
           />
-          {filters.searchText.length > 0 && (
+          {searchText.length > 0 ? (
             <Pressable onPress={() => setSearchText("")}>
               <MaterialIcons name="close" size={20} color={colors.muted} />
             </Pressable>
-          )}
+          ) : null}
         </View>
 
-        {/* Type Filter Chips */}
-        <ScrollView horizontal showsHorizontalScrollIndicator={false}>
-          {typeOptions.map((option) => (
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} className="mt-3">
+          {[
+            { label: "All", value: "all" as const },
+            { label: "Notes", value: "notes" as const },
+            { label: "Tasks", value: "tasks" as const },
+            { label: "Journal", value: "journal" as const },
+          ].map((chip) => (
             <Pressable
-              key={option.value}
-              onPress={() => {
-                setType(option.value as any);
-                Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+              key={chip.value}
+              onPress={() => setActiveFilter(chip.value)}
+              className="mr-2 px-3 py-1 rounded-full border"
+              style={{
+                borderColor: colors.border,
+                backgroundColor: activeFilter === chip.value ? colors.primary : colors.surface,
               }}
-              style={({ pressed }) => [
-                {
-                  opacity: pressed ? 0.7 : 1,
-                  backgroundColor: filters.type === option.value ? colors.primary : colors.surface,
-                  borderColor: colors.border,
-                  borderWidth: 1,
-                  borderRadius: 20,
-                  paddingHorizontal: 12,
-                  paddingVertical: 6,
-                  marginRight: 8,
-                },
-              ]}
             >
-              <Text
-                style={{
-                  color: filters.type === option.value ? "white" : colors.foreground,
-                  fontSize: 12,
-                  fontWeight: "600",
-                }}
-              >
-                {option.label}
+              <Text style={{ color: activeFilter === chip.value ? "white" : colors.foreground, fontSize: 12 }}>
+                {chip.label}
               </Text>
             </Pressable>
           ))}
         </ScrollView>
-
-        {/* Clear Filters */}
-        {(filters.searchText.length > 0 || filters.type !== "all") && (
-          <Pressable
-            onPress={clearFilters}
-            style={({ pressed }) => [
-              {
-                opacity: pressed ? 0.7 : 1,
-                backgroundColor: colors.surface,
-                borderColor: colors.border,
-                borderWidth: 1,
-                borderRadius: 8,
-                paddingHorizontal: 12,
-                paddingVertical: 6,
-                alignSelf: "flex-start",
-              },
-            ]}
-          >
-            <Text style={{ color: colors.foreground, fontSize: 12, fontWeight: "600" }}>
-              Clear Filters
-            </Text>
-          </Pressable>
-        )}
       </View>
 
-      {/* Results */}
-      {loading ? (
-        <View className="flex-1 items-center justify-center">
-          <ActivityIndicator size="large" color={colors.primary} />
-          <Text className="text-muted mt-4">Loading...</Text>
+      {isLoading ? (
+        <View className="flex-1 p-4">
+          <View className="items-center mt-8">
+            <ActivityIndicator size="large" color={colors.primary} />
+            <Text className="text-muted mt-4">Loading...</Text>
+          </View>
         </View>
       ) : error ? (
-        <ErrorState error={error} onRetry={loadAllItems} />
-      ) : searchResults.length === 0 ? (
-        <View className="flex-1 items-center justify-center px-4">
-          {filters.searchText.length > 0 ? (
-            <>
-              <MaterialIcons name="search-off" size={64} color={colors.muted} />
-              <Text className="text-muted text-center mt-4">No results found</Text>
-              <Text className="text-muted text-center mt-2 text-sm">
-                Try different keywords or filters
-              </Text>
-            </>
-          ) : (
-            <>
-              <MaterialIcons name="search" size={64} color={colors.muted} />
-              <Text className="text-muted text-center mt-4">Start searching</Text>
-              <Text className="text-muted text-center mt-2 text-sm">
-                Type to search across all your items
-              </Text>
-            </>
-          )}
+        <View className="flex-1 p-4">
+          <ErrorState error={error} onRetry={retryAll} />
+        </View>
+      ) : debouncedSearchText.trim().length === 0 ? (
+        <View className="flex-1 p-4">
+          <View className="items-center justify-center mt-8">
+            <MaterialIcons name="search" size={64} color={colors.muted} />
+            <Text className="text-muted text-center mt-4">Start typing to search</Text>
+          </View>
+        </View>
+      ) : filteredResults.length === 0 ? (
+        <View className="flex-1 p-4">
+          <View className="items-center justify-center mt-8">
+            <MaterialIcons name="search-off" size={64} color={colors.muted} />
+            <Text className="text-muted text-center mt-4">No results found</Text>
+          </View>
         </View>
       ) : (
-        <FlatList
-          data={searchResults}
-          keyExtractor={(item) => item.id}
-          renderItem={({ item }) => <SearchResultItem item={item} />}
-          contentContainerStyle={{ flexGrow: 1 }}
-          scrollEnabled={searchResults.length > 0}
-          ListHeaderComponent={
-            <View className="px-4 py-3">
-              <Text className="text-sm font-semibold text-muted">
-                {searchResults.length} result{searchResults.length !== 1 ? "s" : ""}
-              </Text>
-            </View>
+        <FlashList
+          data={listRows}
+          estimatedItemSize={112}
+          keyExtractor={(row: SearchListRow) => row.key}
+          contentContainerStyle={{ padding: 16 }}
+          onEndReachedThreshold={0.35}
+          onEndReached={() => {
+            if (!hasNextPage || isFetchingNextPage) return;
+            Promise.all([
+              itemsQuery.hasNextPage ? itemsQuery.fetchNextPage() : Promise.resolve(),
+              tasksQuery.hasNextPage ? tasksQuery.fetchNextPage() : Promise.resolve(),
+              journalQuery.hasNextPage ? journalQuery.fetchNextPage() : Promise.resolve(),
+            ]).catch((err) => console.error("Search pagination failed:", err));
+          }}
+          ListFooterComponent={
+            isFetchingNextPage ? (
+              <View className="py-4">
+                <ActivityIndicator size="small" color={colors.primary} />
+              </View>
+            ) : null
           }
+          renderItem={({ item: row }: { item: SearchListRow }) => {
+            if (row.kind === "header") {
+              return (
+                <View className="flex-row items-center mb-2 mt-2">
+                  <MaterialIcons name={row.icon} size={18} color={colors.primary} />
+                  <Text className="text-sm font-semibold text-foreground ml-2">
+                    {row.label} ({row.count})
+                  </Text>
+                </View>
+              );
+            }
+
+            return (
+              <Pressable onPress={() => setSelectedResult(row.result)}>
+                <View className="bg-surface p-4 rounded-lg mb-3 border border-border">
+                  <Text className="font-semibold text-foreground">
+                    <HighlightedText text={row.result.title} term={debouncedSearchText} />
+                  </Text>
+                  <HighlightedText
+                    text={row.result.content || "No content"}
+                    term={debouncedSearchText}
+                    textClassName="text-muted text-sm mt-1"
+                  />
+                  <Text className="text-muted text-xs mt-2">{row.result.createdAt.toLocaleString("ar-EG")}</Text>
+                </View>
+              </Pressable>
+            );
+          }}
         />
       )}
+
+      <Modal visible={!!selectedResult} transparent animationType="fade" onRequestClose={() => setSelectedResult(null)}>
+        <View className="flex-1 bg-black/50 justify-end">
+          <View className="rounded-t-3xl p-6 max-h-3/4" style={{ backgroundColor: colors.surface }}>
+            <View className="flex-row items-center justify-between mb-3">
+              <Text className="text-lg font-bold text-foreground">Result Details</Text>
+              <Pressable onPress={() => setSelectedResult(null)}>
+                <MaterialIcons name="close" size={22} color={colors.foreground} />
+              </Pressable>
+            </View>
+
+            {selectedResult ? (
+              <ScrollView showsVerticalScrollIndicator={false}>
+                <View className="flex-row items-center mb-2">
+                  <MaterialIcons
+                    name={
+                      selectedResult.type === "notes"
+                        ? "description"
+                        : selectedResult.type === "tasks"
+                        ? "check-circle"
+                        : "menu-book"
+                    }
+                    size={18}
+                    color={colors.primary}
+                  />
+                  <Text className="text-xs text-muted ml-2">
+                    {selectedResult.type === "notes"
+                      ? "Note"
+                      : selectedResult.type === "tasks"
+                      ? "Task"
+                      : "Journal"}
+                  </Text>
+                </View>
+                <Text className="font-semibold text-foreground">{selectedResult.title}</Text>
+                <Text className="text-muted text-xs mt-1 mb-3">
+                  {selectedResult.createdAt.toLocaleString("ar-EG")}
+                </Text>
+                <Text className="text-foreground leading-6">{selectedResult.content || "No content"}</Text>
+              </ScrollView>
+            ) : null}
+          </View>
+        </View>
+      </Modal>
     </ScreenContainer>
   );
 }

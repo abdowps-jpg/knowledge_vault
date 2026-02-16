@@ -4,6 +4,10 @@ import { createTRPCContext, router, publicProcedure } from '../trpc';
 import { itemsRouter } from '../routers/items';
 import { tasksRouter } from '../routers/tasks';
 import { journalRouter } from '../routers/journal';
+import { categoriesRouter } from '../routers/categories';
+import { attachmentsRouter } from '../routers/attachments';
+import { exportRouter } from '../routers/export';
+import { statsRouter } from '../routers/stats';
 
 const app = express();
 const port = process.env.PORT || 3000;
@@ -13,6 +17,10 @@ const appRouter = router({
   items: itemsRouter,
   tasks: tasksRouter,
   journal: journalRouter,
+  categories: categoriesRouter,
+  attachments: attachmentsRouter,
+  export: exportRouter,
+  stats: statsRouter,
   // test endpoint
   hello: publicProcedure.query(() => {
     return { message: 'Hello from tRPC!' };

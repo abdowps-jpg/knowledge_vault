@@ -14,11 +14,13 @@ export const journalRouter = router({
       z.object({
         startDate: dateString.optional(),
         endDate: dateString.optional(),
-        limit: z.number().default(100),
+        limit: z.number().min(1).max(100).default(25),
+        cursor: z.number().int().min(0).optional(),
       })
     )
     .query(async ({ input }) => {
       try {
+        const cursor = input.cursor ?? 0;
         const conditions = [];
 
         if (input.startDate) {
@@ -34,12 +36,20 @@ export const journalRouter = router({
           .from(journal)
           .where(conditions.length > 0 ? and(...conditions) : undefined)
           .orderBy(desc(journal.entryDate))
-          .limit(input.limit);
+          .limit(input.limit + 1)
+          .offset(cursor);
 
-        return result || [];
+        const safeResult = result || [];
+        const hasMore = safeResult.length > input.limit;
+        const pageItems = hasMore ? safeResult.slice(0, input.limit) : safeResult;
+
+        return {
+          items: pageItems,
+          nextCursor: hasMore ? cursor + input.limit : undefined,
+        };
       } catch (error) {
         console.error('Error fetching journal entries:', error);
-        return [];
+        return { items: [], nextCursor: undefined };
       }
     }),
 

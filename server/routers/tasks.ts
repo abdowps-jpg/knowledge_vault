@@ -5,6 +5,21 @@ import { db } from '../db';
 import { tasks } from '../schema/tasks';
 import { publicProcedure, router } from '../trpc';
 
+const recurrenceSchema = z.enum(['daily', 'weekly', 'monthly']);
+
+function addDays(baseDate: Date, days: number): Date {
+  const next = new Date(baseDate);
+  next.setDate(next.getDate() + days);
+  return next;
+}
+
+function formatDateOnly(date: Date): string {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+}
+
 export const tasksRouter = router({
   // Get tasks with optional completion filter, sorted by due date
   list: publicProcedure
@@ -12,11 +27,13 @@ export const tasksRouter = router({
       z.object({
         isCompleted: z.boolean().optional(),
         sortOrder: z.enum(['asc', 'desc']).default('asc'),
-        limit: z.number().default(50),
+        limit: z.number().min(1).max(100).default(25),
+        cursor: z.number().int().min(0).optional(),
       })
     )
     .query(async ({ input }) => {
       try {
+        const cursor = input.cursor ?? 0;
         const conditions = [];
 
         if (typeof input.isCompleted === 'boolean') {
@@ -28,12 +45,20 @@ export const tasksRouter = router({
           .from(tasks)
           .where(conditions.length > 0 ? and(...conditions) : undefined)
           .orderBy(input.sortOrder === 'asc' ? asc(tasks.dueDate) : desc(tasks.dueDate))
-          .limit(input.limit);
+          .limit(input.limit + 1)
+          .offset(cursor);
 
-        return result || [];
+        const safeResult = result || [];
+        const hasMore = safeResult.length > input.limit;
+        const pageItems = hasMore ? safeResult.slice(0, input.limit) : safeResult;
+
+        return {
+          items: pageItems,
+          nextCursor: hasMore ? cursor + input.limit : undefined,
+        };
       } catch (error) {
         console.error('Error fetching tasks:', error);
-        return [];
+        return { items: [], nextCursor: undefined };
       }
     }),
 
@@ -45,6 +70,7 @@ export const tasksRouter = router({
         description: z.string().optional(),
         dueDate: z.string().optional(),
         priority: z.enum(['low', 'medium', 'high']).default('medium'),
+        recurrence: recurrenceSchema.optional(),
       })
     )
     .mutation(async ({ input }) => {
@@ -58,7 +84,7 @@ export const tasksRouter = router({
           priority: input.priority,
           isCompleted: false,
           completedAt: null,
-          recurrence: null,
+          recurrence: input.recurrence || null,
         };
 
         await db.insert(tasks).values(newTask);
@@ -79,6 +105,7 @@ export const tasksRouter = router({
         dueDate: z.string().optional(),
         priority: z.enum(['low', 'medium', 'high']).optional(),
         isCompleted: z.boolean().optional(),
+        recurrence: recurrenceSchema.nullable().optional(),
       })
     )
     .mutation(async ({ input }) => {
@@ -149,6 +176,70 @@ export const tasksRouter = router({
       } catch (error) {
         console.error('Error toggling task completion:', error);
         return { success: false, isCompleted: false };
+      }
+    }),
+
+  // Complete a recurring task and create next occurrence
+  completeRecurring: publicProcedure
+    .input(
+      z.object({
+        id: z.string(),
+      })
+    )
+    .mutation(async ({ input }) => {
+      try {
+        const existing = await db.select().from(tasks).where(eq(tasks.id, input.id)).limit(1);
+
+        if (!existing || existing.length === 0) {
+          return { success: false, isCompleted: false, newTask: null };
+        }
+
+        const current = existing[0];
+
+        if (!current.recurrence || !['daily', 'weekly', 'monthly'].includes(current.recurrence)) {
+          return { success: false, isCompleted: false, newTask: null };
+        }
+
+        const baseDate = current.dueDate ? new Date(current.dueDate as unknown as string) : new Date();
+        const fallbackBase = Number.isNaN(baseDate.getTime()) ? new Date() : baseDate;
+
+        const nextDueDate =
+          current.recurrence === 'daily'
+            ? addDays(fallbackBase, 1)
+            : current.recurrence === 'weekly'
+            ? addDays(fallbackBase, 7)
+            : addDays(fallbackBase, 30);
+
+        const nextTask = await db.transaction(async (tx) => {
+          await tx
+            .update(tasks)
+            .set({
+              isCompleted: true,
+              completedAt: new Date(),
+              updatedAt: new Date(),
+            })
+            .where(eq(tasks.id, input.id));
+
+          const createdTask = {
+            id: randomUUID(),
+            userId: current.userId,
+            title: current.title,
+            description: current.description,
+            dueDate: formatDateOnly(nextDueDate),
+            priority: current.priority,
+            isCompleted: false,
+            completedAt: null,
+            recurrence: current.recurrence,
+          };
+
+          await tx.insert(tasks).values(createdTask);
+          return createdTask;
+        });
+
+        return { success: true, isCompleted: true, newTask: nextTask };
+      } catch (error) {
+        console.error('Error completing recurring task:', error);
+        return { success: false, isCompleted: false, newTask: null };
       }
     }),
 });

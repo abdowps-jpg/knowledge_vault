@@ -10,17 +10,20 @@ export const tagsRouter = router({
   list: publicProcedure
     .input(
       z.object({
-        limit: z.number().default(200),
+        limit: z.number().min(1).max(200).default(100),
+        cursor: z.number().int().min(0).optional(),
       })
     )
     .query(async ({ input }) => {
       try {
+        const cursor = input.cursor ?? 0;
         const result = await db
           .select()
           .from(tags)
           .where(eq(tags.userId, 'test-user'))
           .orderBy(desc(tags.createdAt))
-          .limit(input.limit);
+          .limit(input.limit)
+          .offset(cursor);
 
         return result || [];
       } catch (error) {
@@ -66,8 +69,10 @@ export const tagsRouter = router({
     )
     .mutation(async ({ input }) => {
       try {
-        await db.delete(itemTags).where(eq(itemTags.tagId, input.id));
-        await db.delete(tags).where(and(eq(tags.id, input.id), eq(tags.userId, 'test-user')));
+        await db.transaction(async (tx) => {
+          await tx.delete(itemTags).where(eq(itemTags.tagId, input.id));
+          await tx.delete(tags).where(and(eq(tags.id, input.id), eq(tags.userId, 'test-user')));
+        });
         return { success: true };
       } catch (error) {
         console.error('Error deleting tag:', error);

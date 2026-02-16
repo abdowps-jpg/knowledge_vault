@@ -16,4 +16,7 @@ export const items = sqliteTable('items', {
   userIdx: index('user_idx').on(table.userId),
   typeIdx: index('type_idx').on(table.type),
   locationIdx: index('location_idx').on(table.location),
+  favoriteIdx: index('favorite_idx').on(table.isFavorite),
+  createdAtIdx: index('item_created_at_idx').on(table.createdAt),
+  titleIdx: index('item_title_idx').on(table.title),
 }));

@@ -1,11 +1,14 @@
 import "@/global.css";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { Stack } from "expo-router";
+import { Stack, useRouter } from "expo-router";
+import { usePathname } from "expo-router";
 import { StatusBar } from "expo-status-bar";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
 import "react-native-reanimated";
-import { Platform } from "react-native";
+import { Platform, Text, View } from "react-native";
+import * as Notifications from "expo-notifications";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 import "@/lib/_core/nativewind-pressable";
 import { ThemeProvider } from "@/lib/theme-provider";
 import {
@@ -23,6 +26,8 @@ import { LibraryProvider } from "@/lib/context/library-context";
 import { ActionsProvider } from "@/lib/context/actions-context";
 import { JournalProvider } from "@/lib/context/journal-context";
 import { SearchProvider } from "@/lib/context/search-context";
+import { requestTaskNotificationPermissions } from "@/lib/notifications/task-notifications";
+import { OfflineSnapshot, offlineManager } from "@/lib/offline-manager";
 
 const DEFAULT_WEB_INSETS: EdgeInsets = { top: 0, right: 0, bottom: 0, left: 0 };
 const DEFAULT_WEB_FRAME: Rect = { x: 0, y: 0, width: 0, height: 0 };
@@ -32,11 +37,18 @@ export const unstable_settings = {
 };
 
 export default function RootLayout() {
+  const router = useRouter();
+  const pathname = usePathname();
   const initialInsets = initialWindowMetrics?.insets ?? DEFAULT_WEB_INSETS;
   const initialFrame = initialWindowMetrics?.frame ?? DEFAULT_WEB_FRAME;
 
   const [insets, setInsets] = useState<EdgeInsets>(initialInsets);
   const [frame, setFrame] = useState<Rect>(initialFrame);
+  const [offlineSnapshot, setOfflineSnapshot] = useState<OfflineSnapshot>(
+    offlineManager.getSnapshot()
+  );
+  const [onboardingChecked, setOnboardingChecked] = useState(false);
+  const [hasSeenOnboarding, setHasSeenOnboarding] = useState(true);
 
   // Initialize Manus runtime for cookie injection from parent container
   useEffect(() => {
@@ -54,6 +66,93 @@ export default function RootLayout() {
     return () => unsubscribe();
   }, [handleSafeAreaUpdate]);
 
+  useEffect(() => {
+    offlineManager.initialize().catch((error) => {
+      console.error("Failed initializing offline manager:", error);
+    });
+    const unsubscribe = offlineManager.subscribe(setOfflineSnapshot);
+    return () => {
+      unsubscribe();
+    };
+  }, []);
+
+  useEffect(() => {
+    (async () => {
+      try {
+        const value = await AsyncStorage.getItem("hasSeenOnboarding");
+        setHasSeenOnboarding(value === "true");
+      } catch (error) {
+        console.error("Failed reading onboarding status:", error);
+        setHasSeenOnboarding(true);
+      } finally {
+        setOnboardingChecked(true);
+      }
+    })();
+  }, []);
+
+  useEffect(() => {
+    if (!onboardingChecked) return;
+    if (!hasSeenOnboarding) {
+      AsyncStorage.getItem("hasSeenOnboarding")
+        .then((value) => {
+          if (value === "true") {
+            setHasSeenOnboarding(true);
+            return;
+          }
+          if (pathname !== "/onboarding") {
+            router.replace("/onboarding");
+          }
+        })
+        .catch(() => {
+          if (pathname !== "/onboarding") {
+            router.replace("/onboarding");
+          }
+        });
+    }
+  }, [onboardingChecked, hasSeenOnboarding, pathname, router]);
+
+  useEffect(() => {
+    Notifications.setNotificationHandler({
+      handleNotification: async () => ({
+        shouldShowAlert: true,
+        shouldPlaySound: true,
+        shouldSetBadge: true,
+        shouldShowBanner: true,
+        shouldShowList: true,
+      }),
+    });
+
+    requestTaskNotificationPermissions().catch((error) => {
+      console.error("Notification permission request failed:", error);
+    });
+
+    const handleTaskNavigation = (taskId?: string) => {
+      if (!taskId) return;
+      router.push({
+        pathname: "/(tabs)/actions",
+        params: { taskId },
+      });
+    };
+
+    const responseSub = Notifications.addNotificationResponseReceivedListener((response) => {
+      const data = response.notification.request.content.data as { taskId?: string } | undefined;
+      handleTaskNavigation(data?.taskId);
+    });
+
+    Notifications.getLastNotificationResponseAsync()
+      .then((response) => {
+        const data = response?.notification.request.content.data as { taskId?: string } | undefined;
+        handleTaskNavigation(data?.taskId);
+      })
+      .catch((error) => {
+        console.error("Failed reading last notification response:", error);
+      });
+
+    return () => {
+      responseSub.remove();
+    };
+  }, [router]);
+
   // Create clients once and reuse them
   const [queryClient] = useState(
     () =>
@@ -64,11 +163,20 @@ export default function RootLayout() {
             refetchOnWindowFocus: false,
             // Retry failed requests once
             retry: 1,
+            // Cache tuning for smoother navigation and fewer refetches
+            staleTime: 30_000,
+            gcTime: 5 * 60_000,
           },
         },
       }),
   );
   const [trpcClient] = useState(() => createTRPCClient());
+
+  useEffect(() => {
+    if (offlineSnapshot.status === "synced") {
+      queryClient.invalidateQueries().catch(() => undefined);
+    }
+  }, [offlineSnapshot.status, queryClient]);
 
   // Ensure minimum 8px padding for top and bottom on mobile
   const providerInitialMetrics = useMemo(() => {
@@ -83,6 +191,15 @@ export default function RootLayout() {
     };
   }, [initialInsets, initialFrame]);
 
+  const statusVisual =
+    offlineSnapshot.status === "synced"
+      ? { icon: "✅", color: "#22c55e", label: "Synced" }
+      : offlineSnapshot.status === "syncing"
+      ? { icon: "🔄", color: "#3b82f6", label: "Syncing" }
+      : offlineSnapshot.status === "offline"
+      ? { icon: "⚠️", color: "#eab308", label: "Offline" }
+      : { icon: "❌", color: "#ef4444", label: "Sync Failed" };
+
   const content = (
     <GestureHandlerRootView style={{ flex: 1 }}>
       <trpc.Provider client={trpcClient} queryClient={queryClient}>
@@ -96,7 +213,9 @@ export default function RootLayout() {
                 <JournalProvider>
                   <SearchProvider>
                     <Stack screenOptions={{ headerShown: false }}>
+                      <Stack.Screen name="onboarding" />
                       <Stack.Screen name="(tabs)" />
+                      <Stack.Screen name="stats" />
                       <Stack.Screen name="oauth/callback" />
                     </Stack>
                   </SearchProvider>
@@ -107,8 +226,66 @@ export default function RootLayout() {
           <StatusBar style="auto" />
         </QueryClientProvider>
       </trpc.Provider>
+
+      {!offlineSnapshot.isOnline ? (
+        <View
+          style={{
+            position: "absolute",
+            top: 0,
+            left: 0,
+            right: 0,
+            paddingTop: Math.max(insets.top, 10),
+            paddingHorizontal: 12,
+            paddingBottom: 8,
+            backgroundColor: "#f59e0b",
+            zIndex: 120,
+          }}
+        >
+          <Text style={{ color: "#111827", textAlign: "center", fontWeight: "600", fontSize: 12 }}>
+            You're offline. Changes will sync when online.
+          </Text>
+        </View>
+      ) : null}
+
+      <View
+        pointerEvents="none"
+        style={{
+          position: "absolute",
+          top: Math.max(insets.top + (offlineSnapshot.isOnline ? 8 : 44), 12),
+          right: 12,
+          borderRadius: 999,
+          backgroundColor: "#ffffffee",
+          borderWidth: 1,
+          borderColor: `${statusVisual.color}55`,
+          paddingHorizontal: 10,
+          paddingVertical: 6,
+          zIndex: 121,
+          flexDirection: "row",
+          alignItems: "center",
+        }}
+      >
+        <Text style={{ marginRight: 6 }}>{statusVisual.icon}</Text>
+        <Text style={{ color: "#111827", fontSize: 12, fontWeight: "600" }}>
+          {statusVisual.label}
+          {offlineSnapshot.status === "syncing"
+            ? ` ${offlineSnapshot.syncProgress.done}/${offlineSnapshot.syncProgress.total}`
+            : ""}
+        </Text>
+      </View>
     </GestureHandlerRootView>
   );
+
+  if (!onboardingChecked) {
+    return (
+      <ThemeProvider>
+        <SafeAreaProvider initialMetrics={providerInitialMetrics}>
+          <View style={{ flex: 1, alignItems: "center", justifyContent: "center" }}>
+            <Text>Loading...</Text>
+          </View>
+        </SafeAreaProvider>
+      </ThemeProvider>
+    );
+  }
 
   const shouldOverrideSafeArea = Platform.OS === "web";
 

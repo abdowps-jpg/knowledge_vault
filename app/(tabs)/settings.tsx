@@ -1,40 +1,51 @@
-import React, { useState, useEffect } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import {
-  ScrollView,
-  Text,
-  View,
-  Pressable,
-  Switch,
-  Alert,
   ActivityIndicator,
+  Alert,
   Linking,
+  Modal,
+  Pressable,
+  ScrollView,
+  Switch,
+  Text,
+  TextInput,
+  useColorScheme,
+  View,
 } from "react-native";
+import * as Notifications from "expo-notifications";
+import Constants from "expo-constants";
+import * as Sharing from "expo-sharing";
+import * as FileSystem from "expo-file-system";
+import * as DocumentPicker from "expo-document-picker";
+import { MaterialIcons } from "@expo/vector-icons";
+import { useRouter } from "expo-router";
+
 import { ScreenContainer } from "@/components/screen-container";
 import { useColors } from "@/hooks/use-colors";
-import { MaterialIcons } from "@expo/vector-icons";
-import * as Haptics from "expo-haptics";
-import { NotificationService, DEFAULT_NOTIFICATION_SETTINGS } from "@/lib/notifications/notification-service";
-import { getAllItems } from "@/lib/db/storage";
-import AsyncStorage from "@react-native-async-storage/async-storage";
+import { useThemeContext } from "@/lib/theme-provider";
+import { clearAllData, exportAllData as exportLocalData, importData } from "@/lib/db/storage";
+import { trpc } from "@/lib/trpc";
+import {
+  AppSettings,
+  DEFAULT_APP_SETTINGS,
+  FontSizePreference,
+  ThemePreference,
+  getJournalReminderNotificationId,
+  loadAppSettings,
+  saveAppSettings,
+  setJournalReminderNotificationId,
+} from "@/lib/settings-storage";
 
-// ============================================================================
-// Settings Section Component
-// ============================================================================
-
-interface SettingsSectionProps {
+interface SectionProps {
   title: string;
   children: React.ReactNode;
 }
 
-function SettingsSection({ title, children }: SettingsSectionProps) {
+function Section({ title, children }: SectionProps) {
   const colors = useColors();
-
   return (
     <View className="mb-6">
-      <Text
-        style={{ color: colors.muted }}
-        className="text-xs font-semibold uppercase px-4 py-2"
-      >
+      <Text className="text-xs font-semibold uppercase px-4 py-2" style={{ color: colors.muted }}>
         {title}
       </Text>
       <View
@@ -52,347 +63,633 @@ function SettingsSection({ title, children }: SettingsSectionProps) {
   );
 }
 
-// ============================================================================
-// Settings Item Component
-// ============================================================================
-
-interface SettingsItemProps {
+interface RowProps {
   icon: string;
   label: string;
   description?: string;
-  value?: React.ReactNode;
+  value?: string;
   onPress?: () => void;
-  rightElement?: React.ReactNode;
+  right?: React.ReactNode;
 }
 
-function SettingsItem({
-  icon,
-  label,
-  description,
-  value,
-  onPress,
-  rightElement,
-}: SettingsItemProps) {
+function Row({ icon, label, description, value, onPress, right }: RowProps) {
   const colors = useColors();
-
   return (
     <Pressable
       onPress={onPress}
       style={({ pressed }) => [
         {
           opacity: pressed ? 0.7 : 1,
-          backgroundColor: colors.surface,
           paddingHorizontal: 16,
           paddingVertical: 12,
           borderBottomColor: colors.border,
           borderBottomWidth: 1,
-          flexDirection: "row" as const,
-          alignItems: "center" as const,
-          justifyContent: "space-between" as const,
+          flexDirection: "row",
+          alignItems: "center",
+          justifyContent: "space-between",
+          backgroundColor: colors.surface,
         },
       ]}
     >
       <View className="flex-row items-center gap-3 flex-1">
-        <MaterialIcons name={icon as any} size={24} color={colors.primary} />
+        <MaterialIcons name={icon as never} size={22} color={colors.primary} />
         <View className="flex-1">
           <Text className="text-base font-semibold text-foreground">{label}</Text>
-          {description && (
-            <Text className="text-xs text-muted mt-1">{description}</Text>
-          )}
+          {description ? <Text className="text-xs text-muted mt-1">{description}</Text> : null}
         </View>
       </View>
-      {rightElement || (
-        value && (
-          <Text className="text-sm text-muted">{value}</Text>
-        )
-      )}
+      {right || (value ? <Text className="text-sm text-muted">{value}</Text> : null)}
     </Pressable>
   );
 }
 
-// ============================================================================
-// Settings Screen
-// ============================================================================
+function formatBytes(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+function normalizeTime(hourText: string, minuteText: string): string | null {
+  const h = Number(hourText);
+  const m = Number(minuteText);
+  if (!Number.isInteger(h) || !Number.isInteger(m)) return null;
+  if (h < 0 || h > 23 || m < 0 || m > 59) return null;
+  return `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}`;
+}
 
 export default function SettingsScreen() {
   const colors = useColors();
-  const notificationService = NotificationService.getInstance();
+  const router = useRouter();
+  const systemScheme = useColorScheme() ?? "light";
+  const { setColorScheme } = useThemeContext();
+  const exportQuery = trpc.export.exportAll.useQuery(undefined, { enabled: false });
 
-  // State
-  const [notificationsEnabled, setNotificationsEnabled] = useState(
-    DEFAULT_NOTIFICATION_SETTINGS.enabled
-  );
-  const [taskReminders, setTaskReminders] = useState(
-    DEFAULT_NOTIFICATION_SETTINGS.taskReminders
-  );
-  const [spacedRepetition, setSpacedRepetition] = useState(
-    DEFAULT_NOTIFICATION_SETTINGS.spacedRepetition
-  );
-  const [soundEnabled, setSoundEnabled] = useState(
-    DEFAULT_NOTIFICATION_SETTINGS.soundEnabled
-  );
-  const [vibrationEnabled, setVibrationEnabled] = useState(
-    DEFAULT_NOTIFICATION_SETTINGS.vibrationEnabled
-  );
-  const [exporting, setExporting] = useState(false);
+  const [settings, setSettings] = useState<AppSettings>(DEFAULT_APP_SETTINGS);
+  const [loading, setLoading] = useState(true);
+  const [working, setWorking] = useState(false);
+  const [storageUsed, setStorageUsed] = useState("0 B");
 
-  // Load settings on mount
-  useEffect(() => {
-    const loadSettings = async () => {
-      const settings = notificationService.getSettings();
-      setNotificationsEnabled(settings.enabled);
-      setTaskReminders(settings.taskReminders);
-      setSpacedRepetition(settings.spacedRepetition);
-      setSoundEnabled(settings.soundEnabled);
-      setVibrationEnabled(settings.vibrationEnabled);
+  const [showExportModal, setShowExportModal] = useState(false);
+  const [exportJson, setExportJson] = useState("");
+
+  const [showTimeModal, setShowTimeModal] = useState(false);
+  const [timeTarget, setTimeTarget] = useState<"task" | "journal">("task");
+  const [hourInput, setHourInput] = useState("09");
+  const [minuteInput, setMinuteInput] = useState("00");
+
+  const appVersion = Constants.expoConfig?.version ?? "1.0.0";
+
+  const validateBackup = (payload: any) => {
+    const container = payload?.data ?? payload;
+    if (!container || typeof container !== "object") {
+      return { valid: false, message: "Invalid backup format" };
+    }
+
+    const items = Array.isArray(container.items) ? container.items : [];
+    const tasks = Array.isArray(container.tasks) ? container.tasks : [];
+    const journalEntries = Array.isArray(container.journalEntries)
+      ? container.journalEntries
+      : Array.isArray(container.journal)
+      ? container.journal
+      : [];
+    const tags = Array.isArray(container.tags) ? container.tags : [];
+    const categories = Array.isArray(container.categories) ? container.categories : [];
+    const attachments = Array.isArray(container.attachments) ? container.attachments : [];
+    const reviewSchedules = Array.isArray(container.reviewSchedules) ? container.reviewSchedules : [];
+
+    return {
+      valid: true,
+      normalized: {
+        metadata: payload?.metadata ?? {
+          version: payload?.version ?? "1.0.0",
+          exportDate: payload?.exportDate ?? new Date().toISOString(),
+        },
+        data: {
+          items,
+          tasks,
+          journalEntries,
+          tags,
+          categories,
+          attachments,
+          reviewSchedules,
+        },
+      },
     };
-    loadSettings();
-  }, []);
-
-  // Handle notification toggle
-  const handleNotificationsToggle = async (value: boolean) => {
-    setNotificationsEnabled(value);
-    await notificationService.saveSettings({ enabled: value });
-    await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
   };
 
-  // Handle task reminders toggle
-  const handleTaskRemindersToggle = async (value: boolean) => {
-    setTaskReminders(value);
-    await notificationService.saveSettings({ taskReminders: value });
-    await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+  const mergeById = (current: any[], incoming: any[]) => {
+    const map = new Map<string, any>();
+    for (const record of current || []) {
+      if (record?.id) map.set(record.id, record);
+    }
+    for (const record of incoming || []) {
+      if (record?.id) map.set(record.id, record);
+    }
+    return Array.from(map.values());
   };
 
-  // Handle spaced repetition toggle
-  const handleSpacedRepetitionToggle = async (value: boolean) => {
-    setSpacedRepetition(value);
-    await notificationService.saveSettings({ spacedRepetition: value });
-    await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+  const applyImport = async (strategy: "merge" | "replace", normalized: any) => {
+    const incoming = normalized.data;
+    const current = await exportLocalData();
+    const currentData = (current as any)?.data ?? {};
+
+    const payloadForStorage =
+      strategy === "replace"
+        ? {
+            data: {
+              items: incoming.items,
+              tags: incoming.tags,
+              categories: incoming.categories,
+              attachments: incoming.attachments,
+              reviewSchedules: incoming.reviewSchedules,
+            },
+          }
+        : {
+            data: {
+              items: mergeById(currentData.items ?? [], incoming.items ?? []),
+              tags: mergeById(currentData.tags ?? [], incoming.tags ?? []),
+              categories: mergeById(currentData.categories ?? [], incoming.categories ?? []),
+              attachments: mergeById(currentData.attachments ?? [], incoming.attachments ?? []),
+              reviewSchedules: mergeById(currentData.reviewSchedules ?? [], incoming.reviewSchedules ?? []),
+            },
+          };
+
+    if (strategy === "replace") {
+      await clearAllData();
+    }
+
+    await importData(payloadForStorage);
+
+    return {
+      items: incoming.items.length,
+      tasks: incoming.tasks.length,
+      entries: incoming.journalEntries.length,
+    };
   };
 
-  // Handle sound toggle
-  const handleSoundToggle = async (value: boolean) => {
-    setSoundEnabled(value);
-    await notificationService.saveSettings({ soundEnabled: value });
-    await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-  };
+  const themeValue = useMemo(() => {
+    if (settings.theme === "auto") return `Auto (${systemScheme})`;
+    return settings.theme[0].toUpperCase() + settings.theme.slice(1);
+  }, [settings.theme, systemScheme]);
 
-  // Handle vibration toggle
-  const handleVibrationToggle = async (value: boolean) => {
-    setVibrationEnabled(value);
-    await notificationService.saveSettings({ vibrationEnabled: value });
-    await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-  };
-
-  // Export data
-  const handleExportData = async () => {
+  const refreshStorageUsed = async () => {
     try {
-      setExporting(true);
-      await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-
-      // Collect all data
-      const items = await getAllItems();
-
-      const exportData = {
-        exportDate: new Date().toISOString(),
-        items,
-        version: "1.0",
-      };
-
-      // Save to AsyncStorage as backup
-      const backupKey = `backup_${Date.now()}`;
-      await AsyncStorage.setItem(backupKey, JSON.stringify(exportData));
-
-      Alert.alert("Success", "Data backup created successfully");
+      const AsyncStorage = (await import("@react-native-async-storage/async-storage")).default;
+      const keys = await AsyncStorage.getAllKeys();
+      const entries = await AsyncStorage.multiGet(keys);
+      const total = entries.reduce((sum, [, value]) => sum + (value ? value.length : 0), 0);
+      setStorageUsed(formatBytes(total));
     } catch (error) {
-      console.error("Error exporting data:", error);
-      Alert.alert("Error", "Failed to export data");
-    } finally {
-      setExporting(false);
+      console.error("Failed calculating storage size:", error);
     }
   };
 
-  // Clear all data
-  const handleClearAllData = () => {
-    Alert.alert(
-      "Clear All Data",
-      "This will permanently delete all your items, tasks, and journal entries. This action cannot be undone.",
-      [
+  const scheduleOrCancelJournalReminder = async (next: AppSettings) => {
+    try {
+      const existing = await getJournalReminderNotificationId();
+      if (existing) {
+        await Notifications.cancelScheduledNotificationAsync(existing);
+        await setJournalReminderNotificationId(null);
+      }
+
+      if (!next.dailyJournalReminder) return;
+
+      const [hourStr, minuteStr] = next.journalReminderTime.split(":");
+      const hour = Number(hourStr);
+      const minute = Number(minuteStr);
+
+      const id = await Notifications.scheduleNotificationAsync({
+        content: {
+          title: "Journal Reminder",
+          body: "Take a minute to write your journal entry.",
+          data: { type: "journal-reminder", route: "/(tabs)/journal" },
+        },
+        trigger: {
+          type: Notifications.SchedulableTriggerInputTypes.DAILY,
+          hour: Number.isFinite(hour) ? hour : 21,
+          minute: Number.isFinite(minute) ? minute : 0,
+        },
+      });
+
+      await setJournalReminderNotificationId(id);
+    } catch (error) {
+      console.error("Failed scheduling journal reminder:", error);
+    }
+  };
+
+  const persist = async (partial: Partial<AppSettings>) => {
+    const next = { ...settings, ...partial };
+    setSettings(next);
+    await saveAppSettings(next);
+    await scheduleOrCancelJournalReminder(next);
+  };
+
+  useEffect(() => {
+    (async () => {
+      try {
+        const loaded = await loadAppSettings();
+        setSettings(loaded);
+        const effectiveScheme = loaded.theme === "auto" ? (systemScheme as "light" | "dark") : loaded.theme;
+        setColorScheme(effectiveScheme);
+      } catch (error) {
+        console.error("Failed loading settings:", error);
+      } finally {
+        setLoading(false);
+        await refreshStorageUsed();
+      }
+    })();
+  }, []);
+
+  const handleThemeChange = async (theme: ThemePreference) => {
+    await persist({ theme });
+    const effectiveScheme = theme === "auto" ? (systemScheme as "light" | "dark") : theme;
+    setColorScheme(effectiveScheme);
+  };
+
+  const handleFontSizeChange = async (fontSize: FontSizePreference) => {
+    await persist({ fontSize });
+  };
+
+  const openTimePicker = (target: "task" | "journal") => {
+    const source = target === "task" ? settings.taskReminderTime : settings.journalReminderTime;
+    const [h, m] = source.split(":");
+    setHourInput(h);
+    setMinuteInput(m);
+    setTimeTarget(target);
+    setShowTimeModal(true);
+  };
+
+  const saveTimePicker = async () => {
+    const nextTime = normalizeTime(hourInput, minuteInput);
+    if (!nextTime) {
+      Alert.alert("Invalid Time", "Please enter valid hour (0-23) and minute (0-59).");
+      return;
+    }
+    if (timeTarget === "task") {
+      await persist({ taskReminderTime: nextTime });
+    } else {
+      await persist({ journalReminderTime: nextTime });
+    }
+    setShowTimeModal(false);
+  };
+
+  const handleExportData = async () => {
+    try {
+      setWorking(true);
+      const response = await exportQuery.refetch();
+      const data = response.data;
+      if (!data) {
+        throw new Error("No export data returned from server");
+      }
+
+      const json = JSON.stringify(data, null, 2);
+      const dateLabel = new Date().toISOString().slice(0, 10);
+      const filename = `knowledge-vault-backup-${dateLabel}.json`;
+      const fileUri = `${FileSystem.cacheDirectory}${filename}`;
+      await FileSystem.writeAsStringAsync(fileUri, json, {
+        encoding: FileSystem.EncodingType.UTF8,
+      });
+
+      const canShare = await Sharing.isAvailableAsync();
+      if (canShare) {
+        await Sharing.shareAsync(fileUri, {
+          mimeType: "application/json",
+          dialogTitle: "Export Data",
+          UTI: "public.json",
+        });
+      } else {
+        Alert.alert("Export Ready", `File saved: ${fileUri}`);
+      }
+
+      setExportJson(json);
+      setShowExportModal(true);
+    } catch (error) {
+      console.error("Export failed:", error);
+      Alert.alert("Error", "Failed to export data.");
+    } finally {
+      setWorking(false);
+    }
+  };
+
+  const handleImportData = async () => {
+    try {
+      setWorking(true);
+      const result = await DocumentPicker.getDocumentAsync({
+        type: ["application/json", "text/json", "text/plain"],
+        copyToCacheDirectory: true,
+        multiple: false,
+      });
+
+      if (result.canceled || !result.assets || result.assets.length === 0) {
+        return;
+      }
+
+      const selected = result.assets[0];
+      const fileText = await FileSystem.readAsStringAsync(selected.uri, {
+        encoding: FileSystem.EncodingType.UTF8,
+      });
+
+      const parsed = JSON.parse(fileText);
+      const validated = validateBackup(parsed);
+      if (!validated.valid || !validated.normalized) {
+        Alert.alert("Invalid Backup", validated.message || "The selected JSON is not a valid backup file.");
+        return;
+      }
+
+      Alert.alert("Import Data", "Choose import mode", [
         { text: "Cancel", style: "cancel" },
         {
-          text: "Clear",
-          style: "destructive",
+          text: "Merge",
           onPress: async () => {
             try {
-              await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
-              // Clear all data from storage
-              await AsyncStorage.clear();
-              Alert.alert("Success", "All data has been cleared");
+              setWorking(true);
+              const summary = await applyImport("merge", validated.normalized);
+              await refreshStorageUsed();
+              Alert.alert(
+                "Import Complete",
+                `${summary.items} items, ${summary.tasks} tasks, ${summary.entries} entries imported (merge).`
+              );
             } catch (error) {
-              console.error("Error clearing data:", error);
-              Alert.alert("Error", "Failed to clear data");
+              console.error("Merge import failed:", error);
+              Alert.alert("Error", "Failed to merge import data.");
+            } finally {
+              setWorking(false);
             }
           },
         },
-      ]
-    );
+        {
+          text: "Replace",
+          style: "destructive",
+          onPress: async () => {
+            try {
+              setWorking(true);
+              const summary = await applyImport("replace", validated.normalized);
+              await refreshStorageUsed();
+              Alert.alert(
+                "Import Complete",
+                `${summary.items} items, ${summary.tasks} tasks, ${summary.entries} entries imported (replace).`
+              );
+            } catch (error) {
+              console.error("Replace import failed:", error);
+              Alert.alert("Error", "Failed to replace with imported data.");
+            } finally {
+              setWorking(false);
+            }
+          },
+        },
+      ]);
+    } catch (error) {
+      console.error("Import failed:", error);
+      Alert.alert("Error", "Invalid JSON or import failed.");
+    } finally {
+      setWorking(false);
+    }
   };
+
+  const handleClearAllData = () => {
+    Alert.alert("Clear All Data", "This will permanently remove all app data. Continue?", [
+      { text: "Cancel", style: "cancel" },
+      {
+        text: "Clear",
+        style: "destructive",
+        onPress: async () => {
+          try {
+            setWorking(true);
+            await clearAllData();
+            await saveAppSettings(DEFAULT_APP_SETTINGS);
+            setSettings(DEFAULT_APP_SETTINGS);
+            await refreshStorageUsed();
+            Alert.alert("Done", "All data cleared.");
+          } catch (error) {
+            console.error("Clear data failed:", error);
+            Alert.alert("Error", "Failed to clear data.");
+          } finally {
+            setWorking(false);
+          }
+        },
+      },
+    ]);
+  };
+
+  if (loading) {
+    return (
+      <ScreenContainer>
+        <View className="flex-1 items-center justify-center">
+          <ActivityIndicator color={colors.primary} />
+        </View>
+      </ScreenContainer>
+    );
+  }
 
   return (
     <ScreenContainer className="bg-background" containerClassName="bg-background">
-      {/* Header */}
       <View className="px-4 py-4 border-b border-border">
         <Text className="text-2xl font-bold text-foreground">Settings</Text>
       </View>
 
-      <ScrollView showsVerticalScrollIndicator={false} className="flex-1">
-        {/* Notifications Section */}
-        <SettingsSection title="Notifications">
-          <SettingsItem
-            icon="notifications"
-            label="Enable Notifications"
-            description="Receive reminders and alerts"
-            rightElement={
+      <ScrollView className="flex-1" showsVerticalScrollIndicator={false}>
+        <Section title="Account">
+          <Row icon="person" label="Username" value={settings.username} />
+          <Row icon="email" label="Email" value={settings.email} />
+        </Section>
+
+        <Section title="Notifications">
+          <Row
+            icon="alarm"
+            label="Task Reminders"
+            description="Due-date reminders for tasks"
+            right={
               <Switch
-                value={notificationsEnabled}
-                onValueChange={handleNotificationsToggle}
+                value={settings.taskReminders}
+                onValueChange={(value) => persist({ taskReminders: value })}
                 trackColor={{ false: colors.border, true: colors.primary }}
               />
             }
           />
-
-          {notificationsEnabled && (
-            <>
-              <SettingsItem
-                icon="alarm"
-                label="Task Reminders"
-                description="Get notified before tasks are due"
-                rightElement={
-                  <Switch
-                    value={taskReminders}
-                    onValueChange={handleTaskRemindersToggle}
-                    trackColor={{ false: colors.border, true: colors.primary }}
-                  />
-                }
-              />
-
-              <SettingsItem
-                icon="repeat"
-                label="Spaced Repetition"
-                description="Review old items periodically"
-                rightElement={
-                  <Switch
-                    value={spacedRepetition}
-                    onValueChange={handleSpacedRepetitionToggle}
-                    trackColor={{ false: colors.border, true: colors.primary }}
-                  />
-                }
-              />
-
-              <SettingsItem
-                icon="volume-up"
-                label="Sound"
-                description="Play sound for notifications"
-                rightElement={
-                  <Switch
-                    value={soundEnabled}
-                    onValueChange={handleSoundToggle}
-                    trackColor={{ false: colors.border, true: colors.primary }}
-                  />
-                }
-              />
-
-              <SettingsItem
-                icon="vibration"
-                label="Vibration"
-                description="Vibrate on notifications"
-                rightElement={
-                  <Switch
-                    value={vibrationEnabled}
-                    onValueChange={handleVibrationToggle}
-                    trackColor={{ false: colors.border, true: colors.primary }}
-                  />
-                }
-              />
-            </>
-          )}
-        </SettingsSection>
-
-        {/* Privacy Section */}
-        <SettingsSection title="Privacy & Security">
-          <SettingsItem
-            icon="lock"
-            label="Biometric Lock"
-            description="Use Face ID or Touch ID to unlock app"
-            onPress={() => Alert.alert("Info", "Biometric lock feature coming soon")}
+          <Row
+            icon="schedule"
+            label="Task Reminder Time"
+            value={settings.taskReminderTime}
+            onPress={() => openTimePicker("task")}
           />
-
-          <SettingsItem
-            icon="privacy-tip"
-            label="Entry Privacy"
-            description="Lock individual journal entries"
-            onPress={() => Alert.alert("Info", "Entry privacy feature coming soon")}
-          />
-        </SettingsSection>
-
-        {/* Data Section */}
-        <SettingsSection title="Data & Backup">
-          <SettingsItem
-            icon="download"
-            label="Export Data"
-            description="Download all your data as JSON"
-            onPress={handleExportData}
-            rightElement={
-              exporting ? (
-                <ActivityIndicator size="small" color={colors.primary} />
-              ) : (
-                <MaterialIcons name="chevron-right" size={24} color={colors.muted} />
-              )
+          <Row
+            icon="menu-book"
+            label="Daily Journal Reminder (9 PM)"
+            description="Daily reminder to write journal"
+            right={
+              <Switch
+                value={settings.dailyJournalReminder}
+                onValueChange={(value) => persist({ dailyJournalReminder: value })}
+                trackColor={{ false: colors.border, true: colors.primary }}
+              />
             }
           />
-
-          <SettingsItem
-            icon="delete-outline"
-            label="Clear All Data"
-            description="Permanently delete all items and entries"
-            onPress={handleClearAllData}
+          <Row
+            icon="access-time"
+            label="Journal Reminder Time"
+            value={settings.journalReminderTime}
+            onPress={() => openTimePicker("journal")}
           />
-        </SettingsSection>
+        </Section>
 
-        {/* About Section */}
-        <SettingsSection title="About">
-          <SettingsItem
-            icon="info"
-            label="Version"
-            value="1.0.0"
+        <Section title="Display">
+          <Row icon="palette" label="Theme" value={themeValue} />
+          <View className="px-4 pb-3 pt-1 flex-row gap-2">
+            {(["light", "dark", "auto"] as ThemePreference[]).map((mode) => (
+              <Pressable
+                key={mode}
+                onPress={() => handleThemeChange(mode)}
+                style={{
+                  paddingHorizontal: 12,
+                  paddingVertical: 8,
+                  borderRadius: 8,
+                  borderWidth: 1,
+                  borderColor: colors.border,
+                  backgroundColor: settings.theme === mode ? colors.primary : colors.background,
+                }}
+              >
+                <Text style={{ color: settings.theme === mode ? "white" : colors.foreground, fontWeight: "600" }}>
+                  {mode[0].toUpperCase() + mode.slice(1)}
+                </Text>
+              </Pressable>
+            ))}
+          </View>
+          <Row icon="format-size" label="Font Size" value={settings.fontSize} />
+          <View className="px-4 pb-3 pt-1 flex-row gap-2">
+            {(["small", "medium", "large"] as FontSizePreference[]).map((size) => (
+              <Pressable
+                key={size}
+                onPress={() => handleFontSizeChange(size)}
+                style={{
+                  paddingHorizontal: 12,
+                  paddingVertical: 8,
+                  borderRadius: 8,
+                  borderWidth: 1,
+                  borderColor: colors.border,
+                  backgroundColor: settings.fontSize === size ? colors.primary : colors.background,
+                }}
+              >
+                <Text style={{ color: settings.fontSize === size ? "white" : colors.foreground, fontWeight: "600" }}>
+                  {size[0].toUpperCase() + size.slice(1)}
+                </Text>
+              </Pressable>
+            ))}
+          </View>
+        </Section>
+
+        <Section title="Data">
+          <Row icon="download" label="Export Data (JSON)" onPress={handleExportData} />
+          <Row icon="upload-file" label="Import Data (JSON)" onPress={handleImportData} />
+          <Row icon="delete-forever" label="Clear All Data" onPress={handleClearAllData} />
+          <Row icon="storage" label="Storage Used" value={storageUsed} />
+        </Section>
+
+        <Section title="About">
+          <Row icon="info" label="App Version" value={appVersion} />
+          <Row icon="bar-chart" label="Statistics" onPress={() => router.push("/stats")} />
+          <Row
+            icon="policy"
+            label="Privacy Policy"
+            onPress={() => Linking.openURL("https://example.com/privacy")}
           />
-
-          <SettingsItem
-            icon="help"
-            label="Help & Support"
-            description="Get help or report issues"
-            onPress={() => {
-              Linking.openURL("https://github.com/ruben-hassid/knowledge-vault");
-            }}
+          <Row
+            icon="gavel"
+            label="Terms of Service"
+            onPress={() => Linking.openURL("https://example.com/terms")}
           />
-
-          <SettingsItem
-            icon="code"
-            label="Open Source"
-            description="View source code on GitHub"
-            onPress={() => {
-              Linking.openURL("https://github.com/ruben-hassid/knowledge-vault");
-            }}
-          />
-        </SettingsSection>
-
-        {/* Footer */}
-        <View className="px-4 py-8 items-center">
-          <Text className="text-xs text-muted text-center">
-            Knowledge Vault v1.0.0 • Made with ❤️
-          </Text>
-        </View>
+        </Section>
       </ScrollView>
+
+      <Modal visible={showExportModal} transparent animationType="fade" onRequestClose={() => setShowExportModal(false)}>
+        <View className="flex-1 bg-black/50 justify-end">
+          <View className="rounded-t-3xl p-6 max-h-[80%]" style={{ backgroundColor: colors.surface }}>
+            <Text className="text-lg font-bold text-foreground mb-3">Export JSON</Text>
+            <ScrollView className="border border-border rounded-lg p-3 bg-background mb-4">
+              <Text style={{ color: colors.foreground, fontFamily: "monospace", fontSize: 12 }}>{exportJson}</Text>
+            </ScrollView>
+            <Pressable onPress={() => setShowExportModal(false)}>
+              <View className="bg-primary rounded-lg py-3 items-center">
+                <Text className="text-white font-semibold">Close</Text>
+              </View>
+            </Pressable>
+          </View>
+        </View>
+      </Modal>
+
+      <Modal visible={showTimeModal} transparent animationType="fade" onRequestClose={() => setShowTimeModal(false)}>
+        <View className="flex-1 bg-black/50 justify-end">
+          <View className="rounded-t-3xl p-6" style={{ backgroundColor: colors.surface }}>
+            <Text className="text-lg font-bold text-foreground mb-3">Select Time (HH:mm)</Text>
+            <View className="flex-row gap-3 mb-4">
+              <TextInput
+                value={hourInput}
+                onChangeText={setHourInput}
+                keyboardType="numeric"
+                maxLength={2}
+                placeholder="HH"
+                placeholderTextColor={colors.muted}
+                style={{
+                  flex: 1,
+                  borderWidth: 1,
+                  borderColor: colors.border,
+                  borderRadius: 8,
+                  backgroundColor: colors.background,
+                  color: colors.foreground,
+                  paddingHorizontal: 12,
+                  paddingVertical: 10,
+                }}
+              />
+              <TextInput
+                value={minuteInput}
+                onChangeText={setMinuteInput}
+                keyboardType="numeric"
+                maxLength={2}
+                placeholder="mm"
+                placeholderTextColor={colors.muted}
+                style={{
+                  flex: 1,
+                  borderWidth: 1,
+                  borderColor: colors.border,
+                  borderRadius: 8,
+                  backgroundColor: colors.background,
+                  color: colors.foreground,
+                  paddingHorizontal: 12,
+                  paddingVertical: 10,
+                }}
+              />
+            </View>
+            <View className="flex-row gap-3">
+              <Pressable onPress={() => setShowTimeModal(false)} style={{ flex: 1 }}>
+                <View className="bg-border rounded-lg py-3 items-center">
+                  <Text className="text-foreground font-semibold">Cancel</Text>
+                </View>
+              </Pressable>
+              <Pressable onPress={saveTimePicker} style={{ flex: 1 }}>
+                <View className="bg-primary rounded-lg py-3 items-center">
+                  <Text className="text-white font-semibold">Save</Text>
+                </View>
+              </Pressable>
+            </View>
+          </View>
+        </View>
+      </Modal>
+
+      {working ? (
+        <View
+          pointerEvents="none"
+          style={{
+            position: "absolute",
+            top: 0,
+            right: 0,
+            bottom: 0,
+            left: 0,
+            alignItems: "center",
+            justifyContent: "center",
+          }}
+        >
+          <ActivityIndicator color={colors.primary} />
+        </View>
+      ) : null}
     </ScreenContainer>
   );
 }

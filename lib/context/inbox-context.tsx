@@ -9,6 +9,7 @@ import * as storage from "@/lib/db/storage";
 export interface QuickAddModalState {
   isOpen: boolean;
   activeTab: "note" | "quote" | "link" | "audio" | "task";
+  autoPickImage?: boolean;
 }
 
 export interface InboxContextType {
@@ -19,13 +20,17 @@ export interface InboxContextType {
 
   // Quick Add Modal
   quickAddModal: QuickAddModalState;
-  openQuickAdd: (tab?: "note" | "quote" | "link" | "audio" | "task") => void;
+  openQuickAdd: (
+    tab?: "note" | "quote" | "link" | "audio" | "task",
+    options?: { autoPickImage?: boolean }
+  ) => void;
   closeQuickAdd: () => void;
   setActiveTab: (tab: "note" | "quote" | "link" | "audio" | "task") => void;
 
   // Item Operations
   loadInboxItems: () => Promise<void>;
   deleteItem: (itemId: string) => Promise<void>;
+  updateItem: (itemId: string, updates: Partial<Omit<Item, "id" | "createdAt">>) => Promise<Item | null>;
   moveToLibrary: (itemId: string, categoryId?: string) => Promise<void>;
   convertToTask: (itemId: string, dueDate?: Date, priority?: "low" | "medium" | "high") => Promise<void>;
   addItem: (item: Omit<Item, "id" | "createdAt" | "updatedAt">) => Promise<Item>;
@@ -48,6 +53,7 @@ export function InboxProvider({ children }: { children: React.ReactNode }) {
   const [quickAddModal, setQuickAddModal] = useState<QuickAddModalState>({
     isOpen: false,
     activeTab: "note",
+    autoPickImage: false,
   });
 
   // Load inbox items
@@ -73,6 +79,20 @@ export function InboxProvider({ children }: { children: React.ReactNode }) {
       throw error;
     }
   }, [loadInboxItems]);
+
+  const updateItemHandler = useCallback(
+    async (itemId: string, updates: Partial<Omit<Item, "id" | "createdAt">>) => {
+      try {
+        const updated = await storage.updateItem(itemId, updates);
+        await loadInboxItems();
+        return updated;
+      } catch (error) {
+        console.error("Error updating item:", error);
+        throw error;
+      }
+    },
+    [loadInboxItems]
+  );
 
   // Move to library
   const moveToLibrary = useCallback(async (itemId: string, categoryId?: string) => {
@@ -146,17 +166,22 @@ export function InboxProvider({ children }: { children: React.ReactNode }) {
   );
 
   // Quick Add Modal handlers
-  const openQuickAdd = useCallback((tab?: "note" | "quote" | "link" | "audio" | "task") => {
-    setQuickAddModal({
-      isOpen: true,
-      activeTab: tab || "note",
-    });
-  }, []);
+  const openQuickAdd = useCallback(
+    (tab?: "note" | "quote" | "link" | "audio" | "task", options?: { autoPickImage?: boolean }) => {
+      setQuickAddModal({
+        isOpen: true,
+        activeTab: tab || "note",
+        autoPickImage: options?.autoPickImage ?? false,
+      });
+    },
+    []
+  );
 
   const closeQuickAdd = useCallback(() => {
     setQuickAddModal({
       isOpen: false,
       activeTab: "note",
+      autoPickImage: false,
     });
   }, []);
 
@@ -182,6 +207,7 @@ export function InboxProvider({ children }: { children: React.ReactNode }) {
     setActiveTab,
     loadInboxItems,
     deleteItem: deleteItemHandler,
+    updateItem: updateItemHandler,
     moveToLibrary,
     convertToTask: convertToTaskHandler,
     addItem: addItemHandler,
