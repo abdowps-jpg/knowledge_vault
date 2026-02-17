@@ -1,6 +1,8 @@
 import React, { createContext, useContext, useState, useCallback } from "react";
 import { Item, ItemType } from "@/lib/db/schema";
 import * as storage from "@/lib/db/storage";
+import { addToQueue } from "@/lib/sync-queue";
+import { syncUp } from "@/lib/sync-manager";
 
 // ============================================================================
 // Types
@@ -73,6 +75,8 @@ export function InboxProvider({ children }: { children: React.ReactNode }) {
   const deleteItemHandler = useCallback(async (itemId: string) => {
     try {
       await storage.deleteItem(itemId);
+      await addToQueue({ entity: "item", action: "delete", payload: { id: itemId } });
+      await syncUp().catch(() => undefined);
       await loadInboxItems();
     } catch (error) {
       console.error("Error deleting item:", error);
@@ -84,6 +88,10 @@ export function InboxProvider({ children }: { children: React.ReactNode }) {
     async (itemId: string, updates: Partial<Omit<Item, "id" | "createdAt">>) => {
       try {
         const updated = await storage.updateItem(itemId, updates);
+        if (updated) {
+          await addToQueue({ entity: "item", action: "upsert", payload: updated as unknown as Record<string, unknown> });
+          await syncUp().catch(() => undefined);
+        }
         await loadInboxItems();
         return updated;
       } catch (error) {
@@ -155,6 +163,8 @@ export function InboxProvider({ children }: { children: React.ReactNode }) {
     async (item: Omit<Item, "id" | "createdAt" | "updatedAt">) => {
       try {
         const newItem = await storage.createItem(item);
+        await addToQueue({ entity: "item", action: "upsert", payload: newItem as unknown as Record<string, unknown> });
+        await syncUp().catch(() => undefined);
         await loadInboxItems();
         return newItem;
       } catch (error) {

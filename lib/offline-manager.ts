@@ -178,7 +178,7 @@ class OfflineManager {
     while (this.queue.length > 0 && this.isOnline) {
       const item = this.queue[0];
       try {
-        await this.trpcClient.mutation(item.path as never, item.input as never);
+        await (this.trpcClient as any).mutation(item.path as never, item.input as never);
         this.queue.shift();
         this.syncProgress = {
           done: this.syncProgress.done + 1,

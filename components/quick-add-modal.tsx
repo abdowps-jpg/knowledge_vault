@@ -269,7 +269,7 @@ export function QuickAddModal() {
             onPress={() => setActiveTab("link")}
           />
           <Tab
-            label="Audio"
+            label="Record Audio"
             icon="mic"
             isActive={quickAddModal.activeTab === "audio"}
             onPress={() => setActiveTab("audio")}
@@ -515,8 +515,24 @@ export function QuickAddModal() {
                 <Text className="text-base font-semibold text-white">Start Recording</Text>
               </Pressable>
               <Text className="text-sm text-muted text-center px-4">
-                Tap to record a voice note. Your speech will be transcribed automatically.
+                Tap to record a voice note. Transcription can be triggered after recording.
               </Text>
+              <Pressable
+                onPress={() => Alert.alert("Coming Soon", "TODO: Integrate transcription API call.")}
+                style={({ pressed }) => [
+                  {
+                    opacity: pressed ? 0.7 : 1,
+                    backgroundColor: colors.surface,
+                    borderColor: colors.border,
+                    borderWidth: 1,
+                    borderRadius: 8,
+                    paddingVertical: 10,
+                    paddingHorizontal: 16,
+                  },
+                ]}
+              >
+                <Text className="text-foreground font-semibold">Transcribe (Coming Soon)</Text>
+              </Pressable>
             </View>
           )}
 

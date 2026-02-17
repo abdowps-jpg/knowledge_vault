@@ -118,7 +118,7 @@ export function QuickActionsFab() {
         key: "journal-entry",
         label: "📝 Journal Entry",
         icon: "menu-book",
-        onPress: () => router.push("/(tabs)/journal?openCreate=1"),
+        onPress: () => router.push("/(app)/(tabs)/journal?openCreate=1"),
       },
       {
         key: "scan-save",
@@ -136,8 +136,8 @@ export function QuickActionsFab() {
 
   return (
     <View
-      pointerEvents="box-none"
       style={{
+        pointerEvents: "box-none",
         position: "absolute",
         top: 0,
         right: 0,

@@ -1,5 +1,5 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import * as Notifications from "expo-notifications";
+import { Platform } from "react-native";
 import { loadAppSettings } from "@/lib/settings-storage";
 
 const TASK_NOTIFICATION_MAP_KEY = "task_notification_map";
@@ -45,7 +45,11 @@ async function setTaskNotificationMap(map: TaskNotificationMap): Promise<void> {
 }
 
 export async function requestTaskNotificationPermissions(): Promise<boolean> {
+  if (Platform.OS === "web") {
+    return false;
+  }
   try {
+    const Notifications = await import("expo-notifications");
     const { status } = await Notifications.requestPermissionsAsync();
     return status === "granted";
   } catch (error) {
@@ -55,7 +59,11 @@ export async function requestTaskNotificationPermissions(): Promise<boolean> {
 }
 
 export async function scheduleTaskDueNotification(input: TaskNotificationInput): Promise<string | null> {
+  if (Platform.OS === "web") {
+    return null;
+  }
   try {
+    const Notifications = await import("expo-notifications");
     const settings = await loadAppSettings();
     if (!settings.taskReminders) return null;
 
@@ -72,7 +80,7 @@ export async function scheduleTaskDueNotification(input: TaskNotificationInput):
         data: {
           type: "task-due",
           taskId: input.taskId,
-          route: "/(tabs)/actions",
+          route: "/(app)/(tabs)/actions",
         },
       },
       trigger: {
@@ -93,7 +101,11 @@ export async function scheduleTaskDueNotification(input: TaskNotificationInput):
 }
 
 export async function cancelTaskDueNotification(taskId: string): Promise<void> {
+  if (Platform.OS === "web") {
+    return;
+  }
   try {
+    const Notifications = await import("expo-notifications");
     const map = await getTaskNotificationMap();
     const notificationId = map[taskId];
     if (notificationId) {

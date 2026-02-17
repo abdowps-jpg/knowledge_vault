@@ -2,25 +2,26 @@ import { randomUUID } from 'crypto';
 import { and, desc, eq, inArray } from 'drizzle-orm';
 import { z } from 'zod';
 import { db } from '../db';
+import { items } from '../schema/items';
 import { itemTags, tags } from '../schema/tags';
-import { publicProcedure, router } from '../trpc';
+import { protectedProcedure, router } from '../trpc';
 
 export const tagsRouter = router({
   // Get all tags for the current user
-  list: publicProcedure
+  list: protectedProcedure
     .input(
       z.object({
         limit: z.number().min(1).max(200).default(100),
         cursor: z.number().int().min(0).optional(),
       })
     )
-    .query(async ({ input }) => {
+    .query(async ({ input, ctx }) => {
       try {
         const cursor = input.cursor ?? 0;
         const result = await db
           .select()
           .from(tags)
-          .where(eq(tags.userId, 'test-user'))
+          .where(eq(tags.userId, ctx.user.id))
           .orderBy(desc(tags.createdAt))
           .limit(input.limit)
           .offset(cursor);
@@ -33,7 +34,7 @@ export const tagsRouter = router({
     }),
 
   // Create tag
-  create: publicProcedure
+  create: protectedProcedure
     .input(
       z.object({
         name: z.string().min(1),
@@ -43,11 +44,11 @@ export const tagsRouter = router({
           .optional(),
       })
     )
-    .mutation(async ({ input }) => {
+    .mutation(async ({ input, ctx }) => {
       try {
         const newTag = {
           id: randomUUID(),
-          userId: 'test-user',
+          userId: ctx.user.id,
           name: input.name.trim(),
           color: input.color ?? null,
         };
@@ -61,17 +62,17 @@ export const tagsRouter = router({
     }),
 
   // Delete tag and unlink it from items
-  delete: publicProcedure
+  delete: protectedProcedure
     .input(
       z.object({
         id: z.string(),
       })
     )
-    .mutation(async ({ input }) => {
+    .mutation(async ({ input, ctx }) => {
       try {
         await db.transaction(async (tx) => {
           await tx.delete(itemTags).where(eq(itemTags.tagId, input.id));
-          await tx.delete(tags).where(and(eq(tags.id, input.id), eq(tags.userId, 'test-user')));
+          await tx.delete(tags).where(and(eq(tags.id, input.id), eq(tags.userId, ctx.user.id)));
         });
         return { success: true };
       } catch (error) {
@@ -81,15 +82,33 @@ export const tagsRouter = router({
     }),
 
   // Link tag to an item
-  addToItem: publicProcedure
+  addToItem: protectedProcedure
     .input(
       z.object({
         itemId: z.string(),
         tagId: z.string(),
       })
     )
-    .mutation(async ({ input }) => {
+    .mutation(async ({ input, ctx }) => {
       try {
+        const ownerItem = await db
+          .select()
+          .from(items)
+          .where(and(eq(items.id, input.itemId), eq(items.userId, ctx.user.id)))
+          .limit(1);
+        if (ownerItem.length === 0) {
+          return { success: false };
+        }
+
+        const ownerTag = await db
+          .select()
+          .from(tags)
+          .where(and(eq(tags.id, input.tagId), eq(tags.userId, ctx.user.id)))
+          .limit(1);
+        if (ownerTag.length === 0) {
+          return { success: false };
+        }
+
         const existing = await db
           .select()
           .from(itemTags)
@@ -114,15 +133,33 @@ export const tagsRouter = router({
     }),
 
   // Unlink tag from an item
-  removeFromItem: publicProcedure
+  removeFromItem: protectedProcedure
     .input(
       z.object({
         itemId: z.string(),
         tagId: z.string(),
       })
     )
-    .mutation(async ({ input }) => {
+    .mutation(async ({ input, ctx }) => {
       try {
+        const ownerItem = await db
+          .select()
+          .from(items)
+          .where(and(eq(items.id, input.itemId), eq(items.userId, ctx.user.id)))
+          .limit(1);
+        if (ownerItem.length === 0) {
+          return { success: false };
+        }
+
+        const ownerTag = await db
+          .select()
+          .from(tags)
+          .where(and(eq(tags.id, input.tagId), eq(tags.userId, ctx.user.id)))
+          .limit(1);
+        if (ownerTag.length === 0) {
+          return { success: false };
+        }
+
         await db
           .delete(itemTags)
           .where(and(eq(itemTags.itemId, input.itemId), eq(itemTags.tagId, input.tagId)));
@@ -135,14 +172,23 @@ export const tagsRouter = router({
     }),
 
   // Get all tags linked to a specific item
-  getItemTags: publicProcedure
+  getItemTags: protectedProcedure
     .input(
       z.object({
         itemId: z.string(),
       })
     )
-    .query(async ({ input }) => {
+    .query(async ({ input, ctx }) => {
       try {
+        const ownerItem = await db
+          .select()
+          .from(items)
+          .where(and(eq(items.id, input.itemId), eq(items.userId, ctx.user.id)))
+          .limit(1);
+        if (ownerItem.length === 0) {
+          return [];
+        }
+
         const links = await db.select().from(itemTags).where(eq(itemTags.itemId, input.itemId));
 
         if (!links || links.length === 0) {

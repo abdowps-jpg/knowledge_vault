@@ -3,24 +3,25 @@ import { and, desc, eq } from 'drizzle-orm';
 import { z } from 'zod';
 import { db } from '../db';
 import { categories, itemCategories } from '../schema/categories';
-import { publicProcedure, router } from '../trpc';
+import { items } from '../schema/items';
+import { protectedProcedure, router } from '../trpc';
 
 export const categoriesRouter = router({
   // Get all categories
-  list: publicProcedure
+  list: protectedProcedure
     .input(
       z.object({
         limit: z.number().min(1).max(200).default(100),
         cursor: z.number().int().min(0).optional(),
       })
     )
-    .query(async ({ input }) => {
+    .query(async ({ input, ctx }) => {
       try {
         const cursor = input.cursor ?? 0;
         const result = await db
           .select()
           .from(categories)
-          .where(eq(categories.userId, 'test-user'))
+          .where(eq(categories.userId, ctx.user.id))
           .orderBy(desc(categories.createdAt))
           .limit(input.limit)
           .offset(cursor);
@@ -33,18 +34,18 @@ export const categoriesRouter = router({
     }),
 
   // Create category
-  create: publicProcedure
+  create: protectedProcedure
     .input(
       z.object({
         name: z.string().min(1),
         icon: z.string().optional(),
       })
     )
-    .mutation(async ({ input }) => {
+    .mutation(async ({ input, ctx }) => {
       try {
         const newCategory = {
           id: randomUUID(),
-          userId: 'test-user',
+          userId: ctx.user.id,
           name: input.name.trim(),
           icon: input.icon || 'folder',
         };
@@ -58,7 +59,7 @@ export const categoriesRouter = router({
     }),
 
   // Update category
-  update: publicProcedure
+  update: protectedProcedure
     .input(
       z.object({
         id: z.string(),
@@ -66,7 +67,7 @@ export const categoriesRouter = router({
         icon: z.string().optional(),
       })
     )
-    .mutation(async ({ input }) => {
+    .mutation(async ({ input, ctx }) => {
       try {
         const { id, ...data } = input;
 
@@ -76,7 +77,7 @@ export const categoriesRouter = router({
             ...data,
             updatedAt: new Date().toISOString(),
           })
-          .where(and(eq(categories.id, id), eq(categories.userId, 'test-user')));
+          .where(and(eq(categories.id, id), eq(categories.userId, ctx.user.id)));
 
         return { success: true };
       } catch (error) {
@@ -86,19 +87,19 @@ export const categoriesRouter = router({
     }),
 
   // Delete category
-  delete: publicProcedure
+  delete: protectedProcedure
     .input(
       z.object({
         id: z.string(),
       })
     )
-    .mutation(async ({ input }) => {
+    .mutation(async ({ input, ctx }) => {
       try {
         await db.transaction(async (tx) => {
           await tx.delete(itemCategories).where(eq(itemCategories.categoryId, input.id));
           await tx
             .delete(categories)
-            .where(and(eq(categories.id, input.id), eq(categories.userId, 'test-user')));
+            .where(and(eq(categories.id, input.id), eq(categories.userId, ctx.user.id)));
         });
         return { success: true };
       } catch (error) {
@@ -108,15 +109,35 @@ export const categoriesRouter = router({
     }),
 
   // Assign category to an item
-  assignToItem: publicProcedure
+  assignToItem: protectedProcedure
     .input(
       z.object({
         itemId: z.string(),
         categoryId: z.string().nullable(),
       })
     )
-    .mutation(async ({ input }) => {
+    .mutation(async ({ input, ctx }) => {
       try {
+        const ownerItem = await db
+          .select({ id: items.id })
+          .from(items)
+          .where(and(eq(items.id, input.itemId), eq(items.userId, ctx.user.id)))
+          .limit(1);
+        if (ownerItem.length === 0) {
+          return { success: false, categoryId: null };
+        }
+
+        if (input.categoryId) {
+          const ownerCategory = await db
+            .select({ id: categories.id })
+            .from(categories)
+            .where(and(eq(categories.id, input.categoryId), eq(categories.userId, ctx.user.id)))
+            .limit(1);
+          if (ownerCategory.length === 0) {
+            return { success: false, categoryId: null };
+          }
+        }
+
         await db.transaction(async (tx) => {
           await tx.delete(itemCategories).where(eq(itemCategories.itemId, input.itemId));
 

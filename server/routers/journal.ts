@@ -3,13 +3,13 @@ import { and, desc, eq, gte, lte } from 'drizzle-orm';
 import { z } from 'zod';
 import { db } from '../db';
 import { journal } from '../schema/journal';
-import { publicProcedure, router } from '../trpc';
+import { protectedProcedure, router } from '../trpc';
 
 const dateString = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Date must be YYYY-MM-DD');
 
 export const journalRouter = router({
   // List entries filtered by optional date range, newest first
-  list: publicProcedure
+  list: protectedProcedure
     .input(
       z.object({
         startDate: dateString.optional(),
@@ -18,10 +18,10 @@ export const journalRouter = router({
         cursor: z.number().int().min(0).optional(),
       })
     )
-    .query(async ({ input }) => {
+    .query(async ({ input, ctx }) => {
       try {
         const cursor = input.cursor ?? 0;
-        const conditions = [];
+        const conditions = [eq(journal.userId, ctx.user.id)];
 
         if (input.startDate) {
           conditions.push(gte(journal.entryDate, input.startDate));
@@ -54,7 +54,7 @@ export const journalRouter = router({
     }),
 
   // Create journal entry
-  create: publicProcedure
+  create: protectedProcedure
     .input(
       z.object({
         entryDate: dateString,
@@ -65,11 +65,11 @@ export const journalRouter = router({
         weather: z.string().nullable().optional(),
       })
     )
-    .mutation(async ({ input }) => {
+    .mutation(async ({ input, ctx }) => {
       try {
         const newEntry = {
           id: randomUUID(),
-          userId: 'test-user',
+          userId: ctx.user.id,
           entryDate: input.entryDate,
           title: input.title ?? null,
           content: input.content,
@@ -88,7 +88,7 @@ export const journalRouter = router({
     }),
 
   // Update journal entry fields
-  update: publicProcedure
+  update: protectedProcedure
     .input(
       z.object({
         id: z.string(),
@@ -100,7 +100,7 @@ export const journalRouter = router({
         weather: z.string().nullable().optional(),
       })
     )
-    .mutation(async ({ input }) => {
+    .mutation(async ({ input, ctx }) => {
       try {
         const { id, ...data } = input;
         const updateData: Record<string, unknown> = {
@@ -114,7 +114,10 @@ export const journalRouter = router({
         if (typeof data.location !== 'undefined') updateData.location = data.location;
         if (typeof data.weather !== 'undefined') updateData.weather = data.weather;
 
-        await db.update(journal).set(updateData).where(eq(journal.id, id));
+        await db
+          .update(journal)
+          .set(updateData)
+          .where(and(eq(journal.id, id), eq(journal.userId, ctx.user.id)));
         return { success: true };
       } catch (error) {
         console.error('Error updating journal entry:', error);
@@ -123,15 +126,15 @@ export const journalRouter = router({
     }),
 
   // Delete journal entry
-  delete: publicProcedure
+  delete: protectedProcedure
     .input(
       z.object({
         id: z.string(),
       })
     )
-    .mutation(async ({ input }) => {
+    .mutation(async ({ input, ctx }) => {
       try {
-        await db.delete(journal).where(eq(journal.id, input.id));
+        await db.delete(journal).where(and(eq(journal.id, input.id), eq(journal.userId, ctx.user.id)));
         return { success: true };
       } catch (error) {
         console.error('Error deleting journal entry:', error);
@@ -140,18 +143,18 @@ export const journalRouter = router({
     }),
 
   // Get all entries for a specific date
-  getByDate: publicProcedure
+  getByDate: protectedProcedure
     .input(
       z.object({
         entryDate: dateString,
       })
     )
-    .query(async ({ input }) => {
+    .query(async ({ input, ctx }) => {
       try {
         const result = await db
           .select()
           .from(journal)
-          .where(eq(journal.entryDate, input.entryDate))
+          .where(and(eq(journal.entryDate, input.entryDate), eq(journal.userId, ctx.user.id)))
           .orderBy(desc(journal.entryDate));
 
         return result || [];
@@ -159,5 +162,21 @@ export const journalRouter = router({
         console.error('Error fetching journal entries by date:', error);
         return [];
       }
+    }),
+
+  syncJournal: protectedProcedure
+    .input(
+      z.object({
+        since: z.number().optional(),
+      })
+    )
+    .query(async ({ input, ctx }) => {
+      const sinceDate = input.since ? new Date(input.since) : new Date(0);
+      const result = await db
+        .select()
+        .from(journal)
+        .where(and(eq(journal.userId, ctx.user.id), gte(journal.updatedAt, sinceDate)))
+        .orderBy(desc(journal.updatedAt));
+      return result ?? [];
     }),
 });

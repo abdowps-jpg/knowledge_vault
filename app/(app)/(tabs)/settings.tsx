@@ -4,6 +4,7 @@ import {
   Alert,
   Linking,
   Modal,
+  Platform,
   Pressable,
   ScrollView,
   Switch,
@@ -12,19 +13,21 @@ import {
   useColorScheme,
   View,
 } from "react-native";
-import * as Notifications from "expo-notifications";
 import Constants from "expo-constants";
 import * as Sharing from "expo-sharing";
 import * as FileSystem from "expo-file-system";
 import * as DocumentPicker from "expo-document-picker";
 import { MaterialIcons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
+import { useQueryClient } from "@tanstack/react-query";
 
 import { ScreenContainer } from "@/components/screen-container";
 import { useColors } from "@/hooks/use-colors";
 import { useThemeContext } from "@/lib/theme-provider";
 import { clearAllData, exportAllData as exportLocalData, importData } from "@/lib/db/storage";
 import { trpc } from "@/lib/trpc";
+import { clearToken, saveStayLoggedIn } from "@/lib/auth-storage";
+import { fullSync, getLastSyncTime } from "@/lib/sync-manager";
 import {
   AppSettings,
   DEFAULT_APP_SETTINGS,
@@ -118,8 +121,13 @@ function normalizeTime(hourText: string, minuteText: string): string | null {
 }
 
 export default function SettingsScreen() {
+  const PRIVACY_URL = "https://knowledgevault.app/privacy";
+  const TERMS_URL = "https://knowledgevault.app/terms";
+  const DATA_DELETION_URL = "https://knowledgevault.app/data-deletion";
+  const SUPPORT_EMAIL = "support@knowledgevault.app";
   const colors = useColors();
   const router = useRouter();
+  const queryClient = useQueryClient();
   const systemScheme = useColorScheme() ?? "light";
   const { setColorScheme } = useThemeContext();
   const exportQuery = trpc.export.exportAll.useQuery(undefined, { enabled: false });
@@ -136,6 +144,11 @@ export default function SettingsScreen() {
   const [timeTarget, setTimeTarget] = useState<"task" | "journal">("task");
   const [hourInput, setHourInput] = useState("09");
   const [minuteInput, setMinuteInput] = useState("00");
+  const [syncingNow, setSyncingNow] = useState(false);
+  const [lastSyncAt, setLastSyncAt] = useState<number | null>(null);
+  const [autoSyncEnabled, setAutoSyncEnabled] = useState(true);
+  const [autoTranscribe, setAutoTranscribe] = useState(false);
+  const [transcribeLanguage, setTranscribeLanguage] = useState<"ar" | "en">("en");
 
   const appVersion = Constants.expoConfig?.version ?? "1.0.0";
 
@@ -245,7 +258,9 @@ export default function SettingsScreen() {
   };
 
   const scheduleOrCancelJournalReminder = async (next: AppSettings) => {
+    if (Platform.OS === "web") return;
     try {
+      const Notifications = await import("expo-notifications");
       const existing = await getJournalReminderNotificationId();
       if (existing) {
         await Notifications.cancelScheduledNotificationAsync(existing);
@@ -262,7 +277,7 @@ export default function SettingsScreen() {
         content: {
           title: "Journal Reminder",
           body: "Take a minute to write your journal entry.",
-          data: { type: "journal-reminder", route: "/(tabs)/journal" },
+          data: { type: "journal-reminder", route: "/(app)/(tabs)/journal" },
         },
         trigger: {
           type: Notifications.SchedulableTriggerInputTypes.DAILY,
@@ -298,6 +313,10 @@ export default function SettingsScreen() {
         await refreshStorageUsed();
       }
     })();
+  }, []);
+
+  useEffect(() => {
+    getLastSyncTime().then(setLastSyncAt).catch(() => setLastSyncAt(null));
   }, []);
 
   const handleThemeChange = async (theme: ThemePreference) => {
@@ -471,6 +490,35 @@ export default function SettingsScreen() {
     ]);
   };
 
+  const handleLogout = () => {
+    Alert.alert("Logout", "Do you want to sign out?", [
+      { text: "Cancel", style: "cancel" },
+      {
+        text: "Logout",
+        style: "destructive",
+        onPress: async () => {
+          await clearToken();
+          await saveStayLoggedIn(false);
+          queryClient.clear();
+          router.replace("/(auth)/login");
+        },
+      },
+    ]);
+  };
+
+  const handleManualSync = async () => {
+    try {
+      setSyncingNow(true);
+      const result = await fullSync();
+      setLastSyncAt(result.down.serverTimestamp);
+      Alert.alert("Sync Complete", `Uploaded: ${result.up.synced}, Failed: ${result.up.failed}`);
+    } catch (error) {
+      Alert.alert("Sync Failed", error instanceof Error ? error.message : "Unknown error");
+    } finally {
+      setSyncingNow(false);
+    }
+  };
+
   if (loading) {
     return (
       <ScreenContainer>
@@ -491,6 +539,7 @@ export default function SettingsScreen() {
         <Section title="Account">
           <Row icon="person" label="Username" value={settings.username} />
           <Row icon="email" label="Email" value={settings.email} />
+          <Row icon="logout" label="Logout" onPress={handleLogout} />
         </Section>
 
         <Section title="Notifications">
@@ -584,18 +633,100 @@ export default function SettingsScreen() {
           <Row icon="storage" label="Storage Used" value={storageUsed} />
         </Section>
 
+        <Section title="Cloud Sync">
+          <Row
+            icon="sync"
+            label="Last Sync"
+            value={lastSyncAt ? new Date(lastSyncAt).toLocaleString() : "Never"}
+          />
+          <Row
+            icon="cloud-sync"
+            label="Manual Sync"
+            description="Push and pull latest changes now"
+            onPress={handleManualSync}
+            right={syncingNow ? <ActivityIndicator color={colors.primary} /> : undefined}
+          />
+          <Row
+            icon="autorenew"
+            label="Auto Sync"
+            description="Sync every 5 minutes when app is active"
+            right={
+              <Switch
+                value={autoSyncEnabled}
+                onValueChange={setAutoSyncEnabled}
+                trackColor={{ false: colors.border, true: colors.primary }}
+              />
+            }
+          />
+          <Row
+            icon={syncingNow ? "cloud-upload" : "cloud-done"}
+            label="Sync Status"
+            value={syncingNow ? "Syncing..." : "Idle"}
+          />
+        </Section>
+
+        <Section title="Transcription">
+          <Row
+            icon="record-voice-over"
+            label="Auto-Transcribe"
+            description="Automatically transcribe recorded audio"
+            right={
+              <Switch
+                value={autoTranscribe}
+                onValueChange={setAutoTranscribe}
+                trackColor={{ false: colors.border, true: colors.primary }}
+              />
+            }
+          />
+          <Row icon="language" label="Language" value={transcribeLanguage === "ar" ? "Arabic" : "English"} />
+          <View className="px-4 pb-3 pt-1 flex-row gap-2">
+            {(["en", "ar"] as const).map((lang) => (
+              <Pressable
+                key={lang}
+                onPress={() => setTranscribeLanguage(lang)}
+                style={{
+                  paddingHorizontal: 12,
+                  paddingVertical: 8,
+                  borderRadius: 8,
+                  borderWidth: 1,
+                  borderColor: colors.border,
+                  backgroundColor: transcribeLanguage === lang ? colors.primary : colors.background,
+                }}
+              >
+                <Text style={{ color: transcribeLanguage === lang ? "white" : colors.foreground, fontWeight: "600" }}>
+                  {lang === "ar" ? "Arabic" : "English"}
+                </Text>
+              </Pressable>
+            ))}
+          </View>
+        </Section>
+
         <Section title="About">
           <Row icon="info" label="App Version" value={appVersion} />
           <Row icon="bar-chart" label="Statistics" onPress={() => router.push("/stats")} />
+          <Row icon="insights" label="Advanced Analytics" onPress={() => router.push("/analytics" as any)} />
+          <Row icon="devices" label="Device Management" onPress={() => router.push("/devices" as any)} />
+          <Row icon="psychology" label="AI Features" onPress={() => router.push("/ai-features" as any)} />
+          <Row icon="merge-type" label="Resolve Conflicts" onPress={() => router.push("/conflicts" as any)} />
           <Row
             icon="policy"
             label="Privacy Policy"
-            onPress={() => Linking.openURL("https://example.com/privacy")}
+            onPress={() => Linking.openURL(PRIVACY_URL)}
           />
           <Row
             icon="gavel"
             label="Terms of Service"
-            onPress={() => Linking.openURL("https://example.com/terms")}
+            onPress={() => Linking.openURL(TERMS_URL)}
+          />
+          <Row
+            icon="delete-sweep"
+            label="Data Deletion"
+            onPress={() => Linking.openURL(DATA_DELETION_URL)}
+          />
+          <Row
+            icon="support-agent"
+            label="Support"
+            onPress={() => Linking.openURL(`mailto:${SUPPORT_EMAIL}`)}
           />
         </Section>
       </ScrollView>
@@ -676,8 +807,8 @@ export default function SettingsScreen() {
 
       {working ? (
         <View
-          pointerEvents="none"
           style={{
+            pointerEvents: "none",
             position: "absolute",
             top: 0,
             right: 0,

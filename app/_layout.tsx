@@ -1,14 +1,14 @@
 import "@/global.css";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { Stack, useRouter } from "expo-router";
+import { Stack, useRouter, useSegments } from "expo-router";
 import { usePathname } from "expo-router";
 import { StatusBar } from "expo-status-bar";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
 import "react-native-reanimated";
-import { Platform, Text, View } from "react-native";
-import * as Notifications from "expo-notifications";
+import { AppState, Platform, Text, View } from "react-native";
 import AsyncStorage from "@react-native-async-storage/async-storage";
+import NetInfo from "@react-native-community/netinfo";
 import "@/lib/_core/nativewind-pressable";
 import { ThemeProvider } from "@/lib/theme-provider";
 import {
@@ -19,7 +19,9 @@ import {
 } from "react-native-safe-area-context";
 import type { EdgeInsets, Metrics, Rect } from "react-native-safe-area-context";
 
-import { trpc, createTRPCClient } from "@/lib/trpc";
+import { trpc, createTRPCClient, configureTRPCAuth } from "@/lib/trpc";
+import { clearToken, getStayLoggedIn, getToken } from "@/lib/auth-storage";
+import { fullSync } from "@/lib/sync-manager";
 import { initManusRuntime, subscribeSafeAreaInsets } from "@/lib/_core/manus-runtime";
 import { InboxProvider } from "@/lib/context/inbox-context";
 import { LibraryProvider } from "@/lib/context/library-context";
@@ -33,12 +35,13 @@ const DEFAULT_WEB_INSETS: EdgeInsets = { top: 0, right: 0, bottom: 0, left: 0 };
 const DEFAULT_WEB_FRAME: Rect = { x: 0, y: 0, width: 0, height: 0 };
 
 export const unstable_settings = {
-  anchor: "(tabs)",
+  anchor: "(app)",
 };
 
 export default function RootLayout() {
   const router = useRouter();
   const pathname = usePathname();
+  const segments = useSegments();
   const initialInsets = initialWindowMetrics?.insets ?? DEFAULT_WEB_INSETS;
   const initialFrame = initialWindowMetrics?.frame ?? DEFAULT_WEB_FRAME;
 
@@ -49,6 +52,9 @@ export default function RootLayout() {
   );
   const [onboardingChecked, setOnboardingChecked] = useState(false);
   const [hasSeenOnboarding, setHasSeenOnboarding] = useState(true);
+  const [authChecked, setAuthChecked] = useState(false);
+  const [authenticated, setAuthenticated] = useState(false);
+  const [sessionExpired, setSessionExpired] = useState(false);
 
   // Initialize Manus runtime for cookie injection from parent container
   useEffect(() => {
@@ -112,44 +118,102 @@ export default function RootLayout() {
   }, [onboardingChecked, hasSeenOnboarding, pathname, router]);
 
   useEffect(() => {
-    Notifications.setNotificationHandler({
-      handleNotification: async () => ({
-        shouldShowAlert: true,
-        shouldPlaySound: true,
-        shouldSetBadge: true,
-        shouldShowBanner: true,
-        shouldShowList: true,
-      }),
-    });
+    (async () => {
+      try {
+        const stayLoggedIn = await getStayLoggedIn();
+        const token = await getToken();
+        if (!token) {
+          setAuthenticated(false);
+          setAuthChecked(true);
+          return;
+        }
+        if (!stayLoggedIn) {
+          await clearToken();
+          setAuthenticated(false);
+          setAuthChecked(true);
+          return;
+        }
+        setAuthenticated(true);
+      } catch (error) {
+        console.error("Failed loading auth state:", error);
+        setAuthenticated(false);
+      } finally {
+        setAuthChecked(true);
+      }
+    })();
+  }, []);
 
-    requestTaskNotificationPermissions().catch((error) => {
-      console.error("Notification permission request failed:", error);
-    });
+  useEffect(() => {
+    if (!onboardingChecked || !authChecked || !hasSeenOnboarding) return;
+    const inAuthGroup = segments[0] === "(auth)";
+    if (authenticated && sessionExpired) {
+      setSessionExpired(false);
+    }
 
-    const handleTaskNavigation = (taskId?: string) => {
-      if (!taskId) return;
-      router.push({
-        pathname: "/(tabs)/actions",
-        params: { taskId },
+    if (!authenticated && !inAuthGroup) {
+      router.replace("/(auth)/login" as any);
+      return;
+    }
+
+    if (authenticated && inAuthGroup) {
+      router.replace("/(app)/(tabs)" as any);
+    }
+  }, [authChecked, authenticated, hasSeenOnboarding, onboardingChecked, router, segments, sessionExpired]);
+
+  useEffect(() => {
+    if (Platform.OS === "web") {
+      return;
+    }
+    let isActive = true;
+    let removeListener: (() => void) | null = null;
+
+    (async () => {
+      const Notifications = await import("expo-notifications");
+      if (!isActive) return;
+
+      Notifications.setNotificationHandler({
+        handleNotification: async () => ({
+          shouldShowAlert: true,
+          shouldPlaySound: true,
+          shouldSetBadge: true,
+          shouldShowBanner: true,
+          shouldShowList: true,
+        }),
       });
-    };
 
-    const responseSub = Notifications.addNotificationResponseReceivedListener((response) => {
-      const data = response.notification.request.content.data as { taskId?: string } | undefined;
-      handleTaskNavigation(data?.taskId);
-    });
+      requestTaskNotificationPermissions().catch((error) => {
+        console.error("Notification permission request failed:", error);
+      });
 
-    Notifications.getLastNotificationResponseAsync()
-      .then((response) => {
-        const data = response?.notification.request.content.data as { taskId?: string } | undefined;
+      const handleTaskNavigation = (taskId?: string) => {
+        if (!taskId) return;
+        router.push({
+          pathname: "/(app)/(tabs)/actions",
+          params: { taskId },
+        });
+      };
+
+      const responseSub = Notifications.addNotificationResponseReceivedListener((response) => {
+        const data = response.notification.request.content.data as { taskId?: string } | undefined;
         handleTaskNavigation(data?.taskId);
-      })
-      .catch((error) => {
-        console.error("Failed reading last notification response:", error);
       });
+      removeListener = () => responseSub.remove();
+
+      Notifications.getLastNotificationResponseAsync()
+        .then((response) => {
+          const data = response?.notification.request.content.data as { taskId?: string } | undefined;
+          handleTaskNavigation(data?.taskId);
+        })
+        .catch((error) => {
+          console.error("Failed reading last notification response:", error);
+        });
+    })().catch((error) => {
+      console.error("Notification initialization failed:", error);
+    });
 
     return () => {
-      responseSub.remove();
+      isActive = false;
+      removeListener?.();
     };
   }, [router]);
 
@@ -170,13 +234,47 @@ export default function RootLayout() {
         },
       }),
   );
-  const [trpcClient] = useState(() => createTRPCClient());
+  const [trpcClient] = useState(() => {
+    configureTRPCAuth({
+      getToken,
+      onUnauthorized: async () => {
+        await clearToken();
+        setAuthenticated(false);
+        setSessionExpired(true);
+      },
+    });
+    return createTRPCClient();
+  });
 
   useEffect(() => {
     if (offlineSnapshot.status === "synced") {
       queryClient.invalidateQueries().catch(() => undefined);
     }
   }, [offlineSnapshot.status, queryClient]);
+
+  useEffect(() => {
+    if (!authenticated) return;
+
+    const runSync = () => {
+      fullSync().catch((error) => {
+        console.error("Background sync failed:", error);
+      });
+    };
+
+    const interval = setInterval(runSync, 5 * 60 * 1000);
+    const appStateSub = AppState.addEventListener("change", (state) => {
+      if (state === "active") runSync();
+    });
+    const netUnsub = NetInfo.addEventListener((state) => {
+      if (state.isConnected) runSync();
+    });
+
+    return () => {
+      clearInterval(interval);
+      appStateSub.remove();
+      netUnsub();
+    };
+  }, [authenticated]);
 
   // Ensure minimum 8px padding for top and bottom on mobile
   const providerInitialMetrics = useMemo(() => {
@@ -214,8 +312,8 @@ export default function RootLayout() {
                   <SearchProvider>
                     <Stack screenOptions={{ headerShown: false }}>
                       <Stack.Screen name="onboarding" />
-                      <Stack.Screen name="(tabs)" />
-                      <Stack.Screen name="stats" />
+                      <Stack.Screen name="(auth)" />
+                      <Stack.Screen name="(app)" />
                       <Stack.Screen name="oauth/callback" />
                     </Stack>
                   </SearchProvider>
@@ -247,9 +345,29 @@ export default function RootLayout() {
         </View>
       ) : null}
 
+      {sessionExpired ? (
+        <View
+          style={{
+            position: "absolute",
+            top: Math.max(insets.top, 10),
+            left: 12,
+            right: 12,
+            paddingHorizontal: 12,
+            paddingVertical: 10,
+            backgroundColor: "#ef4444",
+            borderRadius: 10,
+            zIndex: 130,
+          }}
+        >
+          <Text style={{ color: "white", textAlign: "center", fontWeight: "700", fontSize: 12 }}>
+            Session expired. Please login again.
+          </Text>
+        </View>
+      ) : null}
+
       <View
-        pointerEvents="none"
         style={{
+          pointerEvents: "none",
           position: "absolute",
           top: Math.max(insets.top + (offlineSnapshot.isOnline ? 8 : 44), 12),
           right: 12,
@@ -275,7 +393,7 @@ export default function RootLayout() {
     </GestureHandlerRootView>
   );
 
-  if (!onboardingChecked) {
+  if (!onboardingChecked || !authChecked) {
     return (
       <ThemeProvider>
         <SafeAreaProvider initialMetrics={providerInitialMetrics}>

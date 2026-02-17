@@ -10,10 +10,17 @@ db.exec(`
     password TEXT NOT NULL,
     username TEXT,
     is_active INTEGER DEFAULT 1,
+    last_synced_at INTEGER,
     created_at INTEGER DEFAULT (strftime('%s', 'now')),
     updated_at INTEGER DEFAULT (strftime('%s', 'now'))
   );
 `);
+
+try {
+  db.exec(`ALTER TABLE users ADD COLUMN last_synced_at INTEGER;`);
+} catch {
+  // Column already exists.
+}
 
 // إنشاء جدول العناصر
 db.exec(`
@@ -143,6 +150,24 @@ db.exec(`
 
   CREATE INDEX IF NOT EXISTS idx_item_categories_item_id ON item_categories(item_id);
   CREATE INDEX IF NOT EXISTS idx_item_categories_category_id ON item_categories(category_id);
+`);
+
+db.exec(`
+  CREATE TABLE IF NOT EXISTS devices (
+    id TEXT PRIMARY KEY,
+    user_id TEXT NOT NULL,
+    device_id TEXT NOT NULL,
+    device_name TEXT NOT NULL,
+    platform TEXT NOT NULL,
+    push_token TEXT,
+    is_active INTEGER DEFAULT 1,
+    last_active_at INTEGER DEFAULT (strftime('%s', 'now')),
+    created_at INTEGER DEFAULT (strftime('%s', 'now')),
+    updated_at INTEGER DEFAULT (strftime('%s', 'now'))
+  );
+
+  CREATE INDEX IF NOT EXISTS idx_devices_user_id ON devices(user_id);
+  CREATE INDEX IF NOT EXISTS idx_devices_device_id ON devices(device_id);
 `);
 
 console.log('✅ Database tables created successfully!');

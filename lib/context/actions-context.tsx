@@ -1,6 +1,8 @@
 import React, { createContext, useContext, useState, useCallback, useMemo } from "react";
 import { Item, ItemType } from "@/lib/db/schema";
 import * as storage from "@/lib/db/storage";
+import { addToQueue } from "@/lib/sync-queue";
+import { syncUp } from "@/lib/sync-manager";
 
 // ============================================================================
 // Types
@@ -170,6 +172,8 @@ export function ActionsProvider({ children }: { children: React.ReactNode }) {
           isCompleted: false,
           recurrencePattern: recurrencePattern || "none",
         } as any);
+        await addToQueue({ entity: "task", action: "upsert", payload: newTask as unknown as Record<string, unknown> });
+        await syncUp().catch(() => undefined);
 
         await loadTasks();
         return newTask;
@@ -191,6 +195,12 @@ export function ActionsProvider({ children }: { children: React.ReactNode }) {
           ...task,
           ...updates,
         } as any);
+        await addToQueue({
+          entity: "task",
+          action: "upsert",
+          payload: { ...task, ...updates, id: itemId } as unknown as Record<string, unknown>,
+        });
+        await syncUp().catch(() => undefined);
         await loadTasks();
       } catch (error) {
         console.error("Error updating task:", error);
@@ -210,6 +220,12 @@ export function ActionsProvider({ children }: { children: React.ReactNode }) {
           ...task,
           isCompleted: !(task as any).isCompleted,
         } as any);
+        await addToQueue({
+          entity: "task",
+          action: "upsert",
+          payload: { ...task, isCompleted: !(task as any).isCompleted, id: itemId } as unknown as Record<string, unknown>,
+        });
+        await syncUp().catch(() => undefined);
         await loadTasks();
       } catch (error) {
         console.error("Error completing task:", error);
@@ -223,6 +239,8 @@ export function ActionsProvider({ children }: { children: React.ReactNode }) {
     async (itemId: string) => {
       try {
         await storage.deleteItem(itemId);
+        await addToQueue({ entity: "task", action: "delete", payload: { id: itemId } });
+        await syncUp().catch(() => undefined);
         await loadTasks();
       } catch (error) {
         console.error("Error deleting task:", error);

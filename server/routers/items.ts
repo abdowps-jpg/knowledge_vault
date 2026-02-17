@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { router, publicProcedure } from '../trpc';
+import { protectedProcedure, router } from '../trpc';
 import { items } from '../schema';
 import { eq, and, desc, asc, sql, gte, inArray } from 'drizzle-orm';
 import { db } from '../db';
@@ -9,7 +9,7 @@ import { itemCategories } from '../schema/categories';
 
 export const itemsRouter = router({
   // قراءة كل العناصر
-  list: publicProcedure
+  list: protectedProcedure
     .input(z.object({
       location: z.enum(['inbox', 'library', 'archive']).optional(),
       isFavorite: z.boolean().optional(),
@@ -21,10 +21,10 @@ export const itemsRouter = router({
       limit: z.number().min(1).max(100).default(25),
       cursor: z.number().int().min(0).optional(),
     }))
-    .query(async ({ input }) => {
+    .query(async ({ input, ctx }) => {
       try {
         const cursor = input.cursor ?? 0;
-        const conditions = [];
+        const conditions = [eq(items.userId, ctx.user.id)];
         
         if (input.location) {
           conditions.push(eq(items.location, input.location));
@@ -122,20 +122,20 @@ export const itemsRouter = router({
     }),
 
   // Get single item with its tags
-  getWithTags: publicProcedure
+  getWithTags: protectedProcedure
     .input(
       z.object({
         id: z.string(),
       })
     )
-    .query(async ({ input }) => {
+    .query(async ({ input, ctx }) => {
       try {
         const rows = await db
           .select()
           .from(items)
           .leftJoin(itemTags, eq(itemTags.itemId, items.id))
           .leftJoin(tags, eq(tags.id, itemTags.tagId))
-          .where(eq(items.id, input.id));
+          .where(and(eq(items.id, input.id), eq(items.userId, ctx.user.id)));
 
         if (!rows || rows.length === 0) {
           return null;
@@ -175,18 +175,18 @@ export const itemsRouter = router({
     }),
 
   // إضافة عنصر جديد
-  create: publicProcedure
+  create: protectedProcedure
     .input(z.object({
       type: z.enum(['note', 'quote', 'link', 'audio']),
       title: z.string(),
       content: z.string().optional(),
       url: z.string().optional(),
     }))
-    .mutation(async ({ input }) => {
+    .mutation(async ({ input, ctx }) => {
       try {
         const newItem = {
           id: randomUUID(),
-          userId: 'test-user',
+          userId: ctx.user.id,
           type: input.type,
           title: input.title,
           content: input.content || null,
@@ -204,7 +204,7 @@ export const itemsRouter = router({
     }),
 
   // تعديل عنصر
-  update: publicProcedure
+  update: protectedProcedure
     .input(z.object({
       id: z.string(),
       title: z.string().optional(),
@@ -212,27 +212,31 @@ export const itemsRouter = router({
       location: z.enum(['inbox', 'library', 'archive']).optional(),
       isFavorite: z.boolean().optional(),
     }))
-    .mutation(async ({ input }) => {
+    .mutation(async ({ input, ctx }) => {
       const { id, ...data } = input;
       
       await db
         .update(items)
         .set({ ...data, updatedAt: sql`(strftime('%s', 'now'))` })
-        .where(eq(items.id, id));
+        .where(and(eq(items.id, id), eq(items.userId, ctx.user.id)));
       
       return { success: true };
     }),
 
   // Toggle favorite status
-  toggleFavorite: publicProcedure
+  toggleFavorite: protectedProcedure
     .input(
       z.object({
         id: z.string(),
       })
     )
-    .mutation(async ({ input }) => {
+    .mutation(async ({ input, ctx }) => {
       try {
-        const existing = await db.select().from(items).where(eq(items.id, input.id)).limit(1);
+        const existing = await db
+          .select()
+          .from(items)
+          .where(and(eq(items.id, input.id), eq(items.userId, ctx.user.id)))
+          .limit(1);
 
         if (!existing || existing.length === 0) {
           return { success: false, isFavorite: false };
@@ -246,7 +250,7 @@ export const itemsRouter = router({
             isFavorite: nextIsFavorite,
             updatedAt: sql`(strftime('%s', 'now'))`,
           })
-          .where(eq(items.id, input.id));
+          .where(and(eq(items.id, input.id), eq(items.userId, ctx.user.id)));
 
         return { success: true, isFavorite: nextIsFavorite };
       } catch (error) {
@@ -256,15 +260,31 @@ export const itemsRouter = router({
     }),
 
   // حذف عنصر
-  delete: publicProcedure
+  delete: protectedProcedure
     .input(z.object({
       id: z.string(),
     }))
-    .mutation(async ({ input }) => {
+    .mutation(async ({ input, ctx }) => {
       await db
         .delete(items)
-        .where(eq(items.id, input.id));
+        .where(and(eq(items.id, input.id), eq(items.userId, ctx.user.id)));
       
       return { success: true };
+    }),
+
+  syncItems: protectedProcedure
+    .input(
+      z.object({
+        since: z.number().optional(),
+      })
+    )
+    .query(async ({ input, ctx }) => {
+      const sinceDate = input.since ? new Date(input.since) : new Date(0);
+      const result = await db
+        .select()
+        .from(items)
+        .where(and(eq(items.userId, ctx.user.id), gte(items.updatedAt, sinceDate)))
+        .orderBy(desc(items.updatedAt));
+      return result ?? [];
     }),
 });

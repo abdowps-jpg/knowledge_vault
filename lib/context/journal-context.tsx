@@ -1,6 +1,8 @@
 import React, { createContext, useContext, useState, useCallback, useMemo } from "react";
 import { Item, ItemType } from "@/lib/db/schema";
 import * as storage from "@/lib/db/storage";
+import { addToQueue } from "@/lib/sync-queue";
+import { syncUp } from "@/lib/sync-manager";
 
 // ============================================================================
 // Types
@@ -118,6 +120,8 @@ export function JournalProvider({ children }: { children: React.ReactNode }) {
           location,
           weather,
         } as any);
+        await addToQueue({ entity: "journal", action: "upsert", payload: newEntry as unknown as Record<string, unknown> });
+        await syncUp().catch(() => undefined);
 
         await loadEntries();
         return newEntry;
@@ -139,6 +143,12 @@ export function JournalProvider({ children }: { children: React.ReactNode }) {
           ...entry,
           ...updates,
         } as any);
+        await addToQueue({
+          entity: "journal",
+          action: "upsert",
+          payload: { ...entry, ...updates, id: itemId } as unknown as Record<string, unknown>,
+        });
+        await syncUp().catch(() => undefined);
         await loadEntries();
       } catch (error) {
         console.error("Error updating entry:", error);
@@ -152,6 +162,8 @@ export function JournalProvider({ children }: { children: React.ReactNode }) {
     async (itemId: string) => {
       try {
         await storage.deleteItem(itemId);
+        await addToQueue({ entity: "journal", action: "delete", payload: { id: itemId } });
+        await syncUp().catch(() => undefined);
         await loadEntries();
       } catch (error) {
         console.error("Error deleting entry:", error);

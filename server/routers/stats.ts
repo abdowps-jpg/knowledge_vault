@@ -1,5 +1,5 @@
 import { and, eq } from 'drizzle-orm';
-import { publicProcedure, router } from '../trpc';
+import { protectedProcedure, router } from '../trpc';
 import { db } from '../db';
 import { items, tasks, journal, tags, itemTags } from '../schema';
 
@@ -31,15 +31,13 @@ function startOfMonth(date: Date): Date {
   return new Date(date.getFullYear(), date.getMonth(), 1);
 }
 
-const USER_ID = 'test-user';
-
 export const statsRouter = router({
-  getSummary: publicProcedure.query(async () => {
+  getSummary: protectedProcedure.query(async ({ ctx }) => {
     try {
       const [allItems, allTasks, allJournal] = await Promise.all([
-        db.select().from(items).where(eq(items.userId, USER_ID)),
-        db.select().from(tasks).where(eq(tasks.userId, USER_ID)),
-        db.select().from(journal).where(eq(journal.userId, USER_ID)),
+        db.select().from(items).where(eq(items.userId, ctx.user.id)),
+        db.select().from(tasks).where(eq(tasks.userId, ctx.user.id)),
+        db.select().from(journal).where(eq(journal.userId, ctx.user.id)),
       ]);
 
       const now = new Date();
@@ -92,12 +90,12 @@ export const statsRouter = router({
     }
   }),
 
-  getChartData: publicProcedure.query(async () => {
+  getChartData: protectedProcedure.query(async ({ ctx }) => {
     try {
       const [allItems, allTasks, allJournal] = await Promise.all([
-        db.select().from(items).where(eq(items.userId, USER_ID)),
-        db.select().from(tasks).where(eq(tasks.userId, USER_ID)),
-        db.select().from(journal).where(eq(journal.userId, USER_ID)),
+        db.select().from(items).where(eq(items.userId, ctx.user.id)),
+        db.select().from(tasks).where(eq(tasks.userId, ctx.user.id)),
+        db.select().from(journal).where(eq(journal.userId, ctx.user.id)),
       ]);
 
       const now = new Date();
@@ -183,13 +181,13 @@ export const statsRouter = router({
     }
   }),
 
-  getInsights: publicProcedure.query(async () => {
+  getInsights: protectedProcedure.query(async ({ ctx }) => {
     try {
       const [allItems, allTasks, allJournal, allTags, allItemTags] = await Promise.all([
-        db.select().from(items).where(eq(items.userId, USER_ID)),
-        db.select().from(tasks).where(eq(tasks.userId, USER_ID)),
-        db.select().from(journal).where(eq(journal.userId, USER_ID)),
-        db.select().from(tags).where(eq(tags.userId, USER_ID)),
+        db.select().from(items).where(eq(items.userId, ctx.user.id)),
+        db.select().from(tasks).where(eq(tasks.userId, ctx.user.id)),
+        db.select().from(journal).where(eq(journal.userId, ctx.user.id)),
+        db.select().from(tags).where(eq(tags.userId, ctx.user.id)),
         db.select().from(itemTags),
       ]);
 

@@ -1,9 +1,9 @@
 import { randomUUID } from 'crypto';
-import { and, asc, desc, eq } from 'drizzle-orm';
+import { and, asc, desc, eq, gte } from 'drizzle-orm';
 import { z } from 'zod';
 import { db } from '../db';
 import { tasks } from '../schema/tasks';
-import { publicProcedure, router } from '../trpc';
+import { protectedProcedure, router } from '../trpc';
 
 const recurrenceSchema = z.enum(['daily', 'weekly', 'monthly']);
 
@@ -22,7 +22,7 @@ function formatDateOnly(date: Date): string {
 
 export const tasksRouter = router({
   // Get tasks with optional completion filter, sorted by due date
-  list: publicProcedure
+  list: protectedProcedure
     .input(
       z.object({
         isCompleted: z.boolean().optional(),
@@ -31,10 +31,10 @@ export const tasksRouter = router({
         cursor: z.number().int().min(0).optional(),
       })
     )
-    .query(async ({ input }) => {
+    .query(async ({ input, ctx }) => {
       try {
         const cursor = input.cursor ?? 0;
-        const conditions = [];
+        const conditions = [eq(tasks.userId, ctx.user.id)];
 
         if (typeof input.isCompleted === 'boolean') {
           conditions.push(eq(tasks.isCompleted, input.isCompleted));
@@ -63,7 +63,7 @@ export const tasksRouter = router({
     }),
 
   // Create task
-  create: publicProcedure
+  create: protectedProcedure
     .input(
       z.object({
         title: z.string().min(1),
@@ -73,11 +73,11 @@ export const tasksRouter = router({
         recurrence: recurrenceSchema.optional(),
       })
     )
-    .mutation(async ({ input }) => {
+    .mutation(async ({ input, ctx }) => {
       try {
         const newTask = {
           id: randomUUID(),
-          userId: 'test-user',
+          userId: ctx.user.id,
           title: input.title,
           description: input.description || null,
           dueDate: input.dueDate || null,
@@ -96,7 +96,7 @@ export const tasksRouter = router({
     }),
 
   // Update task
-  update: publicProcedure
+  update: protectedProcedure
     .input(
       z.object({
         id: z.string(),
@@ -108,7 +108,7 @@ export const tasksRouter = router({
         recurrence: recurrenceSchema.nullable().optional(),
       })
     )
-    .mutation(async ({ input }) => {
+    .mutation(async ({ input, ctx }) => {
       try {
         const { id, isCompleted, ...data } = input;
         const updateData: Record<string, unknown> = {
@@ -121,7 +121,7 @@ export const tasksRouter = router({
           updateData.completedAt = isCompleted ? new Date() : null;
         }
 
-        await db.update(tasks).set(updateData).where(eq(tasks.id, id));
+        await db.update(tasks).set(updateData).where(and(eq(tasks.id, id), eq(tasks.userId, ctx.user.id)));
         return { success: true };
       } catch (error) {
         console.error('Error updating task:', error);
@@ -130,15 +130,15 @@ export const tasksRouter = router({
     }),
 
   // Delete task
-  delete: publicProcedure
+  delete: protectedProcedure
     .input(
       z.object({
         id: z.string(),
       })
     )
-    .mutation(async ({ input }) => {
+    .mutation(async ({ input, ctx }) => {
       try {
-        await db.delete(tasks).where(eq(tasks.id, input.id));
+        await db.delete(tasks).where(and(eq(tasks.id, input.id), eq(tasks.userId, ctx.user.id)));
         return { success: true };
       } catch (error) {
         console.error('Error deleting task:', error);
@@ -147,15 +147,19 @@ export const tasksRouter = router({
     }),
 
   // Toggle completion status
-  toggle: publicProcedure
+  toggle: protectedProcedure
     .input(
       z.object({
         id: z.string(),
       })
     )
-    .mutation(async ({ input }) => {
+    .mutation(async ({ input, ctx }) => {
       try {
-        const existing = await db.select().from(tasks).where(eq(tasks.id, input.id)).limit(1);
+        const existing = await db
+          .select()
+          .from(tasks)
+          .where(and(eq(tasks.id, input.id), eq(tasks.userId, ctx.user.id)))
+          .limit(1);
 
         if (!existing || existing.length === 0) {
           return { success: false, isCompleted: false };
@@ -170,7 +174,7 @@ export const tasksRouter = router({
             completedAt: nextIsCompleted ? new Date() : null,
             updatedAt: new Date(),
           })
-          .where(eq(tasks.id, input.id));
+          .where(and(eq(tasks.id, input.id), eq(tasks.userId, ctx.user.id)));
 
         return { success: true, isCompleted: nextIsCompleted };
       } catch (error) {
@@ -180,15 +184,19 @@ export const tasksRouter = router({
     }),
 
   // Complete a recurring task and create next occurrence
-  completeRecurring: publicProcedure
+  completeRecurring: protectedProcedure
     .input(
       z.object({
         id: z.string(),
       })
     )
-    .mutation(async ({ input }) => {
+    .mutation(async ({ input, ctx }) => {
       try {
-        const existing = await db.select().from(tasks).where(eq(tasks.id, input.id)).limit(1);
+        const existing = await db
+          .select()
+          .from(tasks)
+          .where(and(eq(tasks.id, input.id), eq(tasks.userId, ctx.user.id)))
+          .limit(1);
 
         if (!existing || existing.length === 0) {
           return { success: false, isCompleted: false, newTask: null };
@@ -218,7 +226,7 @@ export const tasksRouter = router({
               completedAt: new Date(),
               updatedAt: new Date(),
             })
-            .where(eq(tasks.id, input.id));
+            .where(and(eq(tasks.id, input.id), eq(tasks.userId, ctx.user.id)));
 
           const createdTask = {
             id: randomUUID(),
@@ -241,5 +249,21 @@ export const tasksRouter = router({
         console.error('Error completing recurring task:', error);
         return { success: false, isCompleted: false, newTask: null };
       }
+    }),
+
+  syncTasks: protectedProcedure
+    .input(
+      z.object({
+        since: z.number().optional(),
+      })
+    )
+    .query(async ({ input, ctx }) => {
+      const sinceDate = input.since ? new Date(input.since) : new Date(0);
+      const result = await db
+        .select()
+        .from(tasks)
+        .where(and(eq(tasks.userId, ctx.user.id), gte(tasks.updatedAt, sinceDate)))
+        .orderBy(desc(tasks.updatedAt));
+      return result ?? [];
     }),
 });

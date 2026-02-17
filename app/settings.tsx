@@ -1,1 +1,1 @@
-export { default } from "./(tabs)/settings";
+export { default } from "./(app)/(tabs)/settings";

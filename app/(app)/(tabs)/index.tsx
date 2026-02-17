@@ -9,6 +9,7 @@ import { trpc } from "@/lib/trpc";
 import * as Haptics from "expo-haptics";
 import Markdown from "react-native-markdown-display";
 import { Image as ExpoImage } from "expo-image";
+import { AudioPlayer } from "@/components/audio-player";
 
 const QuickAddModal = React.lazy(() =>
   import("@/components/quick-add-modal").then((mod) => ({ default: mod.QuickAddModal }))
@@ -180,6 +181,15 @@ function InboxItem({ item, onPress, onLongPress, onDelete }: InboxItemProps) {
                   />
                 </Pressable>
               ))}
+            </View>
+          ) : null}
+          {item.type === ItemType.AUDIO ? (
+            <View className="mt-3">
+              <AudioPlayer
+                title={item.title || "Audio Note"}
+                sourceUri={attachments.find((a) => a.type === "audio")?.fileUrl || ""}
+                durationSec={(attachments.find((a) => a.type === "audio")?.duration as number | undefined) || 0}
+              />
             </View>
           ) : null}
         </View>

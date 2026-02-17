@@ -109,7 +109,7 @@ export default function OnboardingScreen() {
 
   const finishOnboarding = async () => {
     await AsyncStorage.setItem(ONBOARDING_KEY, "true");
-    router.replace("/(tabs)");
+    router.replace("/(app)/(tabs)" as any);
   };
 
   const handleCreateAccount = async () => {
@@ -126,6 +126,19 @@ export default function OnboardingScreen() {
         pagingEnabled
         showsHorizontalScrollIndicator={false}
         keyExtractor={(item) => item.id}
+        getItemLayout={(_, index) => ({
+          length: width,
+          offset: width * index,
+          index,
+        })}
+        onScrollToIndexFailed={(info) => {
+          // Fallback for web/layout race conditions where the target item isn't measured yet.
+          listRef.current?.scrollToOffset({
+            offset: info.index * width,
+            animated: true,
+          });
+        }}
+        extraData={width}
         onViewableItemsChanged={onViewableItemsChanged}
         viewabilityConfig={viewabilityConfig}
         renderItem={({ item }) => (

@@ -38,12 +38,59 @@ async function setStoredData<T>(key: string, data: T): Promise<void> {
   }
 }
 
+function asDate(value: unknown): Date {
+  if (value instanceof Date) return value;
+  const parsed = new Date(value as string | number);
+  return Number.isNaN(parsed.getTime()) ? new Date() : parsed;
+}
+
+function hydrateItemDates(item: Item): Item {
+  const hydrated = {
+    ...item,
+    createdAt: asDate(item.createdAt),
+    updatedAt: asDate(item.updatedAt),
+  } as Item;
+
+  if ("dueDate" in hydrated && hydrated.dueDate) {
+    (hydrated as Task).dueDate = asDate((hydrated as Task).dueDate);
+  }
+  if ("completedAt" in hydrated && hydrated.completedAt) {
+    (hydrated as Task).completedAt = asDate((hydrated as Task).completedAt);
+  }
+  if ("entryDate" in hydrated && hydrated.entryDate) {
+    (hydrated as JournalEntry).entryDate = asDate((hydrated as JournalEntry).entryDate);
+  }
+
+  return hydrated;
+}
+
+function hydrateTagDates(tag: Tag): Tag {
+  return { ...tag, createdAt: asDate(tag.createdAt) };
+}
+
+function hydrateCategoryDates(category: Category): Category {
+  return { ...category, createdAt: asDate(category.createdAt) };
+}
+
+function hydrateAttachmentDates(attachment: Attachment): Attachment {
+  return { ...attachment, createdAt: asDate(attachment.createdAt) };
+}
+
+function hydrateReviewScheduleDates(schedule: ReviewSchedule): ReviewSchedule {
+  return {
+    ...schedule,
+    nextReviewAt: asDate(schedule.nextReviewAt),
+    lastReviewedAt: schedule.lastReviewedAt ? asDate(schedule.lastReviewedAt) : undefined,
+  };
+}
+
 // ============================================================================
 // Item Storage
 // ============================================================================
 
 export async function getAllItems(): Promise<Item[]> {
-  return getStoredData<Item[]>(STORAGE_KEYS.ITEMS, []);
+  const storedItems = await getStoredData<Item[]>(STORAGE_KEYS.ITEMS, []);
+  return storedItems.map(hydrateItemDates);
 }
 
 export async function getItemById(id: string): Promise<Item | null> {
@@ -113,7 +160,8 @@ export async function searchItems(query: string): Promise<Item[]> {
 // ============================================================================
 
 export async function getAllTags(): Promise<Tag[]> {
-  return getStoredData<Tag[]>(STORAGE_KEYS.TAGS, []);
+  const storedTags = await getStoredData<Tag[]>(STORAGE_KEYS.TAGS, []);
+  return storedTags.map(hydrateTagDates);
 }
 
 export async function createTag(name: string): Promise<Tag> {
@@ -141,7 +189,8 @@ export async function deleteTag(id: string): Promise<boolean> {
 // ============================================================================
 
 export async function getAllCategories(): Promise<Category[]> {
-  return getStoredData<Category[]>(STORAGE_KEYS.CATEGORIES, []);
+  const storedCategories = await getStoredData<Category[]>(STORAGE_KEYS.CATEGORIES, []);
+  return storedCategories.map(hydrateCategoryDates);
 }
 
 export async function getCategoryById(id: string): Promise<Category | null> {
@@ -189,7 +238,8 @@ export async function deleteCategory(id: string): Promise<boolean> {
 // ============================================================================
 
 export async function getAllAttachments(): Promise<Attachment[]> {
-  return getStoredData<Attachment[]>(STORAGE_KEYS.ATTACHMENTS, []);
+  const storedAttachments = await getStoredData<Attachment[]>(STORAGE_KEYS.ATTACHMENTS, []);
+  return storedAttachments.map(hydrateAttachmentDates);
 }
 
 export async function getAttachmentsByItemId(itemId: string): Promise<Attachment[]> {
@@ -225,7 +275,8 @@ export async function deleteAttachment(id: string): Promise<boolean> {
 // ============================================================================
 
 export async function getAllReviewSchedules(): Promise<ReviewSchedule[]> {
-  return getStoredData<ReviewSchedule[]>(STORAGE_KEYS.REVIEW_SCHEDULES, []);
+  const storedSchedules = await getStoredData<ReviewSchedule[]>(STORAGE_KEYS.REVIEW_SCHEDULES, []);
+  return storedSchedules.map(hydrateReviewScheduleDates);
 }
 
 export async function getReviewScheduleByItemId(itemId: string): Promise<ReviewSchedule | null> {

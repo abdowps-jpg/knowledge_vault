@@ -5,3 +5,4 @@ export * from './journal';
 export * from './tags';
 export * from './categories';
 export * from './attachments';
+export * from './devices';
