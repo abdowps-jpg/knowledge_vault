@@ -1,5 +1,14 @@
 import React, { useState } from "react";
-import { ActivityIndicator, Alert, Platform, Pressable, Text, TextInput, View } from "react-native";
+import {
+  ActivityIndicator,
+  Alert,
+  Platform,
+  Pressable,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  View,
+} from "react-native";
 import { useRouter } from "expo-router";
 import { trpc } from "@/lib/trpc";
 import { getOrCreateDeviceId, saveStayLoggedIn, saveToken } from "@/lib/auth-storage";
@@ -14,29 +23,66 @@ export default function LoginScreen() {
 
   const loginMutation = trpc.auth.login.useMutation({
     onSuccess: async (result) => {
-      await saveToken(result.token);
-      await saveStayLoggedIn(stayLoggedIn);
-      const deviceId = await getOrCreateDeviceId();
-      await registerDevice.mutateAsync({
-        deviceId,
-        deviceName: `${Platform.OS}-device`,
-        platform: Platform.OS,
-      });
-      await utils.invalidate();
+      console.log("[Auth/Login] Login mutation succeeded for:", result.user?.email);
+      console.log("Login response:", result);
+      try {
+        await saveToken(result.token);
+        console.log("Token saved:", result.token);
+        console.log("[Auth/Login] Token saved successfully");
+        await saveStayLoggedIn(stayLoggedIn);
+        console.log("[Auth/Login] Stay logged in preference saved:", stayLoggedIn);
+      } catch (error) {
+        console.error("[Auth/Login] Failed saving auth state:", error);
+        Alert.alert("Login Failed", "Could not save your session. Please try again.");
+        return;
+      }
+
+      // Device registration is non-blocking for login flow.
+      try {
+        const deviceId = await getOrCreateDeviceId();
+        await registerDevice.mutateAsync({
+          deviceId,
+          deviceName: `${Platform.OS}-device`,
+          platform: Platform.OS,
+        });
+        console.log("[Auth/Login] Device registration succeeded:", deviceId);
+      } catch (error) {
+        console.warn("[Auth/Login] Device registration failed (continuing):", error);
+      }
+
+      try {
+        await utils.invalidate();
+      } catch (error) {
+        console.warn("[Auth/Login] Cache invalidation failed (continuing):", error);
+      }
+
+      console.log("[Auth/Login] Navigating to app tabs");
+      console.log("Navigating to home");
       router.replace("/(app)/(tabs)" as any);
     },
     onError: (error) => {
+      console.error("[Auth/Login] Login mutation failed:", error);
       Alert.alert("Login Failed", error.message || "Unable to sign in.");
     },
   });
 
   const handleLogin = async () => {
+    console.log("Login button pressed");
     if (!email.trim() || !password) {
       Alert.alert("Validation", "Email and password are required.");
       return;
     }
-    await loginMutation.mutateAsync({ email: email.trim(), password });
+    const normalizedEmail = email.trim().toLowerCase();
+    console.log("Calling login API with:", { email: normalizedEmail });
+    console.log("[Auth/Login] Attempting login for:", normalizedEmail);
+    try {
+      await loginMutation.mutateAsync({ email: normalizedEmail, password });
+    } catch (error) {
+      // Error alert is handled in mutation onError.
+      console.error("[Auth/Login] handleLogin caught error:", error);
+    }
   };
+  const isLoading = loginMutation.isPending;
 
   return (
     <View className="flex-1 bg-background px-6 justify-center">
@@ -69,20 +115,26 @@ export default function LoginScreen() {
         <Text className="text-foreground">Stay logged in</Text>
       </Pressable>
 
-      <Pressable
+      <TouchableOpacity
         onPress={handleLogin}
-        disabled={loginMutation.isPending}
-        className="bg-primary rounded-xl py-3 items-center"
+        disabled={isLoading}
+        style={{
+          backgroundColor: "#0a7ea4",
+          borderRadius: 12,
+          padding: 16,
+          alignItems: "center",
+          opacity: isLoading ? 0.7 : 1,
+        }}
       >
-        {loginMutation.isPending ? (
+        {isLoading ? (
           <ActivityIndicator color="white" />
         ) : (
-          <Text className="text-white font-semibold">Login</Text>
+          <Text style={{ color: "white", fontSize: 18, fontWeight: "700" }}>Login</Text>
         )}
-      </Pressable>
+      </TouchableOpacity>
 
       <View className="flex-row justify-center mt-4">
-        <Text className="text-muted">Don't have account? </Text>
+        <Text className="text-muted">Don't have an account? </Text>
         <Pressable onPress={() => router.push("/(auth)/register" as any)}>
           <Text className="text-primary font-semibold">Register</Text>
         </Pressable>

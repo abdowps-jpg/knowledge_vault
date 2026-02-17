@@ -1,5 +1,13 @@
 import React, { useState } from "react";
-import { ActivityIndicator, Alert, Pressable, Text, TextInput, View } from "react-native";
+import {
+  ActivityIndicator,
+  Alert,
+  Pressable,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  View,
+} from "react-native";
 import { useRouter } from "expo-router";
 import { trpc } from "@/lib/trpc";
 
@@ -20,16 +28,25 @@ export default function RegisterScreen() {
       router.replace("/(auth)/login");
     },
     onError: (error) => {
-      Alert.alert("Register Failed", error.message || "Unable to create account.");
+      const message =
+        error.data?.code === "CONFLICT" || /already in use/i.test(error.message)
+          ? "An account with this email already exists."
+          : error.message || "Unable to create account.";
+      Alert.alert("Register Failed", message);
     },
   });
 
   const handleRegister = async () => {
-    if (!username.trim()) {
+    if (registerMutation.isPending) return;
+
+    const normalizedUsername = username.trim();
+    const normalizedEmail = email.trim().toLowerCase();
+
+    if (!normalizedUsername) {
       Alert.alert("Validation", "Username is required.");
       return;
     }
-    if (!isValidEmail(email.trim())) {
+    if (!isValidEmail(normalizedEmail)) {
       Alert.alert("Validation", "Please enter a valid email.");
       return;
     }
@@ -42,12 +59,17 @@ export default function RegisterScreen() {
       return;
     }
 
-    await registerMutation.mutateAsync({
-      username: username.trim(),
-      email: email.trim(),
-      password,
-    });
+    try {
+      await registerMutation.mutateAsync({
+        username: normalizedUsername,
+        email: normalizedEmail,
+        password,
+      });
+    } catch {
+      // User-facing error is handled in onError.
+    }
   };
+  const isLoading = registerMutation.isPending;
 
   return (
     <View className="flex-1 bg-background px-6 justify-center">
@@ -87,17 +109,23 @@ export default function RegisterScreen() {
         placeholderTextColor="#9ca3af"
       />
 
-      <Pressable
+      <TouchableOpacity
         onPress={handleRegister}
-        disabled={registerMutation.isPending}
-        className="bg-primary rounded-xl py-3 items-center"
+        disabled={isLoading}
+        style={{
+          backgroundColor: "#0a7ea4",
+          borderRadius: 12,
+          padding: 16,
+          alignItems: "center",
+          opacity: isLoading ? 0.7 : 1,
+        }}
       >
-        {registerMutation.isPending ? (
+        {isLoading ? (
           <ActivityIndicator color="white" />
         ) : (
-          <Text className="text-white font-semibold">Register</Text>
+          <Text style={{ color: "white", fontSize: 18, fontWeight: "700" }}>Register</Text>
         )}
-      </Pressable>
+      </TouchableOpacity>
 
       <View className="flex-row justify-center mt-4">
         <Text className="text-muted">Already have an account? </Text>

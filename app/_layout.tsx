@@ -1,6 +1,6 @@
 import "@/global.css";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { Stack, useRouter, useSegments } from "expo-router";
+import { Redirect, Stack, useRouter, useSegments } from "expo-router";
 import { usePathname } from "expo-router";
 import { StatusBar } from "expo-status-bar";
 import { useCallback, useEffect, useMemo, useState } from "react";
@@ -52,8 +52,8 @@ export default function RootLayout() {
   );
   const [onboardingChecked, setOnboardingChecked] = useState(false);
   const [hasSeenOnboarding, setHasSeenOnboarding] = useState(true);
-  const [authChecked, setAuthChecked] = useState(false);
-  const [authenticated, setAuthenticated] = useState(false);
+  const [isAuthenticated, setIsAuthenticated] = useState(false);
+  const [isLoading, setIsLoading] = useState(true);
   const [sessionExpired, setSessionExpired] = useState(false);
 
   // Initialize Manus runtime for cookie injection from parent container
@@ -96,69 +96,48 @@ export default function RootLayout() {
     })();
   }, []);
 
-  useEffect(() => {
-    if (!onboardingChecked) return;
-    if (!hasSeenOnboarding) {
-      AsyncStorage.getItem("hasSeenOnboarding")
-        .then((value) => {
-          if (value === "true") {
-            setHasSeenOnboarding(true);
-            return;
-          }
-          if (pathname !== "/onboarding") {
-            router.replace("/onboarding");
-          }
-        })
-        .catch(() => {
-          if (pathname !== "/onboarding") {
-            router.replace("/onboarding");
-          }
-        });
-    }
-  }, [onboardingChecked, hasSeenOnboarding, pathname, router]);
+  const checkAuth = useCallback(async () => {
+    try {
+      console.log("Checking authentication...");
+      console.log("[Auth/Layout] Checking auth state...");
+      const token = await getToken();
+      console.log("[Auth/Layout] Startup token:", token ? "present" : "missing");
 
-  useEffect(() => {
-    (async () => {
-      try {
-        const stayLoggedIn = await getStayLoggedIn();
-        const token = await getToken();
-        if (!token) {
-          setAuthenticated(false);
-          setAuthChecked(true);
-          return;
-        }
-        if (!stayLoggedIn) {
-          await clearToken();
-          setAuthenticated(false);
-          setAuthChecked(true);
-          return;
-        }
-        setAuthenticated(true);
-      } catch (error) {
-        console.error("Failed loading auth state:", error);
-        setAuthenticated(false);
-      } finally {
-        setAuthChecked(true);
+      if (!token) {
+        setIsAuthenticated(false);
+        return;
       }
-    })();
-  }, []);
+
+      const stayLoggedIn = await getStayLoggedIn();
+      if (!stayLoggedIn) {
+        console.log("[Auth/Layout] stayLoggedIn is false, clearing token");
+        await clearToken();
+        setIsAuthenticated(false);
+        console.log("Is authenticated:", false);
+        return;
+      }
+
+      setIsAuthenticated(true);
+      console.log("Is authenticated:", true);
+      if (sessionExpired) {
+        setSessionExpired(false);
+      }
+    } catch (error) {
+      console.error("[Auth/Layout] Failed loading auth state:", error);
+      setIsAuthenticated(false);
+      console.log("Is authenticated:", false);
+    } finally {
+      setIsLoading(false);
+    }
+  }, [sessionExpired]);
 
   useEffect(() => {
-    if (!onboardingChecked || !authChecked || !hasSeenOnboarding) return;
-    const inAuthGroup = segments[0] === "(auth)";
-    if (authenticated && sessionExpired) {
-      setSessionExpired(false);
-    }
-
-    if (!authenticated && !inAuthGroup) {
-      router.replace("/(auth)/login" as any);
-      return;
-    }
-
-    if (authenticated && inAuthGroup) {
-      router.replace("/(app)/(tabs)" as any);
-    }
-  }, [authChecked, authenticated, hasSeenOnboarding, onboardingChecked, router, segments, sessionExpired]);
+    checkAuth().catch((error) => {
+      console.error("[Auth/Layout] checkAuth failed:", error);
+      setIsLoading(false);
+      setIsAuthenticated(false);
+    });
+  }, [checkAuth]);
 
   useEffect(() => {
     if (Platform.OS === "web") {
@@ -234,17 +213,23 @@ export default function RootLayout() {
         },
       }),
   );
-  const [trpcClient] = useState(() => {
+  useEffect(() => {
     configureTRPCAuth({
       getToken,
       onUnauthorized: async () => {
+        console.warn("[Auth/Layout] Received 401, clearing session");
         await clearToken();
-        setAuthenticated(false);
+        setIsAuthenticated(false);
         setSessionExpired(true);
       },
     });
+  }, []);
+
+  // Recreate client when auth state flips so links/context fully refresh.
+  const trpcClient = useMemo(() => {
+    console.log("[Auth/Layout] Recreating tRPC client (isAuthenticated):", isAuthenticated);
     return createTRPCClient();
-  });
+  }, [isAuthenticated]);
 
   useEffect(() => {
     if (offlineSnapshot.status === "synced") {
@@ -253,7 +238,7 @@ export default function RootLayout() {
   }, [offlineSnapshot.status, queryClient]);
 
   useEffect(() => {
-    if (!authenticated) return;
+    if (!isAuthenticated) return;
 
     const runSync = () => {
       fullSync().catch((error) => {
@@ -274,7 +259,7 @@ export default function RootLayout() {
       appStateSub.remove();
       netUnsub();
     };
-  }, [authenticated]);
+  }, [isAuthenticated]);
 
   // Ensure minimum 8px padding for top and bottom on mobile
   const providerInitialMetrics = useMemo(() => {
@@ -393,7 +378,7 @@ export default function RootLayout() {
     </GestureHandlerRootView>
   );
 
-  if (!onboardingChecked || !authChecked) {
+  if (!onboardingChecked || isLoading) {
     return (
       <ThemeProvider>
         <SafeAreaProvider initialMetrics={providerInitialMetrics}>
@@ -403,6 +388,24 @@ export default function RootLayout() {
         </SafeAreaProvider>
       </ThemeProvider>
     );
+  }
+
+  if (!hasSeenOnboarding && pathname !== "/onboarding") {
+    console.log("[Auth/Layout] Redirecting to onboarding");
+    console.log("Redirecting to:", "auth");
+    return <Redirect href="/onboarding" />;
+  }
+
+  const inAuthGroup = segments[0] === "(auth)";
+  if (!isAuthenticated && !inAuthGroup) {
+    console.log("[Auth/Layout] Redirecting unauthenticated user to login");
+    console.log("Redirecting to:", "auth");
+    return <Redirect href={"/(auth)/login" as any} />;
+  }
+  if (isAuthenticated && inAuthGroup) {
+    console.log("[Auth/Layout] Redirecting authenticated user to app tabs");
+    console.log("Redirecting to:", "tabs");
+    return <Redirect href={"/(app)/(tabs)" as any} />;
   }
 
   const shouldOverrideSafeArea = Platform.OS === "web";

@@ -60,37 +60,54 @@ export const authRouter = router({
     )
     .mutation(async ({ input }) => {
       const email = input.email.trim().toLowerCase();
-      const existing = await db.select().from(users).where(eq(users.email, email)).limit(1);
-      const user = existing[0];
+      console.log('Login attempt for:', email);
+      console.log('[Auth/Login] Login attempt:', { email });
+      try {
+        const existing = await db.select().from(users).where(eq(users.email, email)).limit(1);
+        const user = existing[0];
+        console.log('User found:', !!user);
 
-      if (!user) {
-        throw new TRPCError({ code: 'UNAUTHORIZED', message: 'Invalid email or password' });
-      }
+        if (!user) {
+          console.warn('[Auth/Login] User not found:', { email });
+          throw new TRPCError({ code: 'UNAUTHORIZED', message: 'Invalid email or password' });
+        }
 
-      if (!user.isActive) {
-        throw new TRPCError({ code: 'FORBIDDEN', message: 'Account is inactive' });
-      }
+        if (!user.isActive) {
+          console.warn('[Auth/Login] Inactive account:', { userId: user.id, email: user.email });
+          throw new TRPCError({ code: 'FORBIDDEN', message: 'Account is inactive' });
+        }
 
-      const passwordMatches = await comparePassword(input.password, user.password);
-      if (!passwordMatches) {
-        throw new TRPCError({ code: 'UNAUTHORIZED', message: 'Invalid email or password' });
-      }
+        const passwordMatches = await comparePassword(input.password, user.password);
+        console.log('Password match:', passwordMatches);
+        if (!passwordMatches) {
+          console.warn('[Auth/Login] Password mismatch:', { userId: user.id, email: user.email });
+          throw new TRPCError({ code: 'UNAUTHORIZED', message: 'Invalid email or password' });
+        }
 
-      const token = generateToken({
-        id: user.id,
-        email: user.email,
-        username: user.username,
-      });
-
-      return {
-        token,
-        user: {
+        const token = generateToken({
           id: user.id,
           email: user.email,
           username: user.username,
-          isActive: user.isActive,
-        },
-      };
+        });
+        console.log('Token generated:', token);
+
+        console.log('[Auth/Login] Login success:', { userId: user.id, email: user.email });
+        return {
+          token,
+          user: {
+            id: user.id,
+            email: user.email,
+            username: user.username,
+            isActive: user.isActive,
+          },
+        };
+      } catch (error) {
+        if (error instanceof TRPCError) {
+          throw error;
+        }
+        console.error('[Auth/Login] Unexpected login error:', { email, error });
+        throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR', message: 'Failed to login' });
+      }
     }),
 
   verifyToken: publicProcedure

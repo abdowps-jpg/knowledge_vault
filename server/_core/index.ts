@@ -65,15 +65,26 @@ app.use(
       const authHeader = req.headers.authorization;
       let user = null;
 
-      if (typeof authHeader === 'string' && authHeader.startsWith('Bearer ')) {
+      if (!authHeader || typeof authHeader !== 'string') {
+        console.log('[Auth/Middleware] No Authorization header provided');
+      } else if (!authHeader.startsWith('Bearer ')) {
+        console.log('[Auth/Middleware] Authorization header is not Bearer');
+      } else {
         const token = authHeader.slice(7).trim();
-        const payload = verifyToken(token);
-        if (payload) {
-          user = {
-            id: payload.sub,
-            email: payload.email,
-            username: payload.username ?? null,
-          };
+        try {
+          const payload = verifyToken(token);
+          if (payload) {
+            user = {
+              id: payload.sub,
+              email: payload.email,
+              username: payload.username ?? null,
+            };
+            console.log('[Auth/Middleware] Authenticated user:', { userId: user.id, email: user.email });
+          } else {
+            console.warn('[Auth/Middleware] Invalid JWT token payload');
+          }
+        } catch (error) {
+          console.error('[Auth/Middleware] JWT verification error:', error);
         }
       }
 

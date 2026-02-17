@@ -4,7 +4,7 @@ import * as jwt from 'jsonwebtoken';
 const JWT_SECRET = process.env.JWT_SECRET || 'dev-secret-change-me';
 const JWT_EXPIRES_IN: jwt.SignOptions['expiresIn'] =
   (process.env.JWT_EXPIRES_IN as jwt.SignOptions['expiresIn'] | undefined) ?? '7d';
-const SALT_ROUNDS = 10;
+const SALT_ROUNDS = 12;
 
 export type AuthTokenPayload = {
   sub: string;
@@ -47,7 +47,8 @@ export function verifyToken(token: string): AuthTokenPayload | null {
       iat: decoded.iat,
       exp: decoded.exp,
     };
-  } catch {
+  } catch (error) {
+    console.error('[Auth] JWT verification failed:', error);
     return null;
   }
 }
