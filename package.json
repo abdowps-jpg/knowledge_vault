@@ -5,9 +5,11 @@
   "main": "expo-router/entry",
   "scripts": {
     "dev": "pnpm db:init && concurrently -k \"pnpm dev:server\" \"pnpm dev:metro\"",
+    "dev:mobile": "pnpm db:init && concurrently -k \"pnpm dev:server\" \"pnpm dev:expo-lan\"",
     "db:init": "tsx server/setup-db.ts",
     "dev:server": "cross-env NODE_ENV=development tsx watch server/_core/index.ts",
     "dev:metro": "pnpm exec expo start --web --port 8081",
+    "dev:expo-lan": "pnpm exec expo start --lan --port 8081",
     "build": "esbuild server/_core/index.ts --platform=node --packages=external --bundle --format=esm --outdir=dist",
     "start": "NODE_ENV=production node dist/index.js",
     "check": "tsc --noEmit",

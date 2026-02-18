@@ -81,6 +81,25 @@ export function QuickAddModal() {
   const [source, setSource] = useState("");
   const [author, setAuthor] = useState("");
   const [destination, setDestination] = useState<"inbox" | "library" | "actions">("inbox");
+  const noteTemplates = [
+    { label: "Meeting Notes", title: "Meeting Notes", content: "- Agenda\n- Decisions\n- Next steps" },
+    { label: "Daily Plan", title: "Daily Plan", content: "- Top 3 priorities\n- Time blocks\n- End-of-day review" },
+    { label: "Idea", title: "New Idea", content: "Problem:\nSolution:\nWhy now:\nFirst step:" },
+  ];
+  const quoteTemplates = [
+    { label: "Book Quote", quote: "Quote text...", author: "Author Name", source: "Book Title" },
+    { label: "Podcast Quote", quote: "Quote text...", author: "Speaker Name", source: "Podcast Episode" },
+  ];
+  const linkTemplates = [
+    { label: "Article", title: "Interesting Article", content: "Key takeaway:\nAction item:" },
+    { label: "Tool", title: "Useful Tool", content: "What it does:\nWhen to use:" },
+  ];
+  const taskTemplates = [
+    { label: "Follow Up", title: "Follow up with client", content: "Send follow-up message and next steps." },
+    { label: "Meeting", title: "Prepare meeting agenda", content: "Draft agenda and key discussion points." },
+    { label: "شراء", title: "شراء احتياجات", content: "اكتب قائمة المشتريات المطلوبة." },
+    { label: "Review", title: "Review weekly goals", content: "Check progress and adjust next priorities." },
+  ];
 
   // Reset form
   const resetForm = () => {
@@ -395,6 +414,32 @@ export function QuickAddModal() {
           {quickAddModal.activeTab === "note" && (
             <>
               <View>
+                <Text className="text-sm font-semibold text-foreground mb-2">Quick Templates</Text>
+                <View className="flex-row flex-wrap gap-2">
+                  {noteTemplates.map((template) => (
+                    <Pressable
+                      key={template.label}
+                      onPress={() => {
+                        setTitle(template.title);
+                        setContent(template.content);
+                      }}
+                      style={{
+                        paddingVertical: 8,
+                        paddingHorizontal: 10,
+                        borderRadius: 999,
+                        borderWidth: 1,
+                        borderColor: colors.border,
+                        backgroundColor: colors.surface,
+                      }}
+                    >
+                      <Text style={{ color: colors.foreground, fontSize: 12, fontWeight: "600" }}>
+                        {template.label}
+                      </Text>
+                    </Pressable>
+                  ))}
+                </View>
+              </View>
+              <View>
                 <Text className="text-sm font-semibold text-foreground mb-2">Title</Text>
                 <TextInput
                   placeholder="Note title"
@@ -428,6 +473,33 @@ export function QuickAddModal() {
           {/* Quote Tab */}
           {quickAddModal.activeTab === "quote" && (
             <>
+              <View>
+                <Text className="text-sm font-semibold text-foreground mb-2">Quick Templates</Text>
+                <View className="flex-row flex-wrap gap-2">
+                  {quoteTemplates.map((template) => (
+                    <Pressable
+                      key={template.label}
+                      onPress={() => {
+                        setTitle(template.quote);
+                        setAuthor(template.author);
+                        setSource(template.source);
+                      }}
+                      style={{
+                        paddingVertical: 8,
+                        paddingHorizontal: 10,
+                        borderRadius: 999,
+                        borderWidth: 1,
+                        borderColor: colors.border,
+                        backgroundColor: colors.surface,
+                      }}
+                    >
+                      <Text style={{ color: colors.foreground, fontSize: 12, fontWeight: "600" }}>
+                        {template.label}
+                      </Text>
+                    </Pressable>
+                  ))}
+                </View>
+              </View>
               <View>
                 <Text className="text-sm font-semibold text-foreground mb-2">Quote</Text>
                 <TextInput
@@ -494,6 +566,32 @@ export function QuickAddModal() {
           {/* Link Tab */}
           {quickAddModal.activeTab === "link" && (
             <>
+              <View>
+                <Text className="text-sm font-semibold text-foreground mb-2">Quick Templates</Text>
+                <View className="flex-row flex-wrap gap-2">
+                  {linkTemplates.map((template) => (
+                    <Pressable
+                      key={template.label}
+                      onPress={() => {
+                        setTitle(template.title);
+                        setContent(template.content);
+                      }}
+                      style={{
+                        paddingVertical: 8,
+                        paddingHorizontal: 10,
+                        borderRadius: 999,
+                        borderWidth: 1,
+                        borderColor: colors.border,
+                        backgroundColor: colors.surface,
+                      }}
+                    >
+                      <Text style={{ color: colors.foreground, fontSize: 12, fontWeight: "600" }}>
+                        {template.label}
+                      </Text>
+                    </Pressable>
+                  ))}
+                </View>
+              </View>
               <View>
                 <Text className="text-sm font-semibold text-foreground mb-2">URL</Text>
                 <TextInput
@@ -602,6 +700,32 @@ export function QuickAddModal() {
           {/* Task Tab */}
           {quickAddModal.activeTab === "task" && (
             <>
+              <View>
+                <Text className="text-sm font-semibold text-foreground mb-2">Quick Templates</Text>
+                <View className="flex-row flex-wrap gap-2">
+                  {taskTemplates.map((template) => (
+                    <Pressable
+                      key={template.label}
+                      onPress={() => {
+                        setTitle(template.title);
+                        setContent(template.content);
+                      }}
+                      style={{
+                        paddingVertical: 8,
+                        paddingHorizontal: 10,
+                        borderRadius: 999,
+                        borderWidth: 1,
+                        borderColor: colors.border,
+                        backgroundColor: colors.surface,
+                      }}
+                    >
+                      <Text style={{ color: colors.foreground, fontSize: 12, fontWeight: "600" }}>
+                        {template.label}
+                      </Text>
+                    </Pressable>
+                  ))}
+                </View>
+              </View>
               <View>
                 <Text className="text-sm font-semibold text-foreground mb-2">Task Title</Text>
                 <TextInput

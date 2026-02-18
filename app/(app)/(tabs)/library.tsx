@@ -1,6 +1,7 @@
 import React from "react";
 import { Text, View, TouchableOpacity, ActivityIndicator, Alert, Modal, Pressable, TextInput } from "react-native";
 import { FlashList } from "@shopify/flash-list";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 import { ScreenContainer } from "@/components/screen-container";
 import { ErrorState } from "@/components/error-state";
 import { FilterBar } from "@/components/filter-bar";
@@ -13,6 +14,16 @@ import { Image as ExpoImage } from "expo-image";
 
 type ItemTypeFilter = "all" | "note" | "quote" | "link" | "audio";
 type SortFilter = "newest" | "oldest" | "az" | "za";
+type LibrarySavedView = {
+  id: string;
+  name: string;
+  typeFilter: ItemTypeFilter;
+  categoryIdFilter: string | null;
+  favoritesOnly: boolean;
+  recentOnly: boolean;
+  sortFilter: SortFilter;
+};
+const LIBRARY_VIEWS_KEY = "library_saved_views_v1";
 
 function ItemAttachments({ itemId }: { itemId: string }) {
   const colors = useColors();
@@ -91,6 +102,7 @@ export default function LibraryScreen() {
   const [showCreateModal, setShowCreateModal] = React.useState(false);
   const [newTitle, setNewTitle] = React.useState("");
   const [newContent, setNewContent] = React.useState("");
+  const [savedViews, setSavedViews] = React.useState<LibrarySavedView[]>([]);
 
   const querySort =
     sortFilter === "newest"
@@ -155,6 +167,16 @@ export default function LibraryScreen() {
       console.error("Categories query failed:", categoriesError);
     }
   }, [categoriesError]);
+
+  React.useEffect(() => {
+    AsyncStorage.getItem(LIBRARY_VIEWS_KEY)
+      .then((value) => {
+        if (!value) return;
+        const parsed = JSON.parse(value) as LibrarySavedView[];
+        if (Array.isArray(parsed)) setSavedViews(parsed);
+      })
+      .catch((error) => console.error("[Library] Failed loading saved views:", error));
+  }, []);
 
   const [deletingItemId, setDeletingItemId] = React.useState<string | null>(null);
   const [movingItemId, setMovingItemId] = React.useState<string | null>(null);
@@ -366,6 +388,42 @@ export default function LibraryScreen() {
     setSortFilter("newest");
   };
 
+  const persistSavedViews = async (nextViews: LibrarySavedView[]) => {
+    setSavedViews(nextViews);
+    try {
+      await AsyncStorage.setItem(LIBRARY_VIEWS_KEY, JSON.stringify(nextViews));
+    } catch (error) {
+      console.error("[Library] Failed saving views:", error);
+    }
+  };
+
+  const handleSaveCurrentView = async () => {
+    const nextView: LibrarySavedView = {
+      id: `${Date.now()}`,
+      name: `View ${savedViews.length + 1}`,
+      typeFilter,
+      categoryIdFilter,
+      favoritesOnly,
+      recentOnly,
+      sortFilter,
+    };
+    const next = [nextView, ...savedViews].slice(0, 8);
+    await persistSavedViews(next);
+  };
+
+  const handleApplySavedView = (view: LibrarySavedView) => {
+    setTypeFilter(view.typeFilter);
+    setCategoryIdFilter(view.categoryIdFilter);
+    setFavoritesOnly(view.favoritesOnly);
+    setRecentOnly(view.recentOnly);
+    setSortFilter(view.sortFilter);
+  };
+
+  const handleDeleteSavedView = async (id: string) => {
+    const next = savedViews.filter((view) => view.id !== id);
+    await persistSavedViews(next);
+  };
+
   const filteredItems = items as any[];
 
   return (
@@ -387,6 +445,39 @@ export default function LibraryScreen() {
         onRemoveChip={handleRemoveChip}
         onClearAll={handleClearAll}
       />
+      <View style={{ paddingHorizontal: 16, paddingVertical: 8, borderBottomWidth: 1, borderBottomColor: colors.border }}>
+        <View style={{ flexDirection: "row", justifyContent: "space-between", marginBottom: 8 }}>
+          <Text style={{ color: colors.muted, fontSize: 12, fontWeight: "600" }}>Saved Views</Text>
+          <Pressable onPress={handleSaveCurrentView}>
+            <Text style={{ color: colors.primary, fontSize: 12, fontWeight: "700" }}>Save Current View</Text>
+          </Pressable>
+        </View>
+        <View style={{ flexDirection: "row", flexWrap: "wrap" }}>
+          {savedViews.length === 0 ? (
+            <Text style={{ color: colors.muted, fontSize: 12 }}>No saved views yet.</Text>
+          ) : (
+            savedViews.map((view) => (
+              <Pressable
+                key={view.id}
+                onPress={() => handleApplySavedView(view)}
+                onLongPress={() => handleDeleteSavedView(view.id)}
+                style={{
+                  marginRight: 8,
+                  marginBottom: 8,
+                  paddingHorizontal: 10,
+                  paddingVertical: 6,
+                  borderRadius: 999,
+                  borderWidth: 1,
+                  borderColor: colors.border,
+                  backgroundColor: colors.surface,
+                }}
+              >
+                <Text style={{ color: colors.foreground, fontSize: 12 }}>{view.name}</Text>
+              </Pressable>
+            ))
+          )}
+        </View>
+      </View>
 
       {isLoading ? (
         <View className="flex-1 items-center mt-8">

@@ -369,6 +369,37 @@ export default function InboxScreen() {
         </Pressable>
       </View>
 
+      <View className="px-4 py-3 border-b border-border">
+        <Text className="text-xs text-muted mb-2">Quick Shortcuts</Text>
+        <View className="flex-row">
+          {[
+            { label: "My Day", icon: "today", route: "/(app)/(tabs)/actions" },
+            { label: "Library", icon: "menu-book", route: "/(app)/(tabs)/library" },
+            { label: "Search", icon: "search", route: "/(app)/(tabs)/search" },
+          ].map((shortcut) => (
+            <Pressable
+              key={shortcut.label}
+              onPress={() => router.push(shortcut.route as any)}
+              style={{
+                flex: 1,
+                marginRight: shortcut.label === "Search" ? 0 : 8,
+                borderWidth: 1,
+                borderColor: colors.border,
+                borderRadius: 10,
+                paddingVertical: 10,
+                alignItems: "center",
+                backgroundColor: colors.surface,
+              }}
+            >
+              <MaterialIcons name={shortcut.icon as any} size={18} color={colors.primary} />
+              <Text style={{ color: colors.foreground, fontSize: 12, marginTop: 4, fontWeight: "600" }}>
+                {shortcut.label}
+              </Text>
+            </Pressable>
+          ))}
+        </View>
+      </View>
+
       {/* Items List */}
       {loading ? (
         <View className="flex-1 items-center justify-center">

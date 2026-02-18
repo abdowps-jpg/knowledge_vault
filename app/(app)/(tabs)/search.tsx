@@ -8,6 +8,7 @@ import {
   TextInput,
   View,
 } from "react-native";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 import { FlashList } from "@shopify/flash-list";
 import { MaterialIcons } from "@expo/vector-icons";
 import { ScreenContainer } from "@/components/screen-container";
@@ -27,6 +28,9 @@ interface SearchResult {
   score: number;
   raw: any;
 }
+
+const SEARCH_RECENT_KEY = "search_recent_terms_v1";
+const SEARCH_SAVED_KEY = "search_saved_terms_v1";
 
 type SearchListRow =
   | { kind: "header"; key: string; label: string; icon: "description" | "check-circle" | "menu-book"; count: number }
@@ -110,6 +114,8 @@ export default function SearchScreen() {
   const [searchText, setSearchText] = React.useState("");
   const [debouncedSearchText, setDebouncedSearchText] = React.useState("");
   const [selectedResult, setSelectedResult] = React.useState<SearchResult | null>(null);
+  const [recentSearches, setRecentSearches] = React.useState<string[]>([]);
+  const [savedSearches, setSavedSearches] = React.useState<string[]>([]);
 
   const itemsQuery = trpc.items.list.useInfiniteQuery(
     { limit: 25 },
@@ -140,8 +146,49 @@ export default function SearchScreen() {
     }
   }, [error]);
 
+  React.useEffect(() => {
+    Promise.all([AsyncStorage.getItem(SEARCH_RECENT_KEY), AsyncStorage.getItem(SEARCH_SAVED_KEY)])
+      .then(([recentValue, savedValue]) => {
+        if (recentValue) {
+          const parsedRecent = JSON.parse(recentValue) as string[];
+          if (Array.isArray(parsedRecent)) setRecentSearches(parsedRecent);
+        }
+        if (savedValue) {
+          const parsedSaved = JSON.parse(savedValue) as string[];
+          if (Array.isArray(parsedSaved)) setSavedSearches(parsedSaved);
+        }
+      })
+      .catch((storageError) => console.error("Failed loading search suggestions:", storageError));
+  }, []);
+
+  React.useEffect(() => {
+    const term = debouncedSearchText.trim();
+    if (!term || term.length < 2) return;
+    setRecentSearches((previous) => {
+      const next = [term, ...previous.filter((value) => value.toLowerCase() !== term.toLowerCase())].slice(0, 8);
+      AsyncStorage.setItem(SEARCH_RECENT_KEY, JSON.stringify(next)).catch((storageError) =>
+        console.error("Failed saving recent searches:", storageError)
+      );
+      return next;
+    });
+  }, [debouncedSearchText]);
+
   const retryAll = async () => {
     await Promise.all([itemsQuery.refetch(), tasksQuery.refetch(), journalQuery.refetch()]);
+  };
+
+  const handleSaveSearch = async () => {
+    const term = debouncedSearchText.trim();
+    if (!term) return;
+    const next = [term, ...savedSearches.filter((value) => value.toLowerCase() !== term.toLowerCase())].slice(0, 12);
+    setSavedSearches(next);
+    await AsyncStorage.setItem(SEARCH_SAVED_KEY, JSON.stringify(next));
+  };
+
+  const removeSavedSearch = async (term: string) => {
+    const next = savedSearches.filter((value) => value !== term);
+    setSavedSearches(next);
+    await AsyncStorage.setItem(SEARCH_SAVED_KEY, JSON.stringify(next));
   };
 
   const combinedResults = React.useMemo(() => {
@@ -286,6 +333,61 @@ export default function SearchScreen() {
         </View>
 
         <View style={{ marginTop: 12 }}>
+          {(recentSearches.length > 0 || savedSearches.length > 0) && !debouncedSearchText.trim() ? (
+            <View style={{ marginBottom: 10 }}>
+              {savedSearches.length > 0 ? (
+                <View style={{ marginBottom: 8 }}>
+                  <Text style={{ color: colors.muted, fontSize: 12, fontWeight: "700", marginBottom: 6 }}>Saved Searches</Text>
+                  <View style={{ flexDirection: "row", flexWrap: "wrap" }}>
+                    {savedSearches.map((term) => (
+                      <Pressable
+                        key={`saved-${term}`}
+                        onPress={() => setSearchText(term)}
+                        onLongPress={() => removeSavedSearch(term)}
+                        style={{
+                          paddingHorizontal: 10,
+                          paddingVertical: 6,
+                          borderRadius: 999,
+                          borderWidth: 1,
+                          borderColor: colors.border,
+                          backgroundColor: colors.surface,
+                          marginRight: 8,
+                          marginBottom: 8,
+                        }}
+                      >
+                        <Text style={{ color: colors.foreground, fontSize: 12 }}>{term}</Text>
+                      </Pressable>
+                    ))}
+                  </View>
+                </View>
+              ) : null}
+              {recentSearches.length > 0 ? (
+                <View>
+                  <Text style={{ color: colors.muted, fontSize: 12, fontWeight: "700", marginBottom: 6 }}>Recent</Text>
+                  <View style={{ flexDirection: "row", flexWrap: "wrap" }}>
+                    {recentSearches.map((term) => (
+                      <Pressable
+                        key={`recent-${term}`}
+                        onPress={() => setSearchText(term)}
+                        style={{
+                          paddingHorizontal: 10,
+                          paddingVertical: 6,
+                          borderRadius: 999,
+                          borderWidth: 1,
+                          borderColor: colors.border,
+                          backgroundColor: colors.background,
+                          marginRight: 8,
+                          marginBottom: 8,
+                        }}
+                      >
+                        <Text style={{ color: colors.foreground, fontSize: 12 }}>{term}</Text>
+                      </Pressable>
+                    ))}
+                  </View>
+                </View>
+              ) : null}
+            </View>
+          ) : null}
           <View style={{ flexDirection: "row", flexWrap: "wrap", zIndex: 5, elevation: 5 }}>
             {[
               { label: "All", value: "all" as const },
@@ -317,6 +419,11 @@ export default function SearchScreen() {
               </Pressable>
             ))}
           </View>
+          {debouncedSearchText.trim() ? (
+            <Pressable onPress={handleSaveSearch} style={{ marginTop: 4, alignSelf: "flex-start" }}>
+              <Text style={{ color: colors.primary, fontWeight: "700", fontSize: 12 }}>Save this search</Text>
+            </Pressable>
+          ) : null}
         </View>
       </View>
 

@@ -9,7 +9,6 @@ import {
   ScrollView,
   Switch,
   Text,
-  TextInput,
   useColorScheme,
   View,
 } from "react-native";
@@ -78,12 +77,14 @@ interface RowProps {
 
 function Row({ icon, label, description, value, onPress, right }: RowProps) {
   const colors = useColors();
+  const isPressable = typeof onPress === "function";
   return (
     <Pressable
+      disabled={!isPressable}
       onPress={onPress}
       style={({ pressed }) => [
         {
-          opacity: pressed ? 0.7 : 1,
+          opacity: !isPressable ? 0.9 : pressed ? 0.7 : 1,
           paddingHorizontal: 16,
           paddingVertical: 12,
           borderBottomColor: colors.border,
@@ -113,9 +114,9 @@ function formatBytes(bytes: number): string {
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
-function normalizeTime(hourText: string, minuteText: string): string | null {
-  const h = Number(hourText);
-  const m = Number(minuteText);
+function normalizeTime(hourValue: number, minuteValue: number): string | null {
+  const h = Number(hourValue);
+  const m = Number(minuteValue);
   if (!Number.isInteger(h) || !Number.isInteger(m)) return null;
   if (h < 0 || h > 23 || m < 0 || m > 59) return null;
   return `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}`;
@@ -143,8 +144,8 @@ export default function SettingsScreen() {
 
   const [showTimeModal, setShowTimeModal] = useState(false);
   const [timeTarget, setTimeTarget] = useState<"task" | "journal">("task");
-  const [hourInput, setHourInput] = useState("09");
-  const [minuteInput, setMinuteInput] = useState("00");
+  const [selectedHour, setSelectedHour] = useState(9);
+  const [selectedMinute, setSelectedMinute] = useState(0);
   const [syncingNow, setSyncingNow] = useState(false);
   const [lastSyncAt, setLastSyncAt] = useState<number | null>(null);
   const [autoSyncEnabled, setAutoSyncEnabled] = useState(true);
@@ -152,6 +153,22 @@ export default function SettingsScreen() {
   const [transcribeLanguage, setTranscribeLanguage] = useState<"ar" | "en">("en");
 
   const appVersion = Constants.expoConfig?.version ?? "1.0.0";
+  const hourOptions = useMemo(() => Array.from({ length: 24 }, (_, i) => i), []);
+  const minuteOptions = useMemo(() => Array.from({ length: 60 }, (_, i) => i), []);
+
+  const openExternalUrl = async (url: string) => {
+    try {
+      const canOpen = await Linking.canOpenURL(url);
+      if (!canOpen) {
+        Alert.alert("Unavailable", "This link is not available right now.");
+        return;
+      }
+      await Linking.openURL(url);
+    } catch (error) {
+      console.error("Failed opening URL:", url, error);
+      Alert.alert("Error", "Failed to open link.");
+    }
+  };
 
   const validateBackup = (payload: any) => {
     const container = payload?.data ?? payload;
@@ -338,14 +355,14 @@ export default function SettingsScreen() {
   const openTimePicker = (target: "task" | "journal") => {
     const source = target === "task" ? settings.taskReminderTime : settings.journalReminderTime;
     const [h, m] = source.split(":");
-    setHourInput(h);
-    setMinuteInput(m);
+    setSelectedHour(Number(h) || 0);
+    setSelectedMinute(Number(m) || 0);
     setTimeTarget(target);
     setShowTimeModal(true);
   };
 
   const saveTimePicker = async () => {
-    const nextTime = normalizeTime(hourInput, minuteInput);
+    const nextTime = normalizeTime(selectedHour, selectedMinute);
     if (!nextTime) {
       Alert.alert("Invalid Time", "Please enter valid hour (0-23) and minute (0-59).");
       return;
@@ -503,10 +520,18 @@ export default function SettingsScreen() {
         text: "Logout",
         style: "destructive",
         onPress: async () => {
-          await clearToken();
-          await saveStayLoggedIn(false);
-          queryClient.clear();
-          router.replace("/(auth)/login");
+          try {
+            await clearToken();
+            await saveStayLoggedIn(false);
+            queryClient.clear();
+            router.replace("/(auth)/login" as any);
+            setTimeout(() => {
+              router.replace("/(auth)/login" as any);
+            }, 50);
+          } catch (error) {
+            console.error("Logout failed:", error);
+            Alert.alert("Error", "Logout failed. Please try again.");
+          }
         },
       },
     ]);
@@ -749,22 +774,22 @@ export default function SettingsScreen() {
           <Row
             icon="policy"
             label="Privacy Policy"
-            onPress={() => Linking.openURL(PRIVACY_URL)}
+            onPress={() => openExternalUrl(PRIVACY_URL)}
           />
           <Row
             icon="gavel"
             label="Terms of Service"
-            onPress={() => Linking.openURL(TERMS_URL)}
+            onPress={() => openExternalUrl(TERMS_URL)}
           />
           <Row
             icon="delete-sweep"
             label="Data Deletion"
-            onPress={() => Linking.openURL(DATA_DELETION_URL)}
+            onPress={() => openExternalUrl(DATA_DELETION_URL)}
           />
           <Row
             icon="support-agent"
             label="Support"
-            onPress={() => Linking.openURL(`mailto:${SUPPORT_EMAIL}`)}
+            onPress={() => openExternalUrl(`mailto:${SUPPORT_EMAIL}`)}
           />
         </Section>
       </ScrollView>
@@ -788,44 +813,71 @@ export default function SettingsScreen() {
       <Modal visible={showTimeModal} transparent animationType="fade" onRequestClose={() => setShowTimeModal(false)}>
         <View className="flex-1 bg-black/50 justify-end">
           <View className="rounded-t-3xl p-6" style={{ backgroundColor: colors.surface }}>
-            <Text className="text-lg font-bold text-foreground mb-3">Select Time (HH:mm)</Text>
+            <Text className="text-lg font-bold text-foreground mb-2">Select Time (HH:mm)</Text>
+            <Text className="text-muted mb-3">
+              {`${String(selectedHour).padStart(2, "0")}:${String(selectedMinute).padStart(2, "0")}`}
+            </Text>
             <View className="flex-row gap-3 mb-4">
-              <TextInput
-                value={hourInput}
-                onChangeText={setHourInput}
-                keyboardType="numeric"
-                maxLength={2}
-                placeholder="HH"
-                placeholderTextColor={colors.muted}
-                style={{
-                  flex: 1,
-                  borderWidth: 1,
-                  borderColor: colors.border,
-                  borderRadius: 8,
-                  backgroundColor: colors.background,
-                  color: colors.foreground,
-                  paddingHorizontal: 12,
-                  paddingVertical: 10,
-                }}
-              />
-              <TextInput
-                value={minuteInput}
-                onChangeText={setMinuteInput}
-                keyboardType="numeric"
-                maxLength={2}
-                placeholder="mm"
-                placeholderTextColor={colors.muted}
-                style={{
-                  flex: 1,
-                  borderWidth: 1,
-                  borderColor: colors.border,
-                  borderRadius: 8,
-                  backgroundColor: colors.background,
-                  color: colors.foreground,
-                  paddingHorizontal: 12,
-                  paddingVertical: 10,
-                }}
-              />
+              <View style={{ flex: 1 }}>
+                <Text className="text-xs font-semibold mb-2" style={{ color: colors.muted }}>
+                  Hour
+                </Text>
+                <ScrollView
+                  style={{
+                    maxHeight: 180,
+                    borderWidth: 1,
+                    borderColor: colors.border,
+                    borderRadius: 8,
+                    backgroundColor: colors.background,
+                  }}
+                >
+                  {hourOptions.map((hour) => (
+                    <Pressable
+                      key={`hour-${hour}`}
+                      onPress={() => setSelectedHour(hour)}
+                      style={{
+                        paddingVertical: 10,
+                        paddingHorizontal: 12,
+                        backgroundColor: selectedHour === hour ? colors.primary : "transparent",
+                      }}
+                    >
+                      <Text style={{ color: selectedHour === hour ? "white" : colors.foreground }}>
+                        {String(hour).padStart(2, "0")}
+                      </Text>
+                    </Pressable>
+                  ))}
+                </ScrollView>
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text className="text-xs font-semibold mb-2" style={{ color: colors.muted }}>
+                  Minute
+                </Text>
+                <ScrollView
+                  style={{
+                    maxHeight: 180,
+                    borderWidth: 1,
+                    borderColor: colors.border,
+                    borderRadius: 8,
+                    backgroundColor: colors.background,
+                  }}
+                >
+                  {minuteOptions.map((minute) => (
+                    <Pressable
+                      key={`minute-${minute}`}
+                      onPress={() => setSelectedMinute(minute)}
+                      style={{
+                        paddingVertical: 10,
+                        paddingHorizontal: 12,
+                        backgroundColor: selectedMinute === minute ? colors.primary : "transparent",
+                      }}
+                    >
+                      <Text style={{ color: selectedMinute === minute ? "white" : colors.foreground }}>
+                        {String(minute).padStart(2, "0")}
+                      </Text>
+                    </Pressable>
+                  ))}
+                </ScrollView>
+              </View>
             </View>
             <View className="flex-row gap-3">
               <Pressable onPress={() => setShowTimeModal(false)} style={{ flex: 1 }}>

@@ -19,6 +19,10 @@ export function configureTRPCAuth(opts: { getToken?: GetTokenFn; onUnauthorized?
 }
 
 export function createTRPCClient() {
+  const isLikelyTunnelHost = (value: string): boolean => {
+    return /exp\.direct|expo\.dev|ngrok|tunnel/i.test(value);
+  };
+
   const resolveBaseUrl = (): string => {
     const envUrl = process.env.EXPO_PUBLIC_API_URL;
     if (envUrl) return envUrl;
@@ -34,6 +38,11 @@ export function createTRPCClient() {
 
     if (typeof hostUri === 'string' && hostUri.length > 0) {
       const host = hostUri.split(':')[0];
+      if (isLikelyTunnelHost(host)) {
+        console.warn(
+          '[tRPC] Tunnel host detected. Set EXPO_PUBLIC_API_URL to your LAN API URL (example: http://192.168.1.10:3000).'
+        );
+      }
       return `http://${host}:3000`;
     }
 
@@ -42,6 +51,11 @@ export function createTRPCClient() {
     if (scriptURL) {
       const match = scriptURL.match(/https?:\/\/([^/:]+):\d+/);
       if (match?.[1]) {
+        if (isLikelyTunnelHost(match[1])) {
+          console.warn(
+            '[tRPC] Tunnel scriptURL detected. Set EXPO_PUBLIC_API_URL to your LAN API URL (example: http://192.168.1.10:3000).'
+          );
+        }
         return `http://${match[1]}:3000`;
       }
     }
