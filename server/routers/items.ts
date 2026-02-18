@@ -181,6 +181,7 @@ export const itemsRouter = router({
       title: z.string(),
       content: z.string().optional(),
       url: z.string().optional(),
+      location: z.enum(['inbox', 'library', 'archive']).optional(),
     }))
     .mutation(async ({ input, ctx }) => {
       try {
@@ -191,7 +192,7 @@ export const itemsRouter = router({
           title: input.title,
           content: input.content || null,
           url: input.url || null,
-          location: 'inbox' as const,
+          location: input.location ?? ('inbox' as const),
           isFavorite: false,
         };
         

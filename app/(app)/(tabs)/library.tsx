@@ -1,5 +1,5 @@
 import React from "react";
-import { Text, View, TouchableOpacity, ActivityIndicator, Alert, Modal, Pressable } from "react-native";
+import { Text, View, TouchableOpacity, ActivityIndicator, Alert, Modal, Pressable, TextInput } from "react-native";
 import { FlashList } from "@shopify/flash-list";
 import { ScreenContainer } from "@/components/screen-container";
 import { ErrorState } from "@/components/error-state";
@@ -88,6 +88,9 @@ export default function LibraryScreen() {
   const [favoritesOnly, setFavoritesOnly] = React.useState(false);
   const [recentOnly, setRecentOnly] = React.useState(false);
   const [sortFilter, setSortFilter] = React.useState<SortFilter>("newest");
+  const [showCreateModal, setShowCreateModal] = React.useState(false);
+  const [newTitle, setNewTitle] = React.useState("");
+  const [newContent, setNewContent] = React.useState("");
 
   const querySort =
     sortFilter === "newest"
@@ -130,6 +133,24 @@ export default function LibraryScreen() {
   }, [error]);
 
   React.useEffect(() => {
+    console.log("[Library] Query status:", {
+      isLoading,
+      total: items.length,
+      hasNextPage,
+      filters: { typeFilter, favoritesOnly, recentOnly, categoryIdFilter, sortFilter },
+    });
+  }, [
+    categoryIdFilter,
+    favoritesOnly,
+    hasNextPage,
+    isLoading,
+    items.length,
+    recentOnly,
+    sortFilter,
+    typeFilter,
+  ]);
+
+  React.useEffect(() => {
     if (categoriesError) {
       console.error("Categories query failed:", categoriesError);
     }
@@ -159,6 +180,15 @@ export default function LibraryScreen() {
   const toggleFavorite = trpc.items.toggleFavorite.useMutation({
     onSuccess: () => {
       utils.items.list.invalidate();
+    },
+  });
+
+  const createItem = trpc.items.create.useMutation({
+    onSuccess: () => {
+      utils.items.list.invalidate();
+      setShowCreateModal(false);
+      setNewTitle("");
+      setNewContent("");
     },
   });
 
@@ -220,6 +250,25 @@ export default function LibraryScreen() {
     } catch (err) {
       console.error("Failed to toggle favorite:", err);
       Alert.alert("Error", "Failed to update favorite");
+    }
+  };
+
+  const handleCreateLibraryItem = async () => {
+    if (!newTitle.trim()) {
+      Alert.alert("Validation", "Title is required.");
+      return;
+    }
+
+    try {
+      await createItem.mutateAsync({
+        type: "note",
+        title: newTitle.trim(),
+        content: newContent.trim() || newTitle.trim(),
+        location: "library",
+      });
+    } catch (error) {
+      console.error("[Library] Failed creating library item:", error);
+      Alert.alert("Error", "Failed to create item.");
     }
   };
 
@@ -434,6 +483,82 @@ export default function LibraryScreen() {
           />
         </View>
       )}
+      <Modal visible={showCreateModal} transparent animationType="fade" onRequestClose={() => setShowCreateModal(false)}>
+        <View className="flex-1 bg-black/50 justify-end">
+          <View className="rounded-t-3xl p-6" style={{ backgroundColor: colors.surface }}>
+            <Text className="text-xl font-bold text-foreground mb-3">New Library Note</Text>
+            <TextInput
+              value={newTitle}
+              onChangeText={setNewTitle}
+              placeholder="Title"
+              placeholderTextColor={colors.muted}
+              style={{
+                backgroundColor: colors.background,
+                borderColor: colors.border,
+                borderWidth: 1,
+                borderRadius: 8,
+                color: colors.foreground,
+                paddingHorizontal: 12,
+                paddingVertical: 10,
+                marginBottom: 10,
+              }}
+            />
+            <TextInput
+              value={newContent}
+              onChangeText={setNewContent}
+              placeholder="Content"
+              placeholderTextColor={colors.muted}
+              multiline
+              numberOfLines={4}
+              style={{
+                backgroundColor: colors.background,
+                borderColor: colors.border,
+                borderWidth: 1,
+                borderRadius: 8,
+                color: colors.foreground,
+                paddingHorizontal: 12,
+                paddingVertical: 10,
+                marginBottom: 14,
+                textAlignVertical: "top",
+              }}
+            />
+            <View className="flex-row gap-3">
+              <Pressable onPress={() => setShowCreateModal(false)} style={{ flex: 1 }}>
+                <View className="rounded-lg py-3 items-center" style={{ backgroundColor: colors.border }}>
+                  <Text className="text-foreground font-semibold">Cancel</Text>
+                </View>
+              </Pressable>
+              <Pressable onPress={handleCreateLibraryItem} style={{ flex: 1 }} disabled={createItem.isPending}>
+                <View className="rounded-lg py-3 items-center" style={{ backgroundColor: colors.primary }}>
+                  {createItem.isPending ? (
+                    <ActivityIndicator color="white" />
+                  ) : (
+                    <Text className="text-white font-semibold">Create</Text>
+                  )}
+                </View>
+              </Pressable>
+            </View>
+          </View>
+        </View>
+      </Modal>
+
+      <Pressable
+        onPress={() => setShowCreateModal(true)}
+        style={{
+          position: "absolute",
+          right: 18,
+          bottom: 22,
+          width: 56,
+          height: 56,
+          borderRadius: 28,
+          alignItems: "center",
+          justifyContent: "center",
+          backgroundColor: colors.primary,
+          elevation: 8,
+        }}
+      >
+        <MaterialIcons name="add" size={28} color="white" />
+      </Pressable>
     </ScreenContainer>
   );
 }

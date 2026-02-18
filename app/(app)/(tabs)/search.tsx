@@ -285,28 +285,39 @@ export default function SearchScreen() {
           ) : null}
         </View>
 
-        <ScrollView horizontal showsHorizontalScrollIndicator={false} className="mt-3">
-          {[
-            { label: "All", value: "all" as const },
-            { label: "Notes", value: "notes" as const },
-            { label: "Tasks", value: "tasks" as const },
-            { label: "Journal", value: "journal" as const },
-          ].map((chip) => (
-            <Pressable
-              key={chip.value}
-              onPress={() => setActiveFilter(chip.value)}
-              className="mr-2 px-3 py-1 rounded-full border"
-              style={{
-                borderColor: colors.border,
-                backgroundColor: activeFilter === chip.value ? colors.primary : colors.surface,
-              }}
-            >
-              <Text style={{ color: activeFilter === chip.value ? "white" : colors.foreground, fontSize: 12 }}>
-                {chip.label}
-              </Text>
-            </Pressable>
-          ))}
-        </ScrollView>
+        <View style={{ marginTop: 12 }}>
+          <View style={{ flexDirection: "row", flexWrap: "wrap", zIndex: 5, elevation: 5 }}>
+            {[
+              { label: "All", value: "all" as const },
+              { label: "Notes", value: "notes" as const },
+              { label: "Tasks", value: "tasks" as const },
+              { label: "Journal", value: "journal" as const },
+            ].map((chip) => (
+              <Pressable
+                key={chip.value}
+                onPress={() => {
+                  console.log("[Search] Filter pressed:", chip.value);
+                  setActiveFilter(chip.value);
+                }}
+                style={{
+                  paddingHorizontal: 12,
+                  paddingVertical: 8,
+                  marginRight: 8,
+                  marginBottom: 8,
+                  alignSelf: "flex-start",
+                  borderRadius: 999,
+                  borderWidth: 1,
+                  borderColor: colors.border,
+                  backgroundColor: activeFilter === chip.value ? colors.primary : colors.surface,
+                }}
+              >
+                <Text style={{ color: activeFilter === chip.value ? "white" : colors.foreground, fontSize: 13, fontWeight: "600" }}>
+                  {chip.label}
+                </Text>
+              </Pressable>
+            ))}
+          </View>
+        </View>
       </View>
 
       {isLoading ? (

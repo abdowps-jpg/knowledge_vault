@@ -18,6 +18,7 @@ import { analyticsRouter } from '../routers/analytics';
 
 const app = express();
 const port = process.env.PORT || 3000;
+const host = process.env.HOST || '0.0.0.0';
 
 // إنشاء main router
 const appRouter = router({
@@ -93,6 +94,6 @@ app.use(
   })
 );
 
-app.listen(port, () => {
-  console.log(`Server running on http://localhost:${port}`);
+app.listen(Number(port), host, () => {
+  console.log(`Server running on http://${host}:${port}`);
 });

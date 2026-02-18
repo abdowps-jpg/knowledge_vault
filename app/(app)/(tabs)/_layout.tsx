@@ -36,6 +36,12 @@ export default function TabLayout() {
         }}
       />
       <Tabs.Screen
+        name="inbox"
+        options={{
+          href: null,
+        }}
+      />
+      <Tabs.Screen
         name="library"
         options={{
           title: "Library",

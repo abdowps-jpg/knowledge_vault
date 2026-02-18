@@ -56,6 +56,34 @@ export default function RootLayout() {
   const [isLoading, setIsLoading] = useState(true);
   const [sessionExpired, setSessionExpired] = useState(false);
 
+  const decodeBase64Url = useCallback((input: string): string | null => {
+    try {
+      const normalized = input.replace(/-/g, "+").replace(/_/g, "/");
+      const padded = normalized.padEnd(normalized.length + ((4 - (normalized.length % 4)) % 4), "=");
+      if (typeof globalThis.atob === "function") {
+        return globalThis.atob(padded);
+      }
+      return null;
+    } catch {
+      return null;
+    }
+  }, []);
+
+  const isTokenExpired = useCallback((token: string): boolean => {
+    try {
+      const parts = token.split(".");
+      if (parts.length < 2) return true;
+      const decoded = decodeBase64Url(parts[1]);
+      if (!decoded) return false;
+      const payload = JSON.parse(decoded) as { exp?: number };
+      if (!payload?.exp) return false;
+      const nowInSeconds = Math.floor(Date.now() / 1000);
+      return payload.exp <= nowInSeconds;
+    } catch {
+      return true;
+    }
+  }, [decodeBase64Url]);
+
   // Initialize Manus runtime for cookie injection from parent container
   useEffect(() => {
     initManusRuntime();
@@ -105,6 +133,16 @@ export default function RootLayout() {
 
       if (!token) {
         setIsAuthenticated(false);
+        console.log("Is authenticated:", false);
+        return;
+      }
+
+      if (isTokenExpired(token)) {
+        console.log("[Auth/Layout] Token is expired/invalid, clearing token");
+        await clearToken();
+        setIsAuthenticated(false);
+        setSessionExpired(true);
+        console.log("Is authenticated:", false);
         return;
       }
 
@@ -129,7 +167,7 @@ export default function RootLayout() {
     } finally {
       setIsLoading(false);
     }
-  }, [sessionExpired]);
+  }, [isTokenExpired, sessionExpired]);
 
   useEffect(() => {
     checkAuth().catch((error) => {
@@ -138,6 +176,13 @@ export default function RootLayout() {
       setIsAuthenticated(false);
     });
   }, [checkAuth]);
+
+  useEffect(() => {
+    console.log("[Auth] isAuthenticated:", isAuthenticated);
+    console.log("[Auth] isLoading:", isLoading);
+    console.log("[Auth] segments:", segments);
+    console.log("[Auth] pathname:", pathname);
+  }, [isAuthenticated, isLoading, pathname, segments]);
 
   useEffect(() => {
     if (Platform.OS === "web") {
@@ -391,9 +436,7 @@ export default function RootLayout() {
   }
 
   if (!hasSeenOnboarding && pathname !== "/onboarding") {
-    console.log("[Auth/Layout] Redirecting to onboarding");
-    console.log("Redirecting to:", "auth");
-    return <Redirect href="/onboarding" />;
+    console.log("[Auth/Layout] Onboarding not completed, but auth flow takes priority");
   }
 
   const inAuthGroup = segments[0] === "(auth)";

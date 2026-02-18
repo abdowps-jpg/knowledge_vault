@@ -1,5 +1,5 @@
 import React from "react";
-import { Pressable, ScrollView, Text, View } from "react-native";
+import { Pressable, Text, View } from "react-native";
 import { MaterialIcons } from "@expo/vector-icons";
 import { useColors } from "@/hooks/use-colors";
 
@@ -44,35 +44,78 @@ export function FilterBar({
   const [showSortMenu, setShowSortMenu] = React.useState(false);
 
   return (
-    <View className="px-4 py-3 border-b border-border">
-      <View className="flex-row">
+    <View
+      style={{
+        paddingHorizontal: 16,
+        paddingVertical: 12,
+        borderBottomWidth: 1,
+        borderBottomColor: colors.border,
+      }}
+    >
+      <View style={{ flexDirection: "row", alignItems: "center" }}>
         <Pressable
           onPress={() => {
+            console.log("[FilterBar] Filter menu toggled");
             setShowFilterMenu((prev) => !prev);
             setShowSortMenu(false);
           }}
-          className="mr-2 px-3 py-2 rounded-lg border flex-row items-center"
-          style={{ borderColor: colors.border, backgroundColor: colors.surface }}
+          style={{
+            marginRight: 8,
+            paddingHorizontal: 12,
+            paddingVertical: 9,
+            borderRadius: 10,
+            borderWidth: 1,
+            borderColor: colors.border,
+            backgroundColor: colors.surface,
+            flexDirection: "row",
+            alignItems: "center",
+            minWidth: 96,
+          }}
         >
           <MaterialIcons name="filter-list" size={16} color={colors.foreground} />
-          <Text className="ml-2 text-foreground text-sm font-semibold">Filter</Text>
+          <Text style={{ marginLeft: 8, color: colors.foreground, fontSize: 15, fontWeight: "700" }}>
+            Filter
+          </Text>
         </Pressable>
 
         <Pressable
           onPress={() => {
+            console.log("[FilterBar] Sort menu toggled");
             setShowSortMenu((prev) => !prev);
             setShowFilterMenu(false);
           }}
-          className="px-3 py-2 rounded-lg border flex-row items-center"
-          style={{ borderColor: colors.border, backgroundColor: colors.surface }}
+          style={{
+            paddingHorizontal: 12,
+            paddingVertical: 9,
+            borderRadius: 10,
+            borderWidth: 1,
+            borderColor: colors.border,
+            backgroundColor: colors.surface,
+            flexDirection: "row",
+            alignItems: "center",
+            minWidth: 88,
+          }}
         >
           <MaterialIcons name="sort" size={16} color={colors.foreground} />
-          <Text className="ml-2 text-foreground text-sm font-semibold">Sort</Text>
+          <Text style={{ marginLeft: 8, color: colors.foreground, fontSize: 15, fontWeight: "700" }}>
+            Sort
+          </Text>
         </Pressable>
       </View>
 
       {showFilterMenu ? (
-        <View className="mt-2 bg-surface border border-border rounded-lg p-2">
+        <View
+          style={{
+            marginTop: 10,
+            borderRadius: 10,
+            borderWidth: 1,
+            borderColor: colors.border,
+            backgroundColor: colors.surface,
+            padding: 8,
+            zIndex: 20,
+            elevation: 20,
+          }}
+        >
           {filterOptions.map((option) => (
             <Pressable
               key={option.key}
@@ -80,16 +123,31 @@ export function FilterBar({
                 onSelectFilter(option.key);
                 setShowFilterMenu(false);
               }}
-              className="px-3 py-2 rounded-md"
+              style={{
+                paddingHorizontal: 12,
+                paddingVertical: 10,
+                borderRadius: 8,
+              }}
             >
-              <Text className="text-foreground text-sm">{option.label}</Text>
+              <Text style={{ color: colors.foreground, fontSize: 14 }}>{option.label}</Text>
             </Pressable>
           ))}
         </View>
       ) : null}
 
       {showSortMenu ? (
-        <View className="mt-2 bg-surface border border-border rounded-lg p-2">
+        <View
+          style={{
+            marginTop: 10,
+            borderRadius: 10,
+            borderWidth: 1,
+            borderColor: colors.border,
+            backgroundColor: colors.surface,
+            padding: 8,
+            zIndex: 20,
+            elevation: 20,
+          }}
+        >
           {sortOptions.map((option) => (
             <Pressable
               key={option.key}
@@ -97,9 +155,16 @@ export function FilterBar({
                 onSelectSort(option.key);
                 setShowSortMenu(false);
               }}
-              className="px-3 py-2 rounded-md flex-row items-center justify-between"
+              style={{
+                paddingHorizontal: 12,
+                paddingVertical: 10,
+                borderRadius: 8,
+                flexDirection: "row",
+                alignItems: "center",
+                justifyContent: "space-between",
+              }}
             >
-              <Text className="text-foreground text-sm">{option.label}</Text>
+              <Text style={{ color: colors.foreground, fontSize: 14 }}>{option.label}</Text>
               {selectedSort === option.key ? (
                 <MaterialIcons name="check" size={16} color={colors.primary} />
               ) : null}
@@ -109,23 +174,33 @@ export function FilterBar({
       ) : null}
 
       {activeChips.length > 0 ? (
-        <View className="mt-3">
-          <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+        <View style={{ marginTop: 12 }}>
+          <View style={{ flexDirection: "row", flexWrap: "wrap" }}>
             {activeChips.map((chip) => (
               <View
                 key={chip.key}
-                className="mr-2 px-3 py-1 rounded-full border flex-row items-center"
-                style={{ borderColor: colors.border, backgroundColor: colors.surface }}
+                style={{
+                  marginRight: 8,
+                  marginBottom: 8,
+                  paddingHorizontal: 12,
+                  paddingVertical: 7,
+                  borderRadius: 999,
+                  borderWidth: 1,
+                  borderColor: colors.border,
+                  backgroundColor: colors.surface,
+                  flexDirection: "row",
+                  alignItems: "center",
+                }}
               >
-                <Text className="text-foreground text-xs mr-1">{chip.label}</Text>
-                <Pressable onPress={() => onRemoveChip(chip.key)}>
+                <Text style={{ color: colors.foreground, fontSize: 13, marginRight: 4 }}>{chip.label}</Text>
+                <Pressable onPress={() => onRemoveChip(chip.key)} hitSlop={6}>
                   <MaterialIcons name="close" size={14} color={colors.muted} />
                 </Pressable>
               </View>
             ))}
-          </ScrollView>
-          <Pressable onPress={onClearAll} className="mt-2 self-start">
-            <Text style={{ color: colors.primary }} className="text-xs font-semibold">
+          </View>
+          <Pressable onPress={onClearAll} style={{ marginTop: 2, alignSelf: "flex-start" }}>
+            <Text style={{ color: colors.primary, fontSize: 13, fontWeight: "700" }}>
               Clear All Filters
             </Text>
           </Pressable>

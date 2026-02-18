@@ -1,4 +1,5 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
+import type { AccentTheme } from "@/lib/theme-presets";
 
 export type ThemePreference = "light" | "dark" | "auto";
 export type FontSizePreference = "small" | "medium" | "large";
@@ -11,6 +12,7 @@ export interface AppSettings {
   taskReminderTime: string; // HH:mm
   journalReminderTime: string; // HH:mm
   theme: ThemePreference;
+  accentTheme: AccentTheme;
   fontSize: FontSizePreference;
 }
 
@@ -25,6 +27,7 @@ export const DEFAULT_APP_SETTINGS: AppSettings = {
   taskReminderTime: "09:00",
   journalReminderTime: "21:00",
   theme: "auto",
+  accentTheme: "ocean",
   fontSize: "medium",
 };
 

@@ -3,10 +3,15 @@ import { Appearance, View, useColorScheme as useSystemColorScheme } from "react-
 import { colorScheme as nativewindColorScheme, vars } from "nativewind";
 
 import { SchemeColors, type ColorScheme } from "@/constants/theme";
+import { ACCENT_THEME_TOKENS, type AccentTheme } from "@/lib/theme-presets";
+import { loadAppSettings, saveAppSettings } from "@/lib/settings-storage";
 
 type ThemeContextValue = {
   colorScheme: ColorScheme;
   setColorScheme: (scheme: ColorScheme) => void;
+  accentTheme: AccentTheme;
+  setAccentTheme: (theme: AccentTheme) => void;
+  palette: typeof SchemeColors.light;
 };
 
 const ThemeContext = createContext<ThemeContextValue | null>(null);
@@ -14,16 +19,27 @@ const ThemeContext = createContext<ThemeContextValue | null>(null);
 export function ThemeProvider({ children }: { children: React.ReactNode }) {
   const systemScheme = useSystemColorScheme() ?? "light";
   const [colorScheme, setColorSchemeState] = useState<ColorScheme>(systemScheme);
+  const [accentTheme, setAccentThemeState] = useState<AccentTheme>("ocean");
 
-  const applyScheme = useCallback((scheme: ColorScheme) => {
+  const palette = useMemo(() => {
+    return {
+      ...SchemeColors[colorScheme],
+      ...ACCENT_THEME_TOKENS[accentTheme][colorScheme],
+    };
+  }, [accentTheme, colorScheme]);
+
+  const applyScheme = useCallback((scheme: ColorScheme, theme: AccentTheme) => {
+    const mergedPalette = {
+      ...SchemeColors[scheme],
+      ...ACCENT_THEME_TOKENS[theme][scheme],
+    };
     nativewindColorScheme.set(scheme);
     Appearance.setColorScheme?.(scheme);
     if (typeof document !== "undefined") {
       const root = document.documentElement;
       root.dataset.theme = scheme;
       root.classList.toggle("dark", scheme === "dark");
-      const palette = SchemeColors[scheme];
-      Object.entries(palette).forEach(([token, value]) => {
+      Object.entries(mergedPalette).forEach(([token, value]) => {
         root.style.setProperty(`--color-${token}`, value);
       });
     }
@@ -31,35 +47,63 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
 
   const setColorScheme = useCallback((scheme: ColorScheme) => {
     setColorSchemeState(scheme);
-    applyScheme(scheme);
-  }, [applyScheme]);
+    applyScheme(scheme, accentTheme);
+  }, [accentTheme, applyScheme]);
+
+  const setAccentTheme = useCallback((theme: AccentTheme) => {
+    setAccentThemeState(theme);
+    applyScheme(colorScheme, theme);
+    loadAppSettings()
+      .then((settings) => saveAppSettings({ ...settings, accentTheme: theme }))
+      .catch((error) => {
+        console.error("Failed persisting accent theme:", error);
+      });
+  }, [applyScheme, colorScheme]);
 
   useEffect(() => {
-    applyScheme(colorScheme);
-  }, [applyScheme, colorScheme]);
+    loadAppSettings()
+      .then((settings) => {
+        const resolvedScheme = settings.theme === "auto" ? systemScheme : settings.theme;
+        const resolvedAccent = settings.accentTheme ?? "ocean";
+        setColorSchemeState(resolvedScheme);
+        setAccentThemeState(resolvedAccent);
+        applyScheme(resolvedScheme, resolvedAccent);
+      })
+      .catch((error) => {
+        console.error("Failed loading theme settings:", error);
+        applyScheme(colorScheme, accentTheme);
+      });
+  }, [applyScheme, systemScheme]);
+
+  useEffect(() => {
+    applyScheme(colorScheme, accentTheme);
+  }, [accentTheme, applyScheme, colorScheme]);
 
   const themeVariables = useMemo(
     () =>
       vars({
-        "color-primary": SchemeColors[colorScheme].primary,
-        "color-background": SchemeColors[colorScheme].background,
-        "color-surface": SchemeColors[colorScheme].surface,
-        "color-foreground": SchemeColors[colorScheme].foreground,
-        "color-muted": SchemeColors[colorScheme].muted,
-        "color-border": SchemeColors[colorScheme].border,
-        "color-success": SchemeColors[colorScheme].success,
-        "color-warning": SchemeColors[colorScheme].warning,
-        "color-error": SchemeColors[colorScheme].error,
+        "color-primary": palette.primary,
+        "color-background": palette.background,
+        "color-surface": palette.surface,
+        "color-foreground": palette.foreground,
+        "color-muted": palette.muted,
+        "color-border": palette.border,
+        "color-success": palette.success,
+        "color-warning": palette.warning,
+        "color-error": palette.error,
       }),
-    [colorScheme],
+    [palette],
   );
 
   const value = useMemo(
     () => ({
       colorScheme,
       setColorScheme,
+      accentTheme,
+      setAccentTheme,
+      palette,
     }),
-    [colorScheme, setColorScheme],
+    [accentTheme, colorScheme, palette, setAccentTheme, setColorScheme],
   );
   return (
     <ThemeContext.Provider value={value}>

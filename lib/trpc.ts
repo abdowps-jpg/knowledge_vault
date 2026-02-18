@@ -1,5 +1,7 @@
 import { createTRPCReact } from '@trpc/react-query';
 import { httpBatchLink, loggerLink } from '@trpc/client';
+import Constants from 'expo-constants';
+import { NativeModules, Platform } from 'react-native';
 import type { AppRouter } from '../server/_core/index';
 
 export const trpc = createTRPCReact<AppRouter>();
@@ -17,7 +19,38 @@ export function configureTRPCAuth(opts: { getToken?: GetTokenFn; onUnauthorized?
 }
 
 export function createTRPCClient() {
-  const baseUrl = 'http://localhost:3000';
+  const resolveBaseUrl = (): string => {
+    const envUrl = process.env.EXPO_PUBLIC_API_URL;
+    if (envUrl) return envUrl;
+
+    if (Platform.OS === 'web') {
+      return 'http://localhost:3000';
+    }
+
+    const hostUri =
+      (Constants.expoConfig as any)?.hostUri ??
+      (Constants as any)?.manifest2?.extra?.expoClient?.hostUri ??
+      (Constants as any)?.manifest?.debuggerHost;
+
+    if (typeof hostUri === 'string' && hostUri.length > 0) {
+      const host = hostUri.split(':')[0];
+      return `http://${host}:3000`;
+    }
+
+    // Expo Go fallback: extract host from Metro script URL.
+    const scriptURL = (NativeModules as any)?.SourceCode?.scriptURL as string | undefined;
+    if (scriptURL) {
+      const match = scriptURL.match(/https?:\/\/([^/:]+):\d+/);
+      if (match?.[1]) {
+        return `http://${match[1]}:3000`;
+      }
+    }
+
+    return 'http://localhost:3000';
+  };
+
+  const baseUrl = resolveBaseUrl();
+  console.log('[tRPC] Base URL:', baseUrl);
   const hasBearerToken = (headers: unknown): boolean => {
     if (!headers) return false;
     if (headers instanceof Headers) {

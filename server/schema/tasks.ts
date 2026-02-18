@@ -1,20 +1,24 @@
-import { mysqlTable, varchar, text, timestamp, boolean, mysqlEnum, date, index } from 'drizzle-orm/mysql-core';
+import { index, integer, sqliteTable, text } from 'drizzle-orm/sqlite-core';
 
-export const tasks = mysqlTable('tasks', {
-  id: varchar('id', { length: 36 }).primaryKey(),
-  userId: varchar('user_id', { length: 36 }).notNull(),
-  title: varchar('title', { length: 255 }).notNull(),
-  description: text('description'),
-  dueDate: date('due_date'),
-  priority: mysqlEnum('priority', ['low', 'medium', 'high']).default('medium'),
-  isCompleted: boolean('is_completed').default(false),
-  completedAt: timestamp('completed_at'),
-  recurrence: varchar('recurrence', { length: 50 }),
-  createdAt: timestamp('created_at').defaultNow(),
-  updatedAt: timestamp('updated_at').defaultNow(),
-  deletedAt: timestamp('deleted_at'),
-}, (table) => ({
-  userIdx: index('user_idx').on(table.userId),
-  dueDateIdx: index('due_date_idx').on(table.dueDate),
-  priorityIdx: index('priority_idx').on(table.priority),
-}));
+export const tasks = sqliteTable(
+  'tasks',
+  {
+    id: text('id').primaryKey(),
+    userId: text('user_id').notNull(),
+    title: text('title').notNull(),
+    description: text('description'),
+    dueDate: text('due_date'),
+    priority: text('priority', { enum: ['low', 'medium', 'high'] }).default('medium'),
+    isCompleted: integer('is_completed', { mode: 'boolean' }).default(false),
+    completedAt: integer('completed_at', { mode: 'timestamp' }),
+    recurrence: text('recurrence'),
+    createdAt: integer('created_at', { mode: 'timestamp' }).$defaultFn(() => new Date()),
+    updatedAt: integer('updated_at', { mode: 'timestamp' }).$defaultFn(() => new Date()),
+    deletedAt: integer('deleted_at', { mode: 'timestamp' }),
+  },
+  (table) => ({
+    userIdx: index('tasks_user_idx').on(table.userId),
+    dueDateIdx: index('tasks_due_date_idx').on(table.dueDate),
+    priorityIdx: index('tasks_priority_idx').on(table.priority),
+  })
+);

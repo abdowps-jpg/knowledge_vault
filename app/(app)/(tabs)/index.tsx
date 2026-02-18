@@ -1,4 +1,5 @@
 import React, { Suspense, useState } from "react";
+import { useRouter } from "expo-router";
 import { FlatList, Text, View, Pressable, RefreshControl, Modal, ActivityIndicator, TextInput, Alert } from "react-native";
 import { ScreenContainer } from "@/components/screen-container";
 import { useColors } from "@/hooks/use-colors";
@@ -94,9 +95,11 @@ interface InboxItemProps {
   onPress: (item: Item) => void;
   onLongPress: (item: Item) => void;
   onDelete: (itemId: string) => void;
+  onMoveToLibrary: (item: Item) => void;
+  onCopy: (item: Item) => void;
 }
 
-function InboxItem({ item, onPress, onLongPress, onDelete }: InboxItemProps) {
+function InboxItem({ item, onPress, onLongPress, onDelete, onMoveToLibrary, onCopy }: InboxItemProps) {
   const colors = useColors();
   const [previewImageUri, setPreviewImageUri] = useState<string | null>(null);
   const { data: attachments = [], isLoading: isAttachmentsLoading } = trpc.attachments.list.useQuery({
@@ -192,6 +195,14 @@ function InboxItem({ item, onPress, onLongPress, onDelete }: InboxItemProps) {
               />
             </View>
           ) : null}
+          <View className="flex-row items-center gap-3 mt-3">
+            <Pressable onPress={() => onMoveToLibrary(item)}>
+              <Text style={{ color: colors.primary, fontWeight: "700", fontSize: 12 }}>Move to Library</Text>
+            </Pressable>
+            <Pressable onPress={() => onCopy(item)}>
+              <Text style={{ color: colors.primary, fontWeight: "700", fontSize: 12 }}>Copy</Text>
+            </Pressable>
+          </View>
         </View>
 
         {/* Delete Button */}
@@ -243,7 +254,8 @@ function InboxItem({ item, onPress, onLongPress, onDelete }: InboxItemProps) {
 
 export default function InboxScreen() {
   const colors = useColors();
-  const { items, loading, openQuickAdd, loadInboxItems, deleteItem, updateItem } = useInbox();
+  const router = useRouter();
+  const { items, loading, openQuickAdd, loadInboxItems, deleteItem, updateItem, addItem } = useInbox();
   const [refreshing, setRefreshing] = useState(false);
   const [selectedItem, setSelectedItem] = useState<Item | null>(null);
   const [showContextMenu, setShowContextMenu] = useState(false);
@@ -266,9 +278,8 @@ export default function InboxScreen() {
   };
 
   const handleItemPress = (item: Item) => {
-    setEditingItem(item);
-    setEditTitle(item.title ?? "");
-    setEditContent(item.content ?? "");
+    console.log("[Inbox] Opening item details:", item.id);
+    router.push(`/(app)/item/${item.id}` as any);
   };
 
   // Handle delete
@@ -284,6 +295,31 @@ export default function InboxScreen() {
   const handleQuickAdd = () => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     openQuickAdd("note");
+  };
+
+  const handleMoveToLibrary = async (item: Item) => {
+    try {
+      await updateItem(item.id, { categoryId: "library" as any });
+      console.log("[Inbox] Moved item to library:", item.id);
+    } catch (error) {
+      console.error("[Inbox] Failed moving item to library:", error);
+      Alert.alert("Error", "Failed to move item.");
+    }
+  };
+
+  const handleCopyItem = async (item: Item) => {
+    try {
+      const { id: _id, createdAt: _createdAt, updatedAt: _updatedAt, ...copySource } = item as any;
+      const duplicated = await addItem({
+        ...copySource,
+        title: `${item.title} (Copy)`,
+      });
+      console.log("[Inbox] Copied item:", item.id, "->", duplicated.id);
+      Alert.alert("Copied", "Item duplicated successfully.");
+    } catch (error) {
+      console.error("[Inbox] Failed copying item:", error);
+      Alert.alert("Error", "Failed to copy item.");
+    }
   };
 
   const handleSaveEdit = async () => {
@@ -357,6 +393,8 @@ export default function InboxScreen() {
               onPress={handleItemPress}
               onLongPress={handleItemLongPress}
               onDelete={handleDelete}
+              onMoveToLibrary={handleMoveToLibrary}
+              onCopy={handleCopyItem}
             />
           )}
           refreshControl={

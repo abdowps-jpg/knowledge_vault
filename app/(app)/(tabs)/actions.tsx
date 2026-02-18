@@ -98,6 +98,15 @@ export default function ActionsScreen() {
   }, [error]);
 
   React.useEffect(() => {
+    console.log("[Actions] Query status:", {
+      isLoading,
+      total: tasks.length,
+      activeTab,
+      hasNextPage,
+    });
+  }, [activeTab, hasNextPage, isLoading, tasks.length]);
+
+  React.useEffect(() => {
     const taskId = typeof params.taskId === "string" ? params.taskId : undefined;
     if (!taskId) return;
     setActiveTab("all");
@@ -187,21 +196,11 @@ export default function ActionsScreen() {
         priority: newTaskPriority,
         recurrence: newTaskRecurrence === "none" ? undefined : newTaskRecurrence,
       };
-
-      const result = await offlineManager.runOrQueueMutation("tasks.create", input, () =>
-        createTask.mutateAsync(input)
-      );
-      if ("queued" in (result as any)) {
-        Alert.alert("Queued", "Task will be created when connection is restored.");
-        setShowCreateModal(false);
-        setNewTaskTitle("");
-        setNewTaskDescription("");
-        setNewTaskDueDate("");
-        setNewTaskPriority("medium");
-        setNewTaskRecurrence("none");
-        return;
-      }
-      const createdTask = result as any;
+      console.log("[Actions] Creating task:", input);
+      const createdTask = await createTask.mutateAsync(input as any);
+      console.log("[Actions] Task created:", createdTask);
+      setActiveTab("all");
+      await refetch();
 
       if (createdTask?.id && createdTask?.dueDate) {
         await scheduleTaskDueNotification({
@@ -317,7 +316,7 @@ export default function ActionsScreen() {
       </View>
 
       <View className="px-4 py-3 border-b border-border">
-        <View className="flex-row">
+        <View style={{ flexDirection: "row", flexWrap: "wrap", zIndex: 5, elevation: 5 }}>
           {[
             { label: "All", value: "all" as const },
             { label: "Today", value: "today" as const },
@@ -326,14 +325,23 @@ export default function ActionsScreen() {
           ].map((tab) => (
             <Pressable
               key={tab.value}
-              onPress={() => setActiveTab(tab.value)}
-              className="mr-2 px-3 py-1 rounded-full border"
+              onPress={() => {
+                console.log("[Actions] Filter tab pressed:", tab.value);
+                setActiveTab(tab.value);
+              }}
               style={{
+                paddingHorizontal: 12,
+                paddingVertical: 8,
+                marginRight: 8,
+                marginBottom: 8,
+                alignSelf: "flex-start",
+                borderRadius: 999,
+                borderWidth: 1,
                 borderColor: colors.border,
                 backgroundColor: activeTab === tab.value ? colors.primary : colors.surface,
               }}
             >
-              <Text style={{ color: activeTab === tab.value ? "white" : colors.foreground, fontSize: 12 }}>
+              <Text style={{ color: activeTab === tab.value ? "white" : colors.foreground, fontSize: 13, fontWeight: "600" }}>
                 {tab.label}
               </Text>
             </Pressable>
@@ -579,6 +587,24 @@ export default function ActionsScreen() {
           </View>
         </View>
       </Modal>
+
+      <Pressable
+        onPress={() => setShowCreateModal(true)}
+        style={{
+          position: "absolute",
+          right: 18,
+          bottom: 22,
+          width: 56,
+          height: 56,
+          borderRadius: 28,
+          alignItems: "center",
+          justifyContent: "center",
+          backgroundColor: colors.primary,
+          elevation: 8,
+        }}
+      >
+        <MaterialIcons name="add" size={28} color="white" />
+      </Pressable>
     </ScreenContainer>
   );
 }

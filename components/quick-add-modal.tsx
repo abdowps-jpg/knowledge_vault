@@ -1,6 +1,8 @@
 import React, { useState } from "react";
 import { View, Text, TextInput, Pressable, ScrollView, Modal, ActivityIndicator, Alert } from "react-native";
 import { MaterialIcons } from "@expo/vector-icons";
+import AsyncStorage from "@react-native-async-storage/async-storage";
+import { useRouter } from "expo-router";
 import { useColors } from "@/hooks/use-colors";
 import { useInbox } from "@/lib/context/inbox-context";
 import { ItemType } from "@/lib/db/schema";
@@ -56,8 +58,10 @@ function Tab({ label, icon, isActive, onPress }: TabProps) {
 
 export function QuickAddModal() {
   const colors = useColors();
+  const router = useRouter();
   const { quickAddModal, closeQuickAdd, setActiveTab, addItem } = useInbox();
   const utils = trpc.useUtils();
+  const DESTINATION_KEY = "quick_add_destination";
   const [loading, setLoading] = useState(false);
   const [showAudioRecorder, setShowAudioRecorder] = useState(false);
   const [selectedImageUri, setSelectedImageUri] = useState<string | null>(null);
@@ -76,6 +80,7 @@ export function QuickAddModal() {
   const [url, setUrl] = useState("");
   const [source, setSource] = useState("");
   const [author, setAuthor] = useState("");
+  const [destination, setDestination] = useState<"inbox" | "library" | "actions">("inbox");
 
   // Reset form
   const resetForm = () => {
@@ -88,6 +93,19 @@ export function QuickAddModal() {
     setSelectedImageBase64(null);
     setSelectedImageName(null);
   };
+
+  React.useEffect(() => {
+    if (!quickAddModal.isOpen) return;
+    AsyncStorage.getItem(DESTINATION_KEY)
+      .then((value) => {
+        if (value === "inbox" || value === "library" || value === "actions") {
+          setDestination(value);
+        }
+      })
+      .catch((error) => {
+        console.error("Failed reading quick add destination:", error);
+      });
+  }, [quickAddModal.isOpen]);
 
   const handlePickImage = async () => {
     try {
@@ -194,6 +212,17 @@ export function QuickAddModal() {
         isArchived: false,
       };
 
+      if (destination === "actions") {
+        itemData.type = ItemType.TASK;
+        itemData.priority = "medium";
+        itemData.isCompleted = false;
+        itemData.recurrencePattern = "none";
+      }
+
+      if (destination === "library") {
+        itemData.categoryId = itemData.categoryId ?? "library";
+      }
+
       // Add type-specific fields
       if (quickAddModal.activeTab === "quote") {
         itemData.source = source.trim();
@@ -207,6 +236,8 @@ export function QuickAddModal() {
       }
 
       const newItem = await addItem(itemData);
+      await AsyncStorage.setItem(DESTINATION_KEY, destination);
+      console.log("[QuickAdd] Saved item:", newItem?.id, "destination:", destination);
 
       if (newItem?.id && selectedImageBase64 && selectedImageName) {
         await createAttachment.mutateAsync({
@@ -221,6 +252,9 @@ export function QuickAddModal() {
 
       resetForm();
       closeQuickAdd();
+      if (newItem?.id) {
+        router.push(`/(app)/item/${newItem.id}` as any);
+      }
     } catch (error) {
       console.error("Error saving item:", error);
       Alert.alert("Error", "Failed to save item");
@@ -281,6 +315,35 @@ export function QuickAddModal() {
             onPress={() => setActiveTab("task")}
           />
         </ScrollView>
+        <View className="px-4 pb-4">
+          <Text className="text-xs font-semibold mb-2" style={{ color: colors.muted }}>
+            Save To
+          </Text>
+          <View className="flex-row gap-2">
+            {[
+              { key: "inbox", label: "Inbox" },
+              { key: "library", label: "Library" },
+              { key: "actions", label: "Actions" },
+            ].map((option) => (
+              <Pressable
+                key={option.key}
+                onPress={() => setDestination(option.key as "inbox" | "library" | "actions")}
+                style={{
+                  paddingVertical: 8,
+                  paddingHorizontal: 12,
+                  borderRadius: 999,
+                  borderWidth: 1,
+                  borderColor: colors.border,
+                  backgroundColor: destination === option.key ? colors.primary : colors.surface,
+                }}
+              >
+                <Text style={{ color: destination === option.key ? "white" : colors.foreground, fontWeight: "600" }}>
+                  {option.label}
+                </Text>
+              </Pressable>
+            ))}
+          </View>
+        </View>
       </View>
 
       {/* Content */}
@@ -611,7 +674,9 @@ export function QuickAddModal() {
           {loading ? (
             <ActivityIndicator color="white" />
           ) : (
-            <Text className="text-white font-semibold text-base">Save to Inbox</Text>
+            <Text className="text-white font-semibold text-base">
+              {destination === "inbox" ? "Save to Inbox" : destination === "library" ? "Save to Library" : "Save to Actions"}
+            </Text>
           )}
         </Pressable>
         <Pressable

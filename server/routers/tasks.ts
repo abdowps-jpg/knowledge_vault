@@ -1,5 +1,6 @@
 import { randomUUID } from 'crypto';
 import { and, asc, desc, eq, gte } from 'drizzle-orm';
+import { TRPCError } from '@trpc/server';
 import { z } from 'zod';
 import { db } from '../db';
 import { tasks } from '../schema/tasks';
@@ -44,7 +45,10 @@ export const tasksRouter = router({
           .select()
           .from(tasks)
           .where(conditions.length > 0 ? and(...conditions) : undefined)
-          .orderBy(input.sortOrder === 'asc' ? asc(tasks.dueDate) : desc(tasks.dueDate))
+          .orderBy(
+            input.sortOrder === 'asc' ? asc(tasks.dueDate) : desc(tasks.dueDate),
+            desc(tasks.createdAt)
+          )
           .limit(input.limit + 1)
           .offset(cursor);
 
@@ -52,10 +56,12 @@ export const tasksRouter = router({
         const hasMore = safeResult.length > input.limit;
         const pageItems = hasMore ? safeResult.slice(0, input.limit) : safeResult;
 
-        return {
+        const payload = {
           items: pageItems,
           nextCursor: hasMore ? cursor + input.limit : undefined,
         };
+        console.log('[Tasks/List] user:', ctx.user.id, 'count:', payload.items.length);
+        return payload;
       } catch (error) {
         console.error('Error fetching tasks:', error);
         return { items: [], nextCursor: undefined };
@@ -75,6 +81,7 @@ export const tasksRouter = router({
     )
     .mutation(async ({ input, ctx }) => {
       try {
+        console.log('[Tasks/Create] input:', input, 'user:', ctx.user.id);
         const newTask = {
           id: randomUUID(),
           userId: ctx.user.id,
@@ -88,10 +95,11 @@ export const tasksRouter = router({
         };
 
         await db.insert(tasks).values(newTask);
+        console.log('[Tasks/Create] created id:', newTask.id);
         return newTask;
       } catch (error) {
         console.error('Error creating task:', error);
-        return null;
+        throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR', message: 'Failed to create task' });
       }
     }),
 

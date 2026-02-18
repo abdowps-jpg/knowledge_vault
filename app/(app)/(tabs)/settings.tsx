@@ -24,6 +24,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { ScreenContainer } from "@/components/screen-container";
 import { useColors } from "@/hooks/use-colors";
 import { useThemeContext } from "@/lib/theme-provider";
+import { ACCENT_THEME_LABELS, ACCENT_THEME_PREVIEW, type AccentTheme } from "@/lib/theme-presets";
 import { clearAllData, exportAllData as exportLocalData, importData } from "@/lib/db/storage";
 import { trpc } from "@/lib/trpc";
 import { clearToken, saveStayLoggedIn } from "@/lib/auth-storage";
@@ -129,7 +130,7 @@ export default function SettingsScreen() {
   const router = useRouter();
   const queryClient = useQueryClient();
   const systemScheme = useColorScheme() ?? "light";
-  const { setColorScheme } = useThemeContext();
+  const { setColorScheme, setAccentTheme } = useThemeContext();
   const exportQuery = trpc.export.exportAll.useQuery(undefined, { enabled: false });
 
   const [settings, setSettings] = useState<AppSettings>(DEFAULT_APP_SETTINGS);
@@ -323,6 +324,11 @@ export default function SettingsScreen() {
     await persist({ theme });
     const effectiveScheme = theme === "auto" ? (systemScheme as "light" | "dark") : theme;
     setColorScheme(effectiveScheme);
+  };
+
+  const handleAccentThemeChange = async (accentTheme: AccentTheme) => {
+    await persist({ accentTheme });
+    setAccentTheme(accentTheme);
   };
 
   const handleFontSizeChange = async (fontSize: FontSizePreference) => {
@@ -600,6 +606,38 @@ export default function SettingsScreen() {
                 <Text style={{ color: settings.theme === mode ? "white" : colors.foreground, fontWeight: "600" }}>
                   {mode[0].toUpperCase() + mode.slice(1)}
                 </Text>
+              </Pressable>
+            ))}
+          </View>
+          <Row icon="color-lens" label="Color Theme" value={ACCENT_THEME_LABELS[settings.accentTheme]} />
+          <View className="px-4 pb-3 pt-1 flex-row flex-wrap gap-2">
+            {(Object.keys(ACCENT_THEME_LABELS) as AccentTheme[]).map((themeKey) => (
+              <Pressable
+                key={themeKey}
+                onPress={() => handleAccentThemeChange(themeKey)}
+                style={{
+                  borderRadius: 10,
+                  borderWidth: 1,
+                  borderColor: colors.border,
+                  paddingHorizontal: 10,
+                  paddingVertical: 8,
+                  minWidth: 100,
+                  backgroundColor: settings.accentTheme === themeKey ? colors.surface : colors.background,
+                }}
+              >
+                <View className="flex-row items-center gap-2">
+                  <View
+                    style={{
+                      width: 10,
+                      height: 10,
+                      borderRadius: 999,
+                      backgroundColor: ACCENT_THEME_PREVIEW[themeKey],
+                    }}
+                  />
+                  <Text style={{ color: colors.foreground, fontWeight: "600", fontSize: 12 }}>
+                    {ACCENT_THEME_LABELS[themeKey]}
+                  </Text>
+                </View>
               </Pressable>
             ))}
           </View>

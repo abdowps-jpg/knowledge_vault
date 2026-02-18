@@ -11,6 +11,7 @@ import {
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useRouter } from "expo-router";
 import { MaterialIcons } from "@expo/vector-icons";
+import { getToken } from "@/lib/auth-storage";
 
 import { ScreenContainer } from "@/components/screen-container";
 import { useColors } from "@/hooks/use-colors";
@@ -109,7 +110,12 @@ export default function OnboardingScreen() {
 
   const finishOnboarding = async () => {
     await AsyncStorage.setItem(ONBOARDING_KEY, "true");
-    router.replace("/(app)/(tabs)" as any);
+    const token = await getToken();
+    if (token) {
+      router.replace("/(app)/(tabs)" as any);
+      return;
+    }
+    router.replace("/(auth)/login" as any);
   };
 
   const handleCreateAccount = async () => {

@@ -1,5 +1,6 @@
 import { randomUUID } from 'crypto';
 import { and, desc, eq, gte, lte } from 'drizzle-orm';
+import { TRPCError } from '@trpc/server';
 import { z } from 'zod';
 import { db } from '../db';
 import { journal } from '../schema/journal';
@@ -35,7 +36,7 @@ export const journalRouter = router({
           .select()
           .from(journal)
           .where(conditions.length > 0 ? and(...conditions) : undefined)
-          .orderBy(desc(journal.entryDate))
+          .orderBy(desc(journal.entryDate), desc(journal.createdAt))
           .limit(input.limit + 1)
           .offset(cursor);
 
@@ -43,10 +44,12 @@ export const journalRouter = router({
         const hasMore = safeResult.length > input.limit;
         const pageItems = hasMore ? safeResult.slice(0, input.limit) : safeResult;
 
-        return {
+        const payload = {
           items: pageItems,
           nextCursor: hasMore ? cursor + input.limit : undefined,
         };
+        console.log('[Journal/List] user:', ctx.user.id, 'count:', payload.items.length, 'range:', input.startDate, input.endDate);
+        return payload;
       } catch (error) {
         console.error('Error fetching journal entries:', error);
         return { items: [], nextCursor: undefined };
@@ -67,6 +70,7 @@ export const journalRouter = router({
     )
     .mutation(async ({ input, ctx }) => {
       try {
+        console.log('[Journal/Create] input:', input, 'user:', ctx.user.id);
         const newEntry = {
           id: randomUUID(),
           userId: ctx.user.id,
@@ -80,10 +84,11 @@ export const journalRouter = router({
         };
 
         await db.insert(journal).values(newEntry);
+        console.log('[Journal/Create] created id:', newEntry.id);
         return newEntry;
       } catch (error) {
         console.error('Error creating journal entry:', error);
-        return null;
+        throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR', message: 'Failed to create journal entry' });
       }
     }),
 

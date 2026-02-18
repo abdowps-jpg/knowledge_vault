@@ -111,6 +111,7 @@ export default function InboxScreen() {
 
   const [deletingItemId, setDeletingItemId] = React.useState<string | null>(null);
   const [movingItemId, setMovingItemId] = React.useState<string | null>(null);
+  const [copyingItemId, setCopyingItemId] = React.useState<string | null>(null);
 
   const deleteItem = trpc.items.delete.useMutation({
     onSuccess: () => {
@@ -127,6 +128,15 @@ export default function InboxScreen() {
     },
     onSettled: () => {
       setMovingItemId(null);
+    },
+  });
+
+  const copyItem = trpc.items.create.useMutation({
+    onSuccess: () => {
+      utils.items.list.invalidate();
+    },
+    onSettled: () => {
+      setCopyingItemId(null);
     },
   });
 
@@ -217,6 +227,26 @@ export default function InboxScreen() {
     } catch (err) {
       console.error("Failed to toggle favorite:", err);
       Alert.alert("Error", "Failed to update favorite");
+    }
+  };
+
+  const handleCopyItem = async (item: any) => {
+    try {
+      setCopyingItemId(item.id);
+      const result = await copyItem.mutateAsync({
+        type: item.type,
+        title: `${item.title} (Copy)`,
+        content: item.content ?? "",
+        url: item.url ?? undefined,
+        location: "inbox",
+      });
+      console.log("[Inbox/API] Copied item:", item.id, "->", result?.id);
+      Alert.alert("Copied", "Item duplicated.");
+    } catch (err) {
+      console.error("Failed to copy item:", err);
+      Alert.alert("Error", "Failed to copy item");
+    } finally {
+      setCopyingItemId(null);
     }
   };
 
@@ -332,6 +362,17 @@ export default function InboxScreen() {
                       <ActivityIndicator size="small" color={colors.primary} />
                     ) : (
                       <MaterialIcons name="folder" size={20} color={colors.primary} />
+                    )}
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    onPress={() => handleCopyItem(item)}
+                    disabled={copyItem.isPending && copyingItemId === item.id}
+                    className="p-1 mr-2"
+                  >
+                    {copyItem.isPending && copyingItemId === item.id ? (
+                      <ActivityIndicator size="small" color={colors.primary} />
+                    ) : (
+                      <MaterialIcons name="content-copy" size={18} color={colors.primary} />
                     )}
                   </TouchableOpacity>
                   <TouchableOpacity

@@ -61,11 +61,7 @@ export default function JournalScreen() {
   const [deletingEntryId, setDeletingEntryId] = React.useState<string | null>(null);
 
   const journalQuery = trpc.journal.list.useInfiniteQuery(
-    {
-      startDate: today,
-      endDate: today,
-      limit: 25,
-    },
+    { limit: 25 },
     {
       getNextPageParam: (lastPage) => lastPage.nextCursor,
     }
@@ -81,6 +77,15 @@ export default function JournalScreen() {
       console.error("Journal query failed:", error);
     }
   }, [error]);
+
+  React.useEffect(() => {
+    console.log("[Journal] Query status:", {
+      isLoading,
+      total: entries.length,
+      hasNextPage,
+      date: today,
+    });
+  }, [entries.length, hasNextPage, isLoading, today]);
 
   const createEntry = trpc.journal.create.useMutation({
     onSuccess: () => {
@@ -119,17 +124,10 @@ export default function JournalScreen() {
         location: null,
         weather: null,
       };
-      const result = await offlineManager.runOrQueueMutation("journal.create", input, () =>
-        createEntry.mutateAsync(input)
-      );
-      if ("queued" in (result as any)) {
-        Alert.alert("Queued", "Journal entry will sync when you're back online.");
-        setShowCreateModal(false);
-        setTitle("");
-        setContent("");
-        setMood("");
-        return;
-      }
+      console.log("[Journal] Creating entry:", input);
+      const createdEntry = await createEntry.mutateAsync(input as any);
+      console.log("[Journal] Entry created:", createdEntry);
+      await refetch();
     } catch (err) {
       console.error("Failed to create journal entry:", err);
       Alert.alert("Error", "Failed to create journal entry");
@@ -362,6 +360,24 @@ export default function JournalScreen() {
           </View>
         </View>
       </Modal>
+
+      <Pressable
+        onPress={() => setShowCreateModal(true)}
+        style={{
+          position: "absolute",
+          right: 18,
+          bottom: 22,
+          width: 56,
+          height: 56,
+          borderRadius: 28,
+          alignItems: "center",
+          justifyContent: "center",
+          backgroundColor: colors.primary,
+          elevation: 8,
+        }}
+      >
+        <MaterialIcons name="add" size={28} color="white" />
+      </Pressable>
     </ScreenContainer>
   );
 }
