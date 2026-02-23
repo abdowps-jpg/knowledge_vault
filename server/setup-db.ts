@@ -80,6 +80,72 @@ db.exec(`
   CREATE INDEX IF NOT EXISTS idx_items_location ON items(location);
 `);
 
+db.exec(`
+  CREATE TABLE IF NOT EXISTS item_shares (
+    id TEXT PRIMARY KEY,
+    item_id TEXT NOT NULL,
+    owner_user_id TEXT NOT NULL,
+    shared_with_email TEXT NOT NULL,
+    permission TEXT NOT NULL CHECK(permission IN ('view', 'edit')) DEFAULT 'view',
+    created_at INTEGER DEFAULT (strftime('%s', 'now')),
+    updated_at INTEGER DEFAULT (strftime('%s', 'now'))
+  );
+
+  CREATE INDEX IF NOT EXISTS idx_item_shares_item_id ON item_shares(item_id);
+  CREATE INDEX IF NOT EXISTS idx_item_shares_owner_user_id ON item_shares(owner_user_id);
+  CREATE INDEX IF NOT EXISTS idx_item_shares_shared_with_email ON item_shares(shared_with_email);
+`);
+
+db.exec(`
+  CREATE TABLE IF NOT EXISTS item_comments (
+    id TEXT PRIMARY KEY,
+    item_id TEXT NOT NULL,
+    user_id TEXT NOT NULL,
+    parent_comment_id TEXT,
+    content TEXT NOT NULL,
+    created_at INTEGER DEFAULT (strftime('%s', 'now')),
+    updated_at INTEGER DEFAULT (strftime('%s', 'now'))
+  );
+
+  CREATE INDEX IF NOT EXISTS idx_item_comments_item_id ON item_comments(item_id);
+  CREATE INDEX IF NOT EXISTS idx_item_comments_user_id ON item_comments(user_id);
+  CREATE INDEX IF NOT EXISTS idx_item_comments_parent_comment_id ON item_comments(parent_comment_id);
+`);
+
+db.exec(`
+  CREATE TABLE IF NOT EXISTS user_notifications (
+    id TEXT PRIMARY KEY,
+    user_id TEXT NOT NULL,
+    type TEXT NOT NULL,
+    title TEXT NOT NULL,
+    body TEXT NOT NULL,
+    meta TEXT,
+    is_read INTEGER DEFAULT 0,
+    created_at INTEGER DEFAULT (strftime('%s', 'now'))
+  );
+
+  CREATE INDEX IF NOT EXISTS idx_user_notifications_user_id ON user_notifications(user_id);
+  CREATE INDEX IF NOT EXISTS idx_user_notifications_is_read ON user_notifications(is_read);
+  CREATE INDEX IF NOT EXISTS idx_user_notifications_created_at ON user_notifications(created_at);
+`);
+
+db.exec(`
+  CREATE TABLE IF NOT EXISTS public_links (
+    id TEXT PRIMARY KEY,
+    token TEXT NOT NULL UNIQUE,
+    item_id TEXT NOT NULL,
+    owner_user_id TEXT NOT NULL,
+    password_hash TEXT,
+    expires_at INTEGER,
+    is_revoked INTEGER DEFAULT 0,
+    created_at INTEGER DEFAULT (strftime('%s', 'now'))
+  );
+
+  CREATE INDEX IF NOT EXISTS idx_public_links_token ON public_links(token);
+  CREATE INDEX IF NOT EXISTS idx_public_links_item_id ON public_links(item_id);
+  CREATE INDEX IF NOT EXISTS idx_public_links_owner_user_id ON public_links(owner_user_id);
+`);
+
 // إنشاء جدول المهام
 db.exec(`
   CREATE TABLE IF NOT EXISTS tasks (
@@ -89,6 +155,11 @@ db.exec(`
     description TEXT,
     due_date TEXT,
     blocked_by_task_id TEXT,
+    location_lat TEXT,
+    location_lng TEXT,
+    location_radius_meters INTEGER,
+    is_urgent INTEGER DEFAULT 0,
+    is_important INTEGER DEFAULT 0,
     priority TEXT DEFAULT 'medium' CHECK(priority IN ('low', 'medium', 'high')),
     is_completed INTEGER DEFAULT 0,
     completed_at INTEGER,
@@ -110,9 +181,46 @@ try {
 }
 
 try {
+  db.exec(`ALTER TABLE tasks ADD COLUMN location_lat TEXT;`);
+} catch {
+  // Column already exists.
+}
+
+try {
+  db.exec(`ALTER TABLE tasks ADD COLUMN location_lng TEXT;`);
+} catch {
+  // Column already exists.
+}
+
+try {
+  db.exec(`ALTER TABLE tasks ADD COLUMN location_radius_meters INTEGER;`);
+} catch {
+  // Column already exists.
+}
+
+try {
+  db.exec(`ALTER TABLE tasks ADD COLUMN is_urgent INTEGER DEFAULT 0;`);
+} catch {
+  // Column already exists.
+}
+
+try {
+  db.exec(`ALTER TABLE tasks ADD COLUMN is_important INTEGER DEFAULT 0;`);
+} catch {
+  // Column already exists.
+}
+
+try {
   db.exec(`CREATE INDEX IF NOT EXISTS idx_tasks_blocked_by ON tasks(blocked_by_task_id);`);
 } catch {
   // Legacy DB might still be migrating; index creation can be retried next run.
+}
+
+try {
+  db.exec(`CREATE INDEX IF NOT EXISTS idx_tasks_urgent ON tasks(is_urgent);`);
+  db.exec(`CREATE INDEX IF NOT EXISTS idx_tasks_important ON tasks(is_important);`);
+} catch {
+  // Ignore index creation errors on legacy states.
 }
 
 // إنشاء جدول اليوميات

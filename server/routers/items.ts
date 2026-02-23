@@ -6,6 +6,7 @@ import { db } from '../db';
 import { randomUUID } from 'crypto';
 import { itemTags, tags } from '../schema/tags';
 import { itemCategories } from '../schema/categories';
+import { ensureItemAccess, getItemAccessById } from '../lib/item-access';
 
 export const itemsRouter = router({
   // قراءة كل العناصر
@@ -130,12 +131,19 @@ export const itemsRouter = router({
     )
     .query(async ({ input, ctx }) => {
       try {
+        const access = await getItemAccessById({
+          itemId: input.id,
+          userId: ctx.user.id,
+          userEmail: ctx.user.email,
+        });
+        const ensuredAccess = ensureItemAccess(access, 'view');
+
         const rows = await db
           .select()
           .from(items)
           .leftJoin(itemTags, eq(itemTags.itemId, items.id))
           .leftJoin(tags, eq(tags.id, itemTags.tagId))
-          .where(and(eq(items.id, input.id), eq(items.userId, ctx.user.id)));
+          .where(eq(items.id, input.id));
 
         if (!rows || rows.length === 0) {
           return null;
@@ -152,6 +160,8 @@ export const itemsRouter = router({
           ...baseItem,
           tags: [] as Array<{ id: string; name: string; color: string | null }>,
           categoryId: categoryLink[0]?.categoryId ?? null,
+          accessRole: ensuredAccess.role,
+          accessPermission: ensuredAccess.permission,
         };
 
         for (const row of rows) {
@@ -215,11 +225,18 @@ export const itemsRouter = router({
     }))
     .mutation(async ({ input, ctx }) => {
       const { id, ...data } = input;
-      
+
+      const access = await getItemAccessById({
+        itemId: id,
+        userId: ctx.user.id,
+        userEmail: ctx.user.email,
+      });
+      ensureItemAccess(access, 'edit');
+
       await db
         .update(items)
         .set({ ...data, updatedAt: sql`(strftime('%s', 'now'))` })
-        .where(and(eq(items.id, id), eq(items.userId, ctx.user.id)));
+        .where(eq(items.id, id));
       
       return { success: true };
     }),

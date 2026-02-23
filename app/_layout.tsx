@@ -448,8 +448,10 @@ export default function RootLayout() {
     console.log("[Auth/Layout] Onboarding not completed, but auth flow takes priority");
   }
 
-  const inAuthGroup = segments[0] === "(auth)";
-  if (!isAuthenticated && !inAuthGroup) {
+  const firstSegment = String(segments[0] ?? "");
+  const inAuthGroup = firstSegment === "(auth)";
+  const inPublicRoute = firstSegment === "public";
+  if (!isAuthenticated && !inAuthGroup && !inPublicRoute) {
     console.log("[Auth/Layout] Redirecting unauthenticated user to login");
     console.log("Redirecting to:", "auth");
     return <Redirect href={"/(auth)/login" as any} />;

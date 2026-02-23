@@ -20,25 +20,20 @@ import { PomodoroTimer } from "@/components/pomodoro-timer";
 import { useColors } from "@/hooks/use-colors";
 import { trpc } from "@/lib/trpc";
 import { cancelTaskDueNotification, scheduleTaskDueNotification } from "@/lib/notifications/task-notifications";
+import { checkLocationTaskReminders } from "@/lib/notifications/location-reminders";
 import { offlineManager } from "@/lib/offline-manager";
 import { extractNaturalDate, parseNaturalDate } from "@/lib/productivity/natural-date";
 
 type FilterTab = "all" | "today" | "completed" | "high" | "overdue";
 type RecurrenceType = "none" | "daily" | "weekly" | "monthly";
-type ActionsSavedView = { id: string; name: string; tab: FilterTab };
+type ViewMode = "list" | "kanban" | "matrix";
+type ActionsSavedView = { id: string; name: string; tab: FilterTab; mode: ViewMode };
 const ACTIONS_VIEWS_KEY = "actions_saved_views_v1";
-const ACTIONS_FOCUS_STATS_KEY = "actions_focus_stats_v1";
 const ACTIONS_MY_DAY_KEY = "actions_my_day_ids_v1";
 const ACTIONS_HABITS_KEY = "actions_habits_v1";
 const ACTIONS_WEEKLY_GOALS_KEY = "actions_weekly_goals_v1";
 const ACTIONS_MONTHLY_GOALS_KEY = "actions_monthly_goals_v1";
 const ACTIONS_KANBAN_STATUS_KEY = "actions_kanban_status_v1";
-
-type FocusStats = {
-  date: string;
-  sessions: number;
-  minutes: number;
-};
 
 type HabitItem = {
   id: string;
@@ -134,20 +129,17 @@ export default function ActionsScreen() {
   const [newTaskPriority, setNewTaskPriority] = React.useState<"low" | "medium" | "high">("medium");
   const [newTaskRecurrence, setNewTaskRecurrence] = React.useState<RecurrenceType>("none");
   const [newTaskBlockedByTaskId, setNewTaskBlockedByTaskId] = React.useState<string>("");
+  const [newTaskLocationLat, setNewTaskLocationLat] = React.useState("");
+  const [newTaskLocationLng, setNewTaskLocationLng] = React.useState("");
+  const [newTaskLocationRadiusMeters, setNewTaskLocationRadiusMeters] = React.useState("200");
+  const [newTaskIsUrgent, setNewTaskIsUrgent] = React.useState(false);
+  const [newTaskIsImportant, setNewTaskIsImportant] = React.useState(false);
   const [subtasksTaskId, setSubtasksTaskId] = React.useState<string | null>(null);
   const [newSubtaskTitle, setNewSubtaskTitle] = React.useState("");
   const [togglingTaskId, setTogglingTaskId] = React.useState<string | null>(null);
   const [deletingTaskId, setDeletingTaskId] = React.useState<string | null>(null);
   const [focusedTaskId, setFocusedTaskId] = React.useState<string | null>(null);
   const [savedViews, setSavedViews] = React.useState<ActionsSavedView[]>([]);
-  const [focusMinutes, setFocusMinutes] = React.useState(25);
-  const [focusRemainingSeconds, setFocusRemainingSeconds] = React.useState(25 * 60);
-  const [isFocusRunning, setIsFocusRunning] = React.useState(false);
-  const [focusStats, setFocusStats] = React.useState<FocusStats>({
-    date: new Date().toISOString().slice(0, 10),
-    sessions: 0,
-    minutes: 0,
-  });
   const [myDayTaskIds, setMyDayTaskIds] = React.useState<string[]>([]);
   const [habits, setHabits] = React.useState<HabitItem[]>([]);
   const [newHabitName, setNewHabitName] = React.useState("");
@@ -159,7 +151,7 @@ export default function ActionsScreen() {
   const [reminderUpdatingTaskId, setReminderUpdatingTaskId] = React.useState<string | null>(null);
   const [bulkActionLoading, setBulkActionLoading] = React.useState(false);
   const [rowActionTaskId, setRowActionTaskId] = React.useState<string | null>(null);
-  const [viewMode, setViewMode] = React.useState<"list" | "kanban">("list");
+  const [viewMode, setViewMode] = React.useState<ViewMode>("list");
   const [kanbanStatusById, setKanbanStatusById] = React.useState<Record<string, TaskBoardStatus>>({});
 
   const tasksQuery = trpc.tasks.list.useInfiniteQuery(
@@ -217,23 +209,29 @@ export default function ActionsScreen() {
     AsyncStorage.getItem(ACTIONS_VIEWS_KEY)
       .then((value) => {
         if (!value) return;
-        const parsed = JSON.parse(value) as ActionsSavedView[];
-        if (Array.isArray(parsed)) setSavedViews(parsed);
+        const parsed = JSON.parse(value) as Array<Partial<ActionsSavedView>>;
+        if (!Array.isArray(parsed)) return;
+        const normalized = parsed
+          .map((view) => {
+            if (!view?.id || !view?.tab || !view?.name) return null;
+            const mode: ViewMode =
+              view.mode === "kanban" || view.mode === "matrix" || view.mode === "list" ? view.mode : "list";
+            return {
+              id: String(view.id),
+              name: String(view.name),
+              tab: view.tab as FilterTab,
+              mode,
+            } satisfies ActionsSavedView;
+          })
+          .filter((view): view is ActionsSavedView => Boolean(view));
+        const uniqueByConfig = new Map<string, ActionsSavedView>();
+        for (const view of normalized) {
+          const key = `${view.mode}:${view.tab}`;
+          if (!uniqueByConfig.has(key)) uniqueByConfig.set(key, view);
+        }
+        setSavedViews(Array.from(uniqueByConfig.values()).slice(0, 8));
       })
       .catch((error) => console.error("[Actions] Failed loading saved views:", error));
-  }, []);
-
-  React.useEffect(() => {
-    AsyncStorage.getItem(ACTIONS_FOCUS_STATS_KEY)
-      .then((value) => {
-        if (!value) return;
-        const parsed = JSON.parse(value) as FocusStats;
-        const today = new Date().toISOString().slice(0, 10);
-        if (parsed?.date === today) {
-          setFocusStats(parsed);
-        }
-      })
-      .catch((error) => console.error("[Actions] Failed loading focus stats:", error));
   }, []);
 
   React.useEffect(() => {
@@ -346,41 +344,6 @@ export default function ActionsScreen() {
     }
   }, [newTaskDescription, newTaskDueDate, newTaskDueDateTouched, newTaskTitle]);
 
-  React.useEffect(() => {
-    if (!isFocusRunning) return;
-    const timer = setInterval(() => {
-      setFocusRemainingSeconds((current) => {
-        if (current <= 1) {
-          clearInterval(timer);
-          setIsFocusRunning(false);
-          const today = new Date().toISOString().slice(0, 10);
-          setFocusStats((previous) => {
-            const next: FocusStats =
-              previous.date === today
-                ? {
-                    date: today,
-                    sessions: previous.sessions + 1,
-                    minutes: previous.minutes + focusMinutes,
-                  }
-                : {
-                    date: today,
-                    sessions: 1,
-                    minutes: focusMinutes,
-                  };
-            AsyncStorage.setItem(ACTIONS_FOCUS_STATS_KEY, JSON.stringify(next)).catch((error) =>
-              console.error("[Actions] Failed persisting focus stats:", error)
-            );
-            return next;
-          });
-          Alert.alert("Focus complete", "Great work. Take a short break.");
-          return 0;
-        }
-        return current - 1;
-      });
-    }, 1000);
-    return () => clearInterval(timer);
-  }, [focusMinutes, isFocusRunning]);
-
   const createTask = trpc.tasks.create.useMutation({
     onSuccess: () => {
       utils.tasks.list.invalidate();
@@ -394,6 +357,11 @@ export default function ActionsScreen() {
       setNewTaskPriority("medium");
       setNewTaskRecurrence("none");
       setNewTaskBlockedByTaskId("");
+      setNewTaskLocationLat("");
+      setNewTaskLocationLng("");
+      setNewTaskLocationRadiusMeters("200");
+      setNewTaskIsUrgent(false);
+      setNewTaskIsImportant(false);
     },
   });
 
@@ -570,6 +538,54 @@ export default function ActionsScreen() {
     return columns;
   }, [filteredAndSortedTasks, getTaskBoardStatus]);
 
+  const matrixQuadrants = React.useMemo(() => {
+    const quadrants = {
+      doNow: [] as any[],
+      schedule: [] as any[],
+      delegate: [] as any[],
+      eliminate: [] as any[],
+    };
+    for (const task of filteredAndSortedTasks as any[]) {
+      if (task.isCompleted) continue;
+      if (task.isUrgent && task.isImportant) {
+        quadrants.doNow.push(task);
+      } else if (!task.isUrgent && task.isImportant) {
+        quadrants.schedule.push(task);
+      } else if (task.isUrgent && !task.isImportant) {
+        quadrants.delegate.push(task);
+      } else {
+        quadrants.eliminate.push(task);
+      }
+    }
+    return quadrants;
+  }, [filteredAndSortedTasks]);
+
+  const moveTaskToQuadrant = React.useCallback(
+    async (
+      task: any,
+      quadrant: "doNow" | "schedule" | "delegate" | "eliminate"
+    ) => {
+      try {
+        setRowActionTaskId(task.id);
+        const updateByQuadrant =
+          quadrant === "doNow"
+            ? { isUrgent: true, isImportant: true }
+            : quadrant === "schedule"
+            ? { isUrgent: false, isImportant: true }
+            : quadrant === "delegate"
+            ? { isUrgent: true, isImportant: false }
+            : { isUrgent: false, isImportant: false };
+        await updateTask.mutateAsync({ id: task.id, ...updateByQuadrant });
+      } catch (error) {
+        console.error("[Actions/Matrix] Failed moving task:", error);
+        Alert.alert("Error", "Failed moving task between quadrants.");
+      } finally {
+        setRowActionTaskId(null);
+      }
+    },
+    [updateTask]
+  );
+
   const myDayTasks = React.useMemo(() => {
     const pinned = new Set(myDayTaskIds);
     return (tasks as any[])
@@ -673,6 +689,13 @@ export default function ActionsScreen() {
         description: newTaskDescription.trim() || undefined,
         dueDate: parsedDueDate || undefined,
         blockedByTaskId: newTaskBlockedByTaskId || undefined,
+        locationLat: newTaskLocationLat.trim() || undefined,
+        locationLng: newTaskLocationLng.trim() || undefined,
+        locationRadiusMeters: Number.isFinite(Number(newTaskLocationRadiusMeters))
+          ? Number(newTaskLocationRadiusMeters)
+          : undefined,
+        isUrgent: newTaskIsUrgent,
+        isImportant: newTaskIsImportant,
         priority: newTaskPriority,
         recurrence: newTaskRecurrence === "none" ? undefined : newTaskRecurrence,
       };
@@ -706,30 +729,32 @@ export default function ActionsScreen() {
   };
 
   const handleSaveCurrentView = async () => {
+    const tabLabel: Record<FilterTab, string> = {
+      all: "All Tasks",
+      today: "Today",
+      completed: "Completed",
+      high: "High Priority",
+      overdue: "Overdue",
+    };
+    const modeLabel: Record<ViewMode, string> = {
+      list: "List",
+      kanban: "Kanban",
+      matrix: "Matrix",
+    };
     const nextView: ActionsSavedView = {
       id: `${Date.now()}`,
-      name: activeTab === "all" ? "All Tasks" : `View: ${activeTab}`,
+      name: `${modeLabel[viewMode]} - ${tabLabel[activeTab]}`,
       tab: activeTab,
+      mode: viewMode,
     };
-    const next = [nextView, ...savedViews].slice(0, 8);
+    const withoutSameConfig = savedViews.filter((view) => !(view.tab === activeTab && view.mode === viewMode));
+    const next = [nextView, ...withoutSameConfig].slice(0, 8);
     await persistSavedViews(next);
   };
 
   const handleDeleteSavedView = async (id: string) => {
     const next = savedViews.filter((view) => view.id !== id);
     await persistSavedViews(next);
-  };
-
-  const formatFocusTime = (totalSeconds: number): string => {
-    const mins = Math.floor(totalSeconds / 60);
-    const secs = totalSeconds % 60;
-    return `${String(mins).padStart(2, "0")}:${String(secs).padStart(2, "0")}`;
-  };
-
-  const setFocusPreset = (minutes: number) => {
-    setFocusMinutes(minutes);
-    setFocusRemainingSeconds(minutes * 60);
-    setIsFocusRunning(false);
   };
 
   const toggleMyDayTask = (id: string) => {
@@ -968,16 +993,6 @@ export default function ActionsScreen() {
     }
   };
 
-  const resetFocusStats = async () => {
-    const next: FocusStats = {
-      date: new Date().toISOString().slice(0, 10),
-      sessions: 0,
-      minutes: 0,
-    };
-    setFocusStats(next);
-    await AsyncStorage.setItem(ACTIONS_FOCUS_STATS_KEY, JSON.stringify(next));
-  };
-
   const resetHabitsProgress = () => {
     setHabits((previous) =>
       previous.map((habit) => ({
@@ -1120,6 +1135,14 @@ export default function ActionsScreen() {
     [tasks]
   );
 
+  React.useEffect(() => {
+    checkLocationTaskReminders(tasks as any[]).catch(() => undefined);
+    const timer = setInterval(() => {
+      checkLocationTaskReminders(tasks as any[]).catch(() => undefined);
+    }, 60 * 1000);
+    return () => clearInterval(timer);
+  }, [tasks]);
+
   const openSubtasksModal = React.useCallback((taskId: string) => {
     setSubtasksTaskId(taskId);
     setNewSubtaskTitle("");
@@ -1151,7 +1174,7 @@ export default function ActionsScreen() {
           </Pressable>
         </View>
         <View style={{ flexDirection: "row", marginTop: 10 }}>
-          {(["list", "kanban"] as const).map((modeOption) => (
+          {(["list", "kanban", "matrix"] as const).map((modeOption) => (
             <Pressable
               key={modeOption}
               onPress={() => setViewMode(modeOption)}
@@ -1166,7 +1189,7 @@ export default function ActionsScreen() {
               }}
             >
               <Text style={{ color: viewMode === modeOption ? "white" : colors.foreground, fontSize: 12, fontWeight: "700" }}>
-                {modeOption === "list" ? "List View" : "Kanban View"}
+                {modeOption === "list" ? "List View" : modeOption === "kanban" ? "Kanban View" : "Matrix View"}
               </Text>
             </Pressable>
           ))}
@@ -1196,6 +1219,8 @@ export default function ActionsScreen() {
         </View>
       </View>
 
+      {viewMode === "list" ? (
+      <>
       <View className="px-4 py-3 border-b border-border">
         <PomodoroTimer />
       </View>
@@ -1306,7 +1331,10 @@ export default function ActionsScreen() {
             {savedViews.map((view) => (
               <Pressable
                 key={view.id}
-                onPress={() => setActiveTab(view.tab)}
+                onPress={() => {
+                  setActiveTab(view.tab);
+                  setViewMode(view.mode ?? "list");
+                }}
                 onLongPress={() => handleDeleteSavedView(view.id)}
                 style={{
                   marginRight: 8,
@@ -1324,82 +1352,6 @@ export default function ActionsScreen() {
             ))}
           </View>
         ) : null}
-      </View>
-
-      <View className="px-4 py-3 border-b border-border">
-        <View
-          style={{
-            borderWidth: 1,
-            borderColor: colors.border,
-            borderRadius: 12,
-            backgroundColor: colors.surface,
-            padding: 12,
-          }}
-        >
-          <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center" }}>
-            <Text style={{ color: colors.foreground, fontWeight: "700", fontSize: 14 }}>Focus Timer</Text>
-            <Text style={{ color: colors.muted, fontSize: 12 }}>
-              Today: {focusStats.sessions} sessions • {focusStats.minutes} min
-            </Text>
-          </View>
-          <Pressable onPress={resetFocusStats} style={{ alignSelf: "flex-start", marginTop: 6 }}>
-            <Text style={{ color: colors.primary, fontSize: 12, fontWeight: "700" }}>Reset Focus Stats</Text>
-          </Pressable>
-          <Text style={{ color: colors.primary, fontWeight: "800", fontSize: 28, marginTop: 8 }}>
-            {formatFocusTime(focusRemainingSeconds)}
-          </Text>
-          <View style={{ flexDirection: "row", marginTop: 8 }}>
-            {[15, 25, 50].map((minutes) => (
-              <Pressable
-                key={minutes}
-                onPress={() => setFocusPreset(minutes)}
-                style={{
-                  marginRight: 8,
-                  paddingHorizontal: 10,
-                  paddingVertical: 6,
-                  borderRadius: 999,
-                  borderWidth: 1,
-                  borderColor: colors.border,
-                  backgroundColor: focusMinutes === minutes ? colors.primary : colors.background,
-                }}
-              >
-                <Text style={{ color: focusMinutes === minutes ? "white" : colors.foreground, fontSize: 12 }}>
-                  {minutes}m
-                </Text>
-              </Pressable>
-            ))}
-          </View>
-          <View style={{ flexDirection: "row", marginTop: 10 }}>
-            <Pressable
-              onPress={() => setIsFocusRunning((previous) => !previous)}
-              style={{
-                marginRight: 8,
-                paddingHorizontal: 14,
-                paddingVertical: 8,
-                borderRadius: 8,
-                backgroundColor: colors.primary,
-              }}
-            >
-              <Text style={{ color: "white", fontWeight: "700" }}>{isFocusRunning ? "Pause" : "Start"}</Text>
-            </Pressable>
-            <Pressable
-              onPress={() => {
-                setIsFocusRunning(false);
-                setFocusRemainingSeconds(focusMinutes * 60);
-              }}
-              style={{
-                paddingHorizontal: 14,
-                paddingVertical: 8,
-                borderRadius: 8,
-                borderWidth: 1,
-                borderColor: colors.border,
-                backgroundColor: colors.background,
-              }}
-            >
-              <Text style={{ color: colors.foreground, fontWeight: "700" }}>Reset</Text>
-            </Pressable>
-          </View>
-        </View>
       </View>
 
       <View className="px-4 py-3 border-b border-border">
@@ -1908,6 +1860,8 @@ export default function ActionsScreen() {
           )}
         </View>
       </View>
+      </>
+      ) : null}
 
       {viewMode === "kanban" ? (
         <ScrollView horizontal contentContainerStyle={{ padding: 12 }}>
@@ -1973,6 +1927,83 @@ export default function ActionsScreen() {
                           </Text>
                         </Pressable>
                       ) : null}
+                    </View>
+                  </View>
+                ))
+              )}
+            </View>
+          ))}
+        </ScrollView>
+      ) : viewMode === "matrix" ? (
+        <ScrollView contentContainerStyle={{ padding: 12 }}>
+          {([
+            {
+              key: "doNow",
+              title: "Urgent + Important",
+              color: "#ef4444",
+              items: matrixQuadrants.doNow,
+            },
+            {
+              key: "schedule",
+              title: "Important, Not Urgent",
+              color: "#2563eb",
+              items: matrixQuadrants.schedule,
+            },
+            {
+              key: "delegate",
+              title: "Urgent, Not Important",
+              color: "#ea580c",
+              items: matrixQuadrants.delegate,
+            },
+            {
+              key: "eliminate",
+              title: "Not Urgent + Not Important",
+              color: "#6b7280",
+              items: matrixQuadrants.eliminate,
+            },
+          ] as const).map((quadrant) => (
+            <View
+              key={quadrant.key}
+              style={{
+                borderWidth: 1,
+                borderColor: colors.border,
+                borderRadius: 12,
+                padding: 10,
+                marginBottom: 12,
+                backgroundColor: colors.surface,
+              }}
+            >
+              <Text style={{ color: quadrant.color, fontWeight: "800", marginBottom: 8 }}>
+                {quadrant.title} ({quadrant.items.length})
+              </Text>
+              {quadrant.items.length === 0 ? (
+                <Text style={{ color: colors.muted, fontSize: 12 }}>No tasks in this quadrant</Text>
+              ) : (
+                quadrant.items.map((task: any) => (
+                  <View
+                    key={`${quadrant.key}-${task.id}`}
+                    style={{
+                      borderWidth: 1,
+                      borderColor: colors.border,
+                      borderRadius: 10,
+                      padding: 10,
+                      marginBottom: 8,
+                    }}
+                  >
+                    <Text style={{ color: colors.foreground, fontWeight: "600" }}>{task.title}</Text>
+                    <View style={{ flexDirection: "row", flexWrap: "wrap", marginTop: 8 }}>
+                      <Pressable onPress={() => moveTaskToQuadrant(task, "doNow")} style={{ marginRight: 8, marginBottom: 6 }}>
+                        <Text style={{ color: colors.primary, fontSize: 12, fontWeight: "700" }}>Do Now</Text>
+                      </Pressable>
+                      <Pressable onPress={() => moveTaskToQuadrant(task, "schedule")} style={{ marginRight: 8, marginBottom: 6 }}>
+                        <Text style={{ color: colors.primary, fontSize: 12, fontWeight: "700" }}>Schedule</Text>
+                      </Pressable>
+                      <Pressable onPress={() => moveTaskToQuadrant(task, "delegate")} style={{ marginRight: 8, marginBottom: 6 }}>
+                        <Text style={{ color: colors.primary, fontSize: 12, fontWeight: "700" }}>Delegate</Text>
+                      </Pressable>
+                      <Pressable onPress={() => moveTaskToQuadrant(task, "eliminate")} style={{ marginBottom: 6 }}>
+                        <Text style={{ color: colors.primary, fontSize: 12, fontWeight: "700" }}>Eliminate</Text>
+                      </Pressable>
                     </View>
                   </View>
                 ))
@@ -2079,6 +2110,17 @@ export default function ActionsScreen() {
                           {nextDueDateLabel ? ` • Next: ${nextDueDateLabel}` : ""}
                         </Text>
                       </View>
+                    ) : null}
+                    {task.isUrgent || task.isImportant ? (
+                      <View style={{ flexDirection: "row", marginTop: 4 }}>
+                        {task.isUrgent ? <Text style={{ color: colors.error, fontSize: 12, marginRight: 8 }}>Urgent</Text> : null}
+                        {task.isImportant ? <Text style={{ color: colors.primary, fontSize: 12 }}>Important</Text> : null}
+                      </View>
+                    ) : null}
+                    {task.locationLat && task.locationLng ? (
+                      <Text style={{ color: colors.muted, fontSize: 11, marginTop: 3 }}>
+                        Location: {task.locationLat}, {task.locationLng} ({task.locationRadiusMeters || 200}m)
+                      </Text>
                     ) : null}
                     {task.blockedByTaskId ? (
                       <View className="flex-row items-center mt-1">
@@ -2459,6 +2501,66 @@ export default function ActionsScreen() {
                     </Pressable>
                   ))}
                 </ScrollView>
+              </View>
+              <View className="mb-4">
+                <Text className="text-sm font-semibold text-foreground mb-2">Eisenhower Flags</Text>
+                <View style={{ flexDirection: "row" }}>
+                  <Pressable
+                    onPress={() => setNewTaskIsUrgent((v) => !v)}
+                    style={{
+                      marginRight: 8,
+                      paddingHorizontal: 10,
+                      paddingVertical: 6,
+                      borderRadius: 999,
+                      borderWidth: 1,
+                      borderColor: colors.border,
+                      backgroundColor: newTaskIsUrgent ? colors.primary : colors.background,
+                    }}
+                  >
+                    <Text style={{ color: newTaskIsUrgent ? "white" : colors.foreground, fontSize: 12 }}>Urgent</Text>
+                  </Pressable>
+                  <Pressable
+                    onPress={() => setNewTaskIsImportant((v) => !v)}
+                    style={{
+                      paddingHorizontal: 10,
+                      paddingVertical: 6,
+                      borderRadius: 999,
+                      borderWidth: 1,
+                      borderColor: colors.border,
+                      backgroundColor: newTaskIsImportant ? colors.primary : colors.background,
+                    }}
+                  >
+                    <Text style={{ color: newTaskIsImportant ? "white" : colors.foreground, fontSize: 12 }}>Important</Text>
+                  </Pressable>
+                </View>
+              </View>
+              <View className="mb-4">
+                <Text className="text-sm font-semibold text-foreground mb-2">Location Reminder (optional)</Text>
+                <TextInput
+                  placeholder="Latitude (e.g. 30.0444)"
+                  placeholderTextColor={colors.muted}
+                  value={newTaskLocationLat}
+                  onChangeText={setNewTaskLocationLat}
+                  className="bg-background border border-border rounded-lg p-3 text-foreground mb-2"
+                  style={{ color: colors.foreground }}
+                />
+                <TextInput
+                  placeholder="Longitude (e.g. 31.2357)"
+                  placeholderTextColor={colors.muted}
+                  value={newTaskLocationLng}
+                  onChangeText={setNewTaskLocationLng}
+                  className="bg-background border border-border rounded-lg p-3 text-foreground mb-2"
+                  style={{ color: colors.foreground }}
+                />
+                <TextInput
+                  placeholder="Radius meters (default 200)"
+                  placeholderTextColor={colors.muted}
+                  keyboardType="numeric"
+                  value={newTaskLocationRadiusMeters}
+                  onChangeText={setNewTaskLocationRadiusMeters}
+                  className="bg-background border border-border rounded-lg p-3 text-foreground"
+                  style={{ color: colors.foreground }}
+                />
               </View>
             </ScrollView>
             <View className="flex-row gap-3 mt-4">

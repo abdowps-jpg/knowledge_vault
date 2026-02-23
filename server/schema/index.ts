@@ -10,3 +10,7 @@ export * from './task_time_entries';
 export * from './habits';
 export * from './goals';
 export * from './subtasks';
+export * from './item_shares';
+export * from './item_comments';
+export * from './user_notifications';
+export * from './public_links';

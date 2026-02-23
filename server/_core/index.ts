@@ -25,6 +25,9 @@ import { taskTimeRouter } from '../routers/task-time';
 import { habitsRouter } from '../routers/habits';
 import { goalsRouter } from '../routers/goals';
 import { subtasksRouter } from '../routers/subtasks';
+import { itemSharesRouter } from '../routers/item-shares';
+import { itemCommentsRouter } from '../routers/item-comments';
+import { publicLinksRouter } from '../routers/public-links';
 
 const app = express();
 const port = process.env.PORT || 3000;
@@ -49,6 +52,9 @@ const appRouter = router({
   habits: habitsRouter,
   goals: goalsRouter,
   subtasks: subtasksRouter,
+  itemShares: itemSharesRouter,
+  itemComments: itemCommentsRouter,
+  publicLinks: publicLinksRouter,
   // test endpoint
   hello: publicProcedure.query(() => {
     return { message: 'Hello from tRPC!' };
