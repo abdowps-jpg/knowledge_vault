@@ -28,6 +28,12 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
     };
   }, [accentTheme, colorScheme]);
 
+  const applyWebFontSize = useCallback((size: "small" | "medium" | "large") => {
+    if (typeof document === "undefined") return;
+    const px = size === "small" ? 14 : size === "large" ? 18 : 16;
+    document.documentElement.style.fontSize = `${px}px`;
+  }, []);
+
   const applyScheme = useCallback((scheme: ColorScheme, theme: AccentTheme) => {
     const mergedPalette = {
       ...SchemeColors[scheme],
@@ -65,15 +71,17 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
       .then((settings) => {
         const resolvedScheme = settings.theme === "auto" ? systemScheme : settings.theme;
         const resolvedAccent = settings.accentTheme ?? "ocean";
+        const resolvedFontSize = settings.fontSize ?? "medium";
         setColorSchemeState(resolvedScheme);
         setAccentThemeState(resolvedAccent);
         applyScheme(resolvedScheme, resolvedAccent);
+        applyWebFontSize(resolvedFontSize);
       })
       .catch((error) => {
         console.error("Failed loading theme settings:", error);
         applyScheme(colorScheme, accentTheme);
       });
-  }, [applyScheme, systemScheme]);
+  }, [accentTheme, applyScheme, applyWebFontSize, colorScheme, systemScheme]);
 
   useEffect(() => {
     applyScheme(colorScheme, accentTheme);

@@ -13,6 +13,8 @@ import { AudioRecorderModal } from "./audio-recorder-modal";
 import { trpc } from "@/lib/trpc";
 import { RichTextEditor } from "./rich-text-editor";
 import { Image as ExpoImage } from "expo-image";
+import { VoiceInputButton } from "./voice-input-button";
+import { QUICK_TEMPLATES, type QuickTemplate } from "@/lib/templates";
 
 // ============================================================================
 // Tab Component
@@ -64,6 +66,7 @@ export function QuickAddModal() {
   const DESTINATION_KEY = "quick_add_destination";
   const [loading, setLoading] = useState(false);
   const [showAudioRecorder, setShowAudioRecorder] = useState(false);
+  const [showTemplateModal, setShowTemplateModal] = useState(false);
   const [selectedImageUri, setSelectedImageUri] = useState<string | null>(null);
   const [selectedImageBase64, setSelectedImageBase64] = useState<string | null>(null);
   const [selectedImageName, setSelectedImageName] = useState<string | null>(null);
@@ -111,6 +114,18 @@ export function QuickAddModal() {
     setSelectedImageUri(null);
     setSelectedImageBase64(null);
     setSelectedImageName(null);
+  };
+
+  const applyTemplate = (template: QuickTemplate) => {
+    try {
+      setTitle(template.title);
+      setContent(template.content);
+      setActiveTab(template.targetTab);
+      setShowTemplateModal(false);
+    } catch (error) {
+      console.error("Failed applying template:", error);
+      Alert.alert("Error", "Failed to apply template.");
+    }
   };
 
   React.useEffect(() => {
@@ -334,11 +349,33 @@ export function QuickAddModal() {
             onPress={() => setActiveTab("task")}
           />
         </ScrollView>
+        <View className="px-4 pb-3">
+          <Pressable
+            onPress={() => setShowTemplateModal(true)}
+            style={({ pressed }) => [
+              {
+                opacity: pressed ? 0.75 : 1,
+                borderWidth: 1,
+                borderColor: colors.border,
+                borderRadius: 10,
+                backgroundColor: colors.surface,
+                paddingVertical: 9,
+                paddingHorizontal: 12,
+                alignSelf: "flex-start",
+                flexDirection: "row",
+                alignItems: "center",
+              },
+            ]}
+          >
+            <MaterialIcons name="view-list" size={18} color={colors.primary} />
+            <Text style={{ color: colors.foreground, fontWeight: "700", marginLeft: 8 }}>Use Template</Text>
+          </Pressable>
+        </View>
         <View className="px-4 pb-4">
           <Text className="text-xs font-semibold mb-2" style={{ color: colors.muted }}>
             Save To
           </Text>
-          <View className="flex-row gap-2">
+          <View className="gap-2">
             {[
               { key: "inbox", label: "Inbox" },
               { key: "library", label: "Library" },
@@ -348,15 +385,22 @@ export function QuickAddModal() {
                 key={option.key}
                 onPress={() => setDestination(option.key as "inbox" | "library" | "actions")}
                 style={{
-                  paddingVertical: 8,
-                  paddingHorizontal: 12,
-                  borderRadius: 999,
+                  paddingVertical: 9,
+                  paddingHorizontal: 10,
+                  borderRadius: 10,
                   borderWidth: 1,
                   borderColor: colors.border,
-                  backgroundColor: destination === option.key ? colors.primary : colors.surface,
+                  backgroundColor: colors.surface,
+                  flexDirection: "row",
+                  alignItems: "center",
                 }}
               >
-                <Text style={{ color: destination === option.key ? "white" : colors.foreground, fontWeight: "600" }}>
+                <MaterialIcons
+                  name={destination === option.key ? "radio-button-checked" : "radio-button-unchecked"}
+                  size={18}
+                  color={destination === option.key ? colors.primary : colors.muted}
+                />
+                <Text style={{ color: colors.foreground, fontWeight: "600", marginLeft: 8 }}>
                   {option.label}
                 </Text>
               </Pressable>
@@ -457,9 +501,17 @@ export function QuickAddModal() {
                     fontSize: 16,
                   }}
                 />
+                <VoiceInputButton
+                  label="Mic for note title"
+                  onTranscript={(spoken) => setTitle((prev) => `${prev} ${spoken}`.trim())}
+                />
               </View>
               <View>
                 <Text className="text-sm font-semibold text-foreground mb-2">Content</Text>
+                <VoiceInputButton
+                  label="Mic for note content"
+                  onTranscript={(spoken) => setContent((prev) => `${prev} ${spoken}`.trim())}
+                />
                 <RichTextEditor
                   value={content}
                   onChange={setContent}
@@ -520,6 +572,10 @@ export function QuickAddModal() {
                     fontSize: 16,
                     textAlignVertical: "top",
                   }}
+                />
+                <VoiceInputButton
+                  label="Mic for quote"
+                  onTranscript={(spoken) => setTitle((prev) => `${prev} ${spoken}`.trim())}
                 />
               </View>
               <View>
@@ -610,6 +666,10 @@ export function QuickAddModal() {
                     paddingVertical: 10,
                     fontSize: 16,
                   }}
+                />
+                <VoiceInputButton
+                  label="Mic for URL"
+                  onTranscript={(spoken) => setUrl((prev) => `${prev} ${spoken}`.trim())}
                 />
               </View>
               <View>
@@ -744,6 +804,10 @@ export function QuickAddModal() {
                     fontSize: 16,
                   }}
                 />
+                <VoiceInputButton
+                  label="Mic for task title"
+                  onTranscript={(spoken) => setTitle((prev) => `${prev} ${spoken}`.trim())}
+                />
               </View>
               <View>
                 <Text className="text-sm font-semibold text-foreground mb-2">Description (Optional)</Text>
@@ -766,11 +830,55 @@ export function QuickAddModal() {
                     textAlignVertical: "top",
                   }}
                 />
+                <VoiceInputButton
+                  label="Mic for task description"
+                  onTranscript={(spoken) => setContent((prev) => `${prev} ${spoken}`.trim())}
+                />
               </View>
             </>
           )}
         </View>
       </ScrollView>
+
+      <Modal
+        visible={showTemplateModal}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setShowTemplateModal(false)}
+      >
+        <View className="flex-1 bg-black/50 justify-end">
+          <View className="rounded-t-3xl p-6 max-h-3/4" style={{ backgroundColor: colors.surface }}>
+            <View className="flex-row items-center justify-between mb-3">
+              <Text className="text-lg font-bold text-foreground">Choose Template</Text>
+              <Pressable onPress={() => setShowTemplateModal(false)}>
+                <MaterialIcons name="close" size={22} color={colors.foreground} />
+              </Pressable>
+            </View>
+            <ScrollView showsVerticalScrollIndicator={false}>
+              {QUICK_TEMPLATES.map((template) => (
+                <Pressable
+                  key={template.id}
+                  onPress={() => applyTemplate(template)}
+                  style={{
+                    borderWidth: 1,
+                    borderColor: colors.border,
+                    borderRadius: 10,
+                    backgroundColor: colors.background,
+                    paddingHorizontal: 12,
+                    paddingVertical: 10,
+                    marginBottom: 10,
+                  }}
+                >
+                  <Text style={{ color: colors.foreground, fontWeight: "700" }}>{template.name}</Text>
+                  <Text style={{ color: colors.muted, marginTop: 4, fontSize: 12 }} numberOfLines={2}>
+                    {template.content}
+                  </Text>
+                </Pressable>
+              ))}
+            </ScrollView>
+          </View>
+        </View>
+      </Modal>
 
       {/* Audio Recorder Modal */}
       <AudioRecorderModal

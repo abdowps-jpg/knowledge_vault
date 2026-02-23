@@ -14,6 +14,9 @@ export interface AppSettings {
   theme: ThemePreference;
   accentTheme: AccentTheme;
   fontSize: FontSizePreference;
+  autoSyncEnabled: boolean;
+  autoTranscribe: boolean;
+  transcribeLanguage: "ar" | "en";
 }
 
 const SETTINGS_KEY = "app_settings_v1";
@@ -29,6 +32,9 @@ export const DEFAULT_APP_SETTINGS: AppSettings = {
   theme: "auto",
   accentTheme: "ocean",
   fontSize: "medium",
+  autoSyncEnabled: true,
+  autoTranscribe: false,
+  transcribeLanguage: "en",
 };
 
 export async function loadAppSettings(): Promise<AppSettings> {

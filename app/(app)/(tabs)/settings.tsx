@@ -9,13 +9,15 @@ import {
   ScrollView,
   Switch,
   Text,
+  TextInput,
   useColorScheme,
   View,
 } from "react-native";
 import Constants from "expo-constants";
 import * as Sharing from "expo-sharing";
-import * as FileSystem from "expo-file-system";
+import * as FileSystem from "expo-file-system/legacy";
 import * as DocumentPicker from "expo-document-picker";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 import { MaterialIcons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
 import { useQueryClient } from "@tanstack/react-query";
@@ -26,8 +28,8 @@ import { useThemeContext } from "@/lib/theme-provider";
 import { ACCENT_THEME_LABELS, ACCENT_THEME_PREVIEW, type AccentTheme } from "@/lib/theme-presets";
 import { clearAllData, exportAllData as exportLocalData, importData } from "@/lib/db/storage";
 import { trpc } from "@/lib/trpc";
-import { clearToken, saveStayLoggedIn } from "@/lib/auth-storage";
-import { fullSync, getLastSyncTime } from "@/lib/sync-manager";
+import { clearToken, saveStayLoggedIn, saveToken } from "@/lib/auth-storage";
+import { clearSyncQueue, fullSync, getLastSyncTime } from "@/lib/sync-manager";
 import {
   AppSettings,
   DEFAULT_APP_SETTINGS,
@@ -122,6 +124,12 @@ function normalizeTime(hourValue: number, minuteValue: number): string | null {
   return `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}`;
 }
 
+function applyWebFontSize(fontSize: FontSizePreference) {
+  if (typeof document === "undefined") return;
+  const px = fontSize === "small" ? 14 : fontSize === "large" ? 18 : 16;
+  document.documentElement.style.fontSize = `${px}px`;
+}
+
 export default function SettingsScreen() {
   const PRIVACY_URL = "https://knowledgevault.app/privacy";
   const TERMS_URL = "https://knowledgevault.app/terms";
@@ -133,6 +141,10 @@ export default function SettingsScreen() {
   const systemScheme = useColorScheme() ?? "light";
   const { setColorScheme, setAccentTheme } = useThemeContext();
   const exportQuery = trpc.export.exportAll.useQuery(undefined, { enabled: false });
+  const profileQuery = trpc.auth.getProfile.useQuery();
+  const updateProfileMutation = trpc.auth.updateProfile.useMutation();
+  const requestEmailChangeMutation = trpc.auth.requestEmailChange.useMutation();
+  const confirmEmailChangeMutation = trpc.auth.confirmEmailChange.useMutation();
 
   const [settings, setSettings] = useState<AppSettings>(DEFAULT_APP_SETTINGS);
   const [loading, setLoading] = useState(true);
@@ -141,6 +153,12 @@ export default function SettingsScreen() {
 
   const [showExportModal, setShowExportModal] = useState(false);
   const [exportJson, setExportJson] = useState("");
+  const [showAccountEditModal, setShowAccountEditModal] = useState(false);
+  const [showEmailVerificationModal, setShowEmailVerificationModal] = useState(false);
+  const [editUsername, setEditUsername] = useState("");
+  const [editEmail, setEditEmail] = useState("");
+  const [emailVerificationCode, setEmailVerificationCode] = useState("");
+  const [pendingEmailChange, setPendingEmailChange] = useState("");
 
   const [showTimeModal, setShowTimeModal] = useState(false);
   const [timeTarget, setTimeTarget] = useState<"task" | "journal">("task");
@@ -148,13 +166,13 @@ export default function SettingsScreen() {
   const [selectedMinute, setSelectedMinute] = useState(0);
   const [syncingNow, setSyncingNow] = useState(false);
   const [lastSyncAt, setLastSyncAt] = useState<number | null>(null);
-  const [autoSyncEnabled, setAutoSyncEnabled] = useState(true);
-  const [autoTranscribe, setAutoTranscribe] = useState(false);
-  const [transcribeLanguage, setTranscribeLanguage] = useState<"ar" | "en">("en");
 
   const appVersion = Constants.expoConfig?.version ?? "1.0.0";
   const hourOptions = useMemo(() => Array.from({ length: 24 }, (_, i) => i), []);
   const minuteOptions = useMemo(() => Array.from({ length: 60 }, (_, i) => i), []);
+  const accountUsername = profileQuery.data?.user?.username ?? settings.username;
+  const accountEmail = profileQuery.data?.user?.email ?? settings.email;
+  const taskInboxEmail = profileQuery.data?.taskInboxEmail ?? "Unavailable";
 
   const openExternalUrl = async (url: string) => {
     try {
@@ -265,7 +283,6 @@ export default function SettingsScreen() {
 
   const refreshStorageUsed = async () => {
     try {
-      const AsyncStorage = (await import("@react-native-async-storage/async-storage")).default;
       const keys = await AsyncStorage.getAllKeys();
       const entries = await AsyncStorage.multiGet(keys);
       const total = entries.reduce((sum, [, value]) => sum + (value ? value.length : 0), 0);
@@ -317,6 +334,88 @@ export default function SettingsScreen() {
     await scheduleOrCancelJournalReminder(next);
   };
 
+  const openAccountEditModal = () => {
+    setEditUsername(accountUsername ?? "");
+    setEditEmail(accountEmail ?? "");
+    setShowAccountEditModal(true);
+  };
+
+  const handleAccountEditSave = async () => {
+    const username = editUsername.trim();
+    const email = editEmail.trim().toLowerCase();
+    if (!username) {
+      Alert.alert("Validation", "Username is required.");
+      return;
+    }
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+      Alert.alert("Validation", "Please enter a valid email.");
+      return;
+    }
+
+    try {
+      setWorking(true);
+      const currentEmail = (accountEmail || "").toLowerCase();
+
+      // Username can be updated directly.
+      if (username !== (accountUsername ?? "")) {
+        const usernameResult = await updateProfileMutation.mutateAsync({ username });
+        await saveToken(usernameResult.token);
+      }
+
+      // Email change must be verified via code sent to the new email.
+      if (email && email !== currentEmail) {
+        await requestEmailChangeMutation.mutateAsync({ newEmail: email });
+        setPendingEmailChange(email);
+        setEmailVerificationCode("");
+        setShowAccountEditModal(false);
+        setShowEmailVerificationModal(true);
+        Alert.alert("Verification required", "We sent a 6-digit code to your new email.");
+      } else {
+        const nextSettings = { ...settings, username, email: currentEmail || settings.email };
+        setSettings(nextSettings);
+        await saveAppSettings(nextSettings);
+        setShowAccountEditModal(false);
+        Alert.alert("Updated", "Account info updated successfully.");
+      }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Failed to update account.";
+      Alert.alert("Update Failed", message);
+    } finally {
+      setWorking(false);
+    }
+  };
+
+  const handleConfirmEmailChange = async () => {
+    const code = emailVerificationCode.trim();
+    if (!/^\d{6}$/.test(code)) {
+      Alert.alert("Validation", "Enter a valid 6-digit code.");
+      return;
+    }
+
+    try {
+      setWorking(true);
+      const result = await confirmEmailChangeMutation.mutateAsync({ code });
+      await saveToken(result.token);
+
+      const nextSettings = {
+        ...settings,
+        username: result.user.username ?? settings.username,
+        email: result.user.email,
+      };
+      setSettings(nextSettings);
+      await saveAppSettings(nextSettings);
+      setShowEmailVerificationModal(false);
+      setPendingEmailChange("");
+      setEmailVerificationCode("");
+      Alert.alert("Updated", "Email changed successfully.");
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Failed to verify code.";
+      Alert.alert("Verification Failed", message);
+    } finally {
+      setWorking(false);
+    }
+  };
+
   useEffect(() => {
     (async () => {
       try {
@@ -332,6 +431,16 @@ export default function SettingsScreen() {
       }
     })();
   }, []);
+
+  useEffect(() => {
+    const user = profileQuery.data?.user;
+    if (!user) return;
+    setSettings((prev) => ({
+      ...prev,
+      username: user.username ?? prev.username,
+      email: user.email ?? prev.email,
+    }));
+  }, [profileQuery.data]);
 
   useEffect(() => {
     getLastSyncTime().then(setLastSyncAt).catch(() => setLastSyncAt(null));
@@ -350,6 +459,7 @@ export default function SettingsScreen() {
 
   const handleFontSizeChange = async (fontSize: FontSizePreference) => {
     await persist({ fontSize });
+    applyWebFontSize(fontSize);
   };
 
   const openTimePicker = (target: "task" | "journal") => {
@@ -514,24 +624,41 @@ export default function SettingsScreen() {
   };
 
   const handleLogout = () => {
+    const performLogout = async () => {
+      try {
+        await clearAllData();
+        await clearSyncQueue();
+        await clearToken();
+        await saveStayLoggedIn(false);
+        queryClient.clear();
+        router.replace("/(auth)/login" as any);
+        setTimeout(() => {
+          router.replace("/(auth)/login" as any);
+        }, 50);
+      } catch (error) {
+        console.error("Logout failed:", error);
+        Alert.alert("Error", "Logout failed. Please try again.");
+      }
+    };
+
+    if (Platform.OS === "web") {
+      const confirmed = typeof window !== "undefined" ? window.confirm("Do you want to sign out?") : true;
+      if (!confirmed) return;
+      performLogout().catch((error) => {
+        console.error("Logout failed:", error);
+      });
+      return;
+    }
+
     Alert.alert("Logout", "Do you want to sign out?", [
       { text: "Cancel", style: "cancel" },
       {
         text: "Logout",
         style: "destructive",
-        onPress: async () => {
-          try {
-            await clearToken();
-            await saveStayLoggedIn(false);
-            queryClient.clear();
-            router.replace("/(auth)/login" as any);
-            setTimeout(() => {
-              router.replace("/(auth)/login" as any);
-            }, 50);
-          } catch (error) {
+        onPress: () => {
+          performLogout().catch((error) => {
             console.error("Logout failed:", error);
-            Alert.alert("Error", "Logout failed. Please try again.");
-          }
+          });
         },
       },
     ]);
@@ -548,6 +675,34 @@ export default function SettingsScreen() {
     } finally {
       setSyncingNow(false);
     }
+  };
+
+  const handleResetProductivityData = () => {
+    Alert.alert("Reset Productivity Data", "Clear local productivity tracking data (goals, habits, saved searches)?", [
+      { text: "Cancel", style: "cancel" },
+      {
+        text: "Reset",
+        style: "destructive",
+        onPress: async () => {
+          try {
+            await AsyncStorage.multiRemove([
+              "actions_saved_views_v1",
+              "actions_focus_stats_v1",
+              "actions_my_day_ids_v1",
+              "actions_habits_v1",
+              "actions_weekly_goals_v1",
+              "actions_monthly_goals_v1",
+              "search_recent_terms_v1",
+              "search_saved_terms_v1",
+            ]);
+            Alert.alert("Done", "Productivity data reset successfully.");
+          } catch (error) {
+            console.error("Failed resetting productivity data:", error);
+            Alert.alert("Error", "Failed to reset productivity data.");
+          }
+        },
+      },
+    ]);
   };
 
   if (loading) {
@@ -568,8 +723,20 @@ export default function SettingsScreen() {
 
       <ScrollView className="flex-1" showsVerticalScrollIndicator={false}>
         <Section title="Account">
-          <Row icon="person" label="Username" value={settings.username} />
-          <Row icon="email" label="Email" value={settings.email} />
+          <Row icon="person" label="Username" value={accountUsername || "Unknown"} />
+          <Row icon="email" label="Email" value={accountEmail || "Unknown"} />
+          <Row
+            icon="alternate-email"
+            label="Task Inbox Email"
+            value={taskInboxEmail}
+            description="Forward emails here to create tasks automatically"
+          />
+          <Row
+            icon="edit"
+            label="Request Edit"
+            description="Update your username or email"
+            onPress={openAccountEditModal}
+          />
           <Row icon="logout" label="Logout" onPress={handleLogout} />
         </Section>
 
@@ -715,8 +882,8 @@ export default function SettingsScreen() {
             description="Sync every 5 minutes when app is active"
             right={
               <Switch
-                value={autoSyncEnabled}
-                onValueChange={setAutoSyncEnabled}
+                value={settings.autoSyncEnabled}
+                onValueChange={(value) => persist({ autoSyncEnabled: value })}
                 trackColor={{ false: colors.border, true: colors.primary }}
               />
             }
@@ -735,33 +902,43 @@ export default function SettingsScreen() {
             description="Automatically transcribe recorded audio"
             right={
               <Switch
-                value={autoTranscribe}
-                onValueChange={setAutoTranscribe}
+                value={settings.autoTranscribe}
+                onValueChange={(value) => persist({ autoTranscribe: value })}
                 trackColor={{ false: colors.border, true: colors.primary }}
               />
             }
           />
-          <Row icon="language" label="Language" value={transcribeLanguage === "ar" ? "Arabic" : "English"} />
+          <Row icon="language" label="Language" value={settings.transcribeLanguage === "ar" ? "Arabic" : "English"} />
           <View className="px-4 pb-3 pt-1 flex-row gap-2">
             {(["en", "ar"] as const).map((lang) => (
               <Pressable
                 key={lang}
-                onPress={() => setTranscribeLanguage(lang)}
+                onPress={() => persist({ transcribeLanguage: lang })}
                 style={{
                   paddingHorizontal: 12,
                   paddingVertical: 8,
                   borderRadius: 8,
                   borderWidth: 1,
                   borderColor: colors.border,
-                  backgroundColor: transcribeLanguage === lang ? colors.primary : colors.background,
+                  backgroundColor: settings.transcribeLanguage === lang ? colors.primary : colors.background,
                 }}
               >
-                <Text style={{ color: transcribeLanguage === lang ? "white" : colors.foreground, fontWeight: "600" }}>
+                <Text style={{ color: settings.transcribeLanguage === lang ? "white" : colors.foreground, fontWeight: "600" }}>
                   {lang === "ar" ? "Arabic" : "English"}
                 </Text>
               </Pressable>
             ))}
           </View>
+        </Section>
+
+        <Section title="Productivity">
+          <Row icon="check-circle" label="Open Actions Dashboard" onPress={() => router.push("/(app)/(tabs)/actions" as any)} />
+          <Row icon="search" label="Open Smart Search" onPress={() => router.push("/(app)/(tabs)/search" as any)} />
+          <Row icon="flag" label="Goals & Milestones" onPress={() => router.push("/(app)/goals" as any)} />
+          <Row icon="rate-review" label="Daily & Weekly Review" onPress={() => router.push("/(app)/reviews" as any)} />
+          <Row icon="add-task" label="Widget Quick Add" onPress={() => router.push("/(app)/widgets/quick-add" as any)} />
+          <Row icon="today" label="Widget Today Tasks" onPress={() => router.push("/(app)/widgets/today-tasks" as any)} />
+          <Row icon="refresh" label="Reset Productivity Data" onPress={handleResetProductivityData} />
         </Section>
 
         <Section title="About">
@@ -888,6 +1065,116 @@ export default function SettingsScreen() {
               <Pressable onPress={saveTimePicker} style={{ flex: 1 }}>
                 <View className="bg-primary rounded-lg py-3 items-center">
                   <Text className="text-white font-semibold">Save</Text>
+                </View>
+              </Pressable>
+            </View>
+          </View>
+        </View>
+      </Modal>
+
+      <Modal
+        visible={showAccountEditModal}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setShowAccountEditModal(false)}
+      >
+        <View className="flex-1 bg-black/50 justify-end">
+          <View className="rounded-t-3xl p-6" style={{ backgroundColor: colors.surface }}>
+            <Text className="text-lg font-bold text-foreground mb-4">Request Account Edit</Text>
+
+            <TextInput
+              value={editUsername}
+              onChangeText={setEditUsername}
+              placeholder="Username"
+              placeholderTextColor={colors.muted}
+              style={{
+                borderWidth: 1,
+                borderColor: colors.border,
+                borderRadius: 10,
+                paddingHorizontal: 12,
+                paddingVertical: 10,
+                color: colors.foreground,
+                marginBottom: 10,
+                backgroundColor: colors.background,
+              }}
+            />
+
+            <TextInput
+              value={editEmail}
+              onChangeText={setEditEmail}
+              autoCapitalize="none"
+              keyboardType="email-address"
+              placeholder="Email"
+              placeholderTextColor={colors.muted}
+              style={{
+                borderWidth: 1,
+                borderColor: colors.border,
+                borderRadius: 10,
+                paddingHorizontal: 12,
+                paddingVertical: 10,
+                color: colors.foreground,
+                marginBottom: 16,
+                backgroundColor: colors.background,
+              }}
+            />
+
+            <View className="flex-row gap-3">
+              <Pressable onPress={() => setShowAccountEditModal(false)} style={{ flex: 1 }}>
+                <View className="bg-border rounded-lg py-3 items-center">
+                  <Text className="text-foreground font-semibold">Cancel</Text>
+                </View>
+              </Pressable>
+              <Pressable onPress={handleAccountEditSave} style={{ flex: 1 }}>
+                <View className="bg-primary rounded-lg py-3 items-center">
+                  <Text className="text-white font-semibold">Submit</Text>
+                </View>
+              </Pressable>
+            </View>
+          </View>
+        </View>
+      </Modal>
+
+      <Modal
+        visible={showEmailVerificationModal}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setShowEmailVerificationModal(false)}
+      >
+        <View className="flex-1 bg-black/50 justify-end">
+          <View className="rounded-t-3xl p-6" style={{ backgroundColor: colors.surface }}>
+            <Text className="text-lg font-bold text-foreground mb-2">Verify New Email</Text>
+            <Text className="text-sm text-muted mb-4">
+              Enter the 6-digit code sent to {pendingEmailChange || "your new email"}.
+            </Text>
+
+            <TextInput
+              value={emailVerificationCode}
+              onChangeText={setEmailVerificationCode}
+              keyboardType="number-pad"
+              maxLength={6}
+              placeholder="6-digit code"
+              placeholderTextColor={colors.muted}
+              style={{
+                borderWidth: 1,
+                borderColor: colors.border,
+                borderRadius: 10,
+                paddingHorizontal: 12,
+                paddingVertical: 10,
+                color: colors.foreground,
+                marginBottom: 16,
+                backgroundColor: colors.background,
+              }}
+            />
+
+            <View className="flex-row gap-3">
+              <Pressable onPress={() => setShowEmailVerificationModal(false)} style={{ flex: 1 }}>
+                <View className="bg-border rounded-lg py-3 items-center">
+                  <Text className="text-foreground font-semibold">Cancel</Text>
+                </View>
+              </Pressable>
+              <Pressable onPress={handleConfirmEmailChange} style={{ flex: 1 }}>
+                <View className="bg-primary rounded-lg py-3 items-center">
+                  <Text className="text-white font-semibold">Verify</Text>
                 </View>
               </Pressable>
             </View>

@@ -15,13 +15,15 @@ import { MaterialIcons } from "@expo/vector-icons";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { ScreenContainer } from "@/components/screen-container";
 import { ErrorState } from "@/components/error-state";
+import { VoiceInputButton } from "@/components/voice-input-button";
+import { PomodoroTimer } from "@/components/pomodoro-timer";
 import { useColors } from "@/hooks/use-colors";
 import { trpc } from "@/lib/trpc";
 import { cancelTaskDueNotification, scheduleTaskDueNotification } from "@/lib/notifications/task-notifications";
 import { offlineManager } from "@/lib/offline-manager";
-import { parseNaturalDate } from "@/lib/productivity/natural-date";
+import { extractNaturalDate, parseNaturalDate } from "@/lib/productivity/natural-date";
 
-type FilterTab = "all" | "today" | "completed" | "high";
+type FilterTab = "all" | "today" | "completed" | "high" | "overdue";
 type RecurrenceType = "none" | "daily" | "weekly" | "monthly";
 type ActionsSavedView = { id: string; name: string; tab: FilterTab };
 const ACTIONS_VIEWS_KEY = "actions_saved_views_v1";
@@ -30,6 +32,7 @@ const ACTIONS_MY_DAY_KEY = "actions_my_day_ids_v1";
 const ACTIONS_HABITS_KEY = "actions_habits_v1";
 const ACTIONS_WEEKLY_GOALS_KEY = "actions_weekly_goals_v1";
 const ACTIONS_MONTHLY_GOALS_KEY = "actions_monthly_goals_v1";
+const ACTIONS_KANBAN_STATUS_KEY = "actions_kanban_status_v1";
 
 type FocusStats = {
   date: string;
@@ -57,6 +60,8 @@ type MonthlyGoal = {
   progress: number;
   target: number;
 };
+
+type TaskBoardStatus = "todo" | "inprogress" | "done";
 
 const PRIORITY_ORDER: Record<string, number> = {
   high: 3,
@@ -118,12 +123,19 @@ export default function ActionsScreen() {
   const params = useLocalSearchParams<{ taskId?: string }>();
 
   const [activeTab, setActiveTab] = React.useState<FilterTab>("all");
+  const [taskSearch, setTaskSearch] = React.useState("");
   const [showCreateModal, setShowCreateModal] = React.useState(false);
   const [newTaskTitle, setNewTaskTitle] = React.useState("");
   const [newTaskDescription, setNewTaskDescription] = React.useState("");
   const [newTaskDueDate, setNewTaskDueDate] = React.useState("");
+  const [newTaskDetectedDateText, setNewTaskDetectedDateText] = React.useState("");
+  const [newTaskDetectedDateValue, setNewTaskDetectedDateValue] = React.useState("");
+  const [newTaskDueDateTouched, setNewTaskDueDateTouched] = React.useState(false);
   const [newTaskPriority, setNewTaskPriority] = React.useState<"low" | "medium" | "high">("medium");
   const [newTaskRecurrence, setNewTaskRecurrence] = React.useState<RecurrenceType>("none");
+  const [newTaskBlockedByTaskId, setNewTaskBlockedByTaskId] = React.useState<string>("");
+  const [subtasksTaskId, setSubtasksTaskId] = React.useState<string | null>(null);
+  const [newSubtaskTitle, setNewSubtaskTitle] = React.useState("");
   const [togglingTaskId, setTogglingTaskId] = React.useState<string | null>(null);
   const [deletingTaskId, setDeletingTaskId] = React.useState<string | null>(null);
   const [focusedTaskId, setFocusedTaskId] = React.useState<string | null>(null);
@@ -145,6 +157,10 @@ export default function ActionsScreen() {
   const [newMonthlyGoalTitle, setNewMonthlyGoalTitle] = React.useState("");
   const [newMonthlyGoalTarget, setNewMonthlyGoalTarget] = React.useState("5");
   const [reminderUpdatingTaskId, setReminderUpdatingTaskId] = React.useState<string | null>(null);
+  const [bulkActionLoading, setBulkActionLoading] = React.useState(false);
+  const [rowActionTaskId, setRowActionTaskId] = React.useState<string | null>(null);
+  const [viewMode, setViewMode] = React.useState<"list" | "kanban">("list");
+  const [kanbanStatusById, setKanbanStatusById] = React.useState<Record<string, TaskBoardStatus>>({});
 
   const tasksQuery = trpc.tasks.list.useInfiniteQuery(
     {
@@ -160,6 +176,18 @@ export default function ActionsScreen() {
     [tasksQuery.data]
   );
   const { isLoading, error, refetch, fetchNextPage, hasNextPage, isFetchingNextPage } = tasksQuery;
+  const taskTimeQuery = trpc.taskTime.listByTasks.useQuery(
+    { taskIds: tasks.map((task: any) => task.id) },
+    { enabled: tasks.length > 0, refetchInterval: 5000 }
+  );
+  const subtasksSummaryQuery = trpc.subtasks.summary.useQuery(
+    { taskIds: tasks.map((task: any) => task.id) },
+    { enabled: tasks.length > 0, refetchInterval: 5000 }
+  );
+  const subtasksQuery = trpc.subtasks.list.useQuery(
+    { taskId: subtasksTaskId || "" },
+    { enabled: Boolean(subtasksTaskId) }
+  );
 
   React.useEffect(() => {
     if (error) {
@@ -255,6 +283,18 @@ export default function ActionsScreen() {
   }, []);
 
   React.useEffect(() => {
+    AsyncStorage.getItem(ACTIONS_KANBAN_STATUS_KEY)
+      .then((value) => {
+        if (!value) return;
+        const parsed = JSON.parse(value) as Record<string, TaskBoardStatus>;
+        if (parsed && typeof parsed === "object") {
+          setKanbanStatusById(parsed);
+        }
+      })
+      .catch((error) => console.error("[Actions] Failed loading kanban status:", error));
+  }, []);
+
+  React.useEffect(() => {
     AsyncStorage.setItem(ACTIONS_MY_DAY_KEY, JSON.stringify(myDayTaskIds)).catch((error) =>
       console.error("[Actions] Failed persisting My Day tasks:", error)
     );
@@ -277,6 +317,34 @@ export default function ActionsScreen() {
       console.error("[Actions] Failed persisting monthly goals:", error)
     );
   }, [monthlyGoals]);
+
+  React.useEffect(() => {
+    AsyncStorage.setItem(ACTIONS_KANBAN_STATUS_KEY, JSON.stringify(kanbanStatusById)).catch((error) =>
+      console.error("[Actions] Failed persisting kanban status:", error)
+    );
+  }, [kanbanStatusById]);
+
+  React.useEffect(() => {
+    const sourceText = `${newTaskTitle} ${newTaskDescription}`.trim();
+    if (!sourceText) {
+      setNewTaskDetectedDateText("");
+      setNewTaskDetectedDateValue("");
+      return;
+    }
+
+    const detected = extractNaturalDate(sourceText);
+    if (!detected) {
+      setNewTaskDetectedDateText("");
+      setNewTaskDetectedDateValue("");
+      return;
+    }
+
+    setNewTaskDetectedDateText(detected.text);
+    setNewTaskDetectedDateValue(detected.date);
+    if (!newTaskDueDateTouched && newTaskDueDate !== detected.date) {
+      setNewTaskDueDate(detected.date);
+    }
+  }, [newTaskDescription, newTaskDueDate, newTaskDueDateTouched, newTaskTitle]);
 
   React.useEffect(() => {
     if (!isFocusRunning) return;
@@ -320,8 +388,12 @@ export default function ActionsScreen() {
       setNewTaskTitle("");
       setNewTaskDescription("");
       setNewTaskDueDate("");
+      setNewTaskDetectedDateText("");
+      setNewTaskDetectedDateValue("");
+      setNewTaskDueDateTouched(false);
       setNewTaskPriority("medium");
       setNewTaskRecurrence("none");
+      setNewTaskBlockedByTaskId("");
     },
   });
 
@@ -357,16 +429,82 @@ export default function ActionsScreen() {
       utils.tasks.list.invalidate();
     },
   });
+  const startTaskTimer = trpc.taskTime.start.useMutation({
+    onSuccess: () => {
+      taskTimeQuery.refetch().catch(() => undefined);
+    },
+  });
+  const stopTaskTimer = trpc.taskTime.stop.useMutation({
+    onSuccess: () => {
+      taskTimeQuery.refetch().catch(() => undefined);
+    },
+  });
+  const createSubtask = trpc.subtasks.create.useMutation({
+    onSuccess: () => {
+      subtasksQuery.refetch().catch(() => undefined);
+      subtasksSummaryQuery.refetch().catch(() => undefined);
+      setNewSubtaskTitle("");
+    },
+  });
+  const toggleSubtask = trpc.subtasks.toggle.useMutation({
+    onSuccess: () => {
+      subtasksQuery.refetch().catch(() => undefined);
+      subtasksSummaryQuery.refetch().catch(() => undefined);
+    },
+  });
+  const deleteSubtask = trpc.subtasks.delete.useMutation({
+    onSuccess: () => {
+      subtasksQuery.refetch().catch(() => undefined);
+      subtasksSummaryQuery.refetch().catch(() => undefined);
+    },
+  });
+
+  const formatTrackedTime = React.useCallback((seconds: number): string => {
+    if (!seconds || seconds <= 0) return "0m";
+    const h = Math.floor(seconds / 3600);
+    const m = Math.floor((seconds % 3600) / 60);
+    if (h > 0) return `${h}h ${m}m`;
+    return `${m}m`;
+  }, []);
+
+  const handleToggleTaskTimer = React.useCallback(
+    async (taskId: string) => {
+      try {
+        if (taskTimeQuery.data?.activeTaskId === taskId) {
+          await stopTaskTimer.mutateAsync({ taskId });
+        } else {
+          await startTaskTimer.mutateAsync({ taskId });
+        }
+      } catch (error) {
+        console.error("[Actions] Failed toggling task timer:", error);
+        Alert.alert("Error", "Failed to update task timer.");
+      }
+    },
+    [startTaskTimer, stopTaskTimer, taskTimeQuery.data?.activeTaskId]
+  );
 
   const filteredAndSortedTasks = React.useMemo(() => {
     const filtered = (tasks as any[]).filter((task) => {
       const dueDate = toDate(task.dueDate);
       const isCompleted = Boolean(task.isCompleted);
       const priority = (task.priority || "medium") as string;
+      const query = taskSearch.trim().toLowerCase();
+      const matchesSearch =
+        !query ||
+        String(task.title || "")
+          .toLowerCase()
+          .includes(query) ||
+        String(task.description || "")
+          .toLowerCase()
+          .includes(query);
+      const isOverdue = !isCompleted && !!dueDate && dueDate.getTime() < Date.now();
+
+      if (!matchesSearch) return false;
 
       if (activeTab === "today") return isToday(dueDate) && !isCompleted;
       if (activeTab === "completed") return isCompleted;
       if (activeTab === "high") return priority === "high" && !isCompleted;
+      if (activeTab === "overdue") return isOverdue;
       return true;
     });
 
@@ -383,7 +521,54 @@ export default function ActionsScreen() {
       const bPriority = PRIORITY_ORDER[b.priority || "medium"] || 0;
       return bPriority - aPriority;
     });
-  }, [tasks, activeTab]);
+  }, [tasks, activeTab, taskSearch]);
+
+  const getTaskBoardStatus = React.useCallback(
+    (task: any): TaskBoardStatus => {
+      if (task.isCompleted) return "done";
+      return kanbanStatusById[task.id] === "inprogress" ? "inprogress" : "todo";
+    },
+    [kanbanStatusById]
+  );
+
+  const moveTaskToBoardStatus = React.useCallback(
+    async (task: any, status: TaskBoardStatus) => {
+      try {
+        setRowActionTaskId(task.id);
+        if (status === "done") {
+          if (!task.isCompleted) {
+            await updateTask.mutateAsync({ id: task.id, isCompleted: true });
+          }
+          setKanbanStatusById((prev) => {
+            const next = { ...prev };
+            delete next[task.id];
+            return next;
+          });
+        } else {
+          if (task.isCompleted) {
+            await updateTask.mutateAsync({ id: task.id, isCompleted: false });
+          }
+          setKanbanStatusById((prev) => ({ ...prev, [task.id]: status }));
+        }
+        await utils.tasks.list.invalidate();
+      } catch (error) {
+        console.error("[Actions/Kanban] Failed moving task:", error);
+        Alert.alert("Error", "Failed moving task between columns.");
+      } finally {
+        setRowActionTaskId(null);
+      }
+    },
+    [updateTask, utils.tasks.list]
+  );
+
+  const kanbanColumns = React.useMemo(() => {
+    const columns: Record<TaskBoardStatus, any[]> = { todo: [], inprogress: [], done: [] };
+    for (const task of filteredAndSortedTasks as any[]) {
+      const status = getTaskBoardStatus(task);
+      columns[status].push(task);
+    }
+    return columns;
+  }, [filteredAndSortedTasks, getTaskBoardStatus]);
 
   const myDayTasks = React.useMemo(() => {
     const pinned = new Set(myDayTaskIds);
@@ -423,6 +608,8 @@ export default function ActionsScreen() {
       .filter((task) => !task.isCompleted && toDate(task.dueDate) && (toDate(task.dueDate) as Date).getTime() < now.getTime())
       .sort((a, b) => (toDate(a.dueDate)?.getTime() ?? 0) - (toDate(b.dueDate)?.getTime() ?? 0));
   }, [tasks]);
+
+  const overdueCount = overdueTasks.length;
 
   const dashboardStats = React.useMemo(() => {
     const today = new Date();
@@ -471,7 +658,9 @@ export default function ActionsScreen() {
 
     try {
       const rawDueDate = newTaskDueDate.trim();
-      const parsedDueDate = rawDueDate ? parseNaturalDate(rawDueDate) : null;
+      const parsedDueDate = rawDueDate
+        ? parseNaturalDate(rawDueDate)
+        : newTaskDetectedDateValue || null;
       if (rawDueDate && !parsedDueDate) {
         Alert.alert(
           "Invalid due date",
@@ -483,6 +672,7 @@ export default function ActionsScreen() {
         title,
         description: newTaskDescription.trim() || undefined,
         dueDate: parsedDueDate || undefined,
+        blockedByTaskId: newTaskBlockedByTaskId || undefined,
         priority: newTaskPriority,
         recurrence: newTaskRecurrence === "none" ? undefined : newTaskRecurrence,
       };
@@ -586,6 +776,12 @@ export default function ActionsScreen() {
     setHabits((previous) => previous.filter((habit) => habit.id !== id));
   };
 
+  const habitsStats = React.useMemo(() => {
+    const longest = habits.reduce((max, habit) => Math.max(max, habit.streak), 0);
+    const doneToday = habits.filter((habit) => habit.doneToday).length;
+    return { longest, doneToday, total: habits.length };
+  }, [habits]);
+
   const addWeeklyGoal = () => {
     const title = newWeeklyGoalTitle.trim();
     if (!title) return;
@@ -639,6 +835,12 @@ export default function ActionsScreen() {
     setMonthlyGoals((previous) => previous.filter((goal) => goal.id !== id));
   };
 
+  const completeMonthlyGoal = (id: string) => {
+    setMonthlyGoals((previous) =>
+      previous.map((goal) => (goal.id === id ? { ...goal, progress: goal.target } : goal))
+    );
+  };
+
   const handleSnoozeTask = async (task: any, days: number) => {
     try {
       setReminderUpdatingTaskId(task.id);
@@ -684,10 +886,145 @@ export default function ActionsScreen() {
     }
   };
 
+  const handleCompleteMyDay = async () => {
+    const targets = myDayTasks.filter((task) => !task.isCompleted);
+    if (!targets.length) {
+      Alert.alert("My Day", "No pending tasks to complete.");
+      return;
+    }
+    try {
+      for (const task of targets) {
+        // Reuse existing business logic to support recurring tasks correctly.
+        // eslint-disable-next-line no-await-in-loop
+        await handleToggleTask(task.id);
+      }
+      Alert.alert("Done", `Completed ${targets.length} task(s) from My Day.`);
+    } catch (error) {
+      console.error("[Actions] Failed completing My Day tasks:", error);
+      Alert.alert("Error", "Failed to complete some tasks.");
+    }
+  };
+
+  const handleClearCompletedTasks = async () => {
+    const completed = (tasks as any[]).filter((task) => task.isCompleted);
+    if (!completed.length) {
+      Alert.alert("Actions", "No completed tasks to clear.");
+      return;
+    }
+    try {
+      setBulkActionLoading(true);
+      for (const task of completed) {
+        // eslint-disable-next-line no-await-in-loop
+        await deleteTask.mutateAsync({ id: task.id });
+      }
+      Alert.alert("Done", `Removed ${completed.length} completed task(s).`);
+    } catch (error) {
+      console.error("[Actions] Failed clearing completed tasks:", error);
+      Alert.alert("Error", "Failed to clear completed tasks.");
+    } finally {
+      setBulkActionLoading(false);
+    }
+  };
+
+  const handleDuplicateTask = async (task: any) => {
+    try {
+      setRowActionTaskId(task.id);
+      await createTask.mutateAsync({
+        title: `${task.title} (Copy)`,
+        description: task.description || undefined,
+        dueDate: task.dueDate || undefined,
+        priority: task.priority || "medium",
+        recurrence: task.recurrence || undefined,
+      } as any);
+    } catch (error) {
+      console.error("[Actions] Failed duplicating task:", error);
+      Alert.alert("Error", "Failed to duplicate task.");
+    } finally {
+      setRowActionTaskId(null);
+    }
+  };
+
+  const handleCycleTaskPriority = async (task: any) => {
+    try {
+      setRowActionTaskId(task.id);
+      const current = task.priority || "medium";
+      const next: "low" | "medium" | "high" =
+        current === "low" ? "medium" : current === "medium" ? "high" : "low";
+      const input = {
+        id: task.id,
+        priority: next,
+      };
+      const result = await offlineManager.runOrQueueMutation("tasks.update", input, () =>
+        updateTask.mutateAsync(input)
+      );
+      if ("queued" in (result as any)) {
+        Alert.alert("Queued", "Priority update will sync when back online.");
+      }
+    } catch (error) {
+      console.error("[Actions] Failed cycling priority:", error);
+      Alert.alert("Error", "Failed to update priority.");
+    } finally {
+      setRowActionTaskId(null);
+    }
+  };
+
+  const resetFocusStats = async () => {
+    const next: FocusStats = {
+      date: new Date().toISOString().slice(0, 10),
+      sessions: 0,
+      minutes: 0,
+    };
+    setFocusStats(next);
+    await AsyncStorage.setItem(ACTIONS_FOCUS_STATS_KEY, JSON.stringify(next));
+  };
+
+  const resetHabitsProgress = () => {
+    setHabits((previous) =>
+      previous.map((habit) => ({
+        ...habit,
+        streak: 0,
+        doneToday: false,
+        lastCompletedDate: null,
+      }))
+    );
+  };
+
+  const resetWeeklyGoals = () => {
+    setWeeklyGoals((previous) => previous.map((goal) => ({ ...goal, done: false })));
+  };
+
+  const resetMonthlyGoalsProgress = () => {
+    setMonthlyGoals((previous) => previous.map((goal) => ({ ...goal, progress: 0 })));
+  };
+
+  const openTaskTemplate = (template: "gtd" | "eisenhower" | "timeblock") => {
+    if (template === "gtd") {
+      setNewTaskTitle("Capture + Clarify next action");
+      setNewTaskDescription("Define the concrete next action and context.");
+      setNewTaskPriority("medium");
+    } else if (template === "eisenhower") {
+      setNewTaskTitle("Urgent vs Important review");
+      setNewTaskDescription("Decide: do, schedule, delegate, or drop.");
+      setNewTaskPriority("high");
+    } else {
+      setNewTaskTitle("Deep work block");
+      setNewTaskDescription("Reserve 90 minutes for focused execution.");
+      setNewTaskPriority("medium");
+    }
+    setShowCreateModal(true);
+  };
+
   const handleToggleTask = async (id: string) => {
     try {
       setTogglingTaskId(id);
       const task = (tasks as any[]).find((t) => t.id === id);
+      if (task && !task.isCompleted && task.blockedByTaskId) {
+        const blocker = (tasks as any[]).find((t) => t.id === task.blockedByTaskId);
+        if (blocker && !blocker.isCompleted) {
+          Alert.alert("Task blocked", `Complete "${blocker.title}" first.`);
+          return;
+        }
+      }
       const isRecurring = Boolean(task?.recurrence && ["daily", "weekly", "monthly"].includes(task.recurrence));
       const isCompleting = task && !task.isCompleted;
       if (isRecurring && isCompleting) {
@@ -718,10 +1055,14 @@ export default function ActionsScreen() {
           Alert.alert("Queued", "Task update will sync when you're back online.");
           return;
         }
-        const typedResult = result as any;
-        if (typedResult?.isCompleted) {
-          await cancelTaskDueNotification(id);
-        } else if (task?.dueDate) {
+      const typedResult = result as any;
+      if (typedResult?.blocked) {
+        Alert.alert("Task blocked", "You can't complete this task until its dependency is completed.");
+        return;
+      }
+      if (typedResult?.isCompleted) {
+        await cancelTaskDueNotification(id);
+      } else if (task?.dueDate) {
           await scheduleTaskDueNotification({
             taskId: id,
             title: task.title || "Task",
@@ -766,6 +1107,34 @@ export default function ActionsScreen() {
     ]);
   };
 
+  const taskById = React.useMemo(() => {
+    const map = new Map<string, any>();
+    for (const task of tasks as any[]) {
+      map.set(task.id, task);
+    }
+    return map;
+  }, [tasks]);
+
+  const dependencyCandidates = React.useMemo(
+    () => (tasks as any[]).filter((task) => !task.isCompleted).slice(0, 8),
+    [tasks]
+  );
+
+  const openSubtasksModal = React.useCallback((taskId: string) => {
+    setSubtasksTaskId(taskId);
+    setNewSubtaskTitle("");
+  }, []);
+
+  const handleCreateSubtask = React.useCallback(async () => {
+    if (!subtasksTaskId || !newSubtaskTitle.trim()) return;
+    try {
+      await createSubtask.mutateAsync({ taskId: subtasksTaskId, title: newSubtaskTitle.trim() });
+    } catch (error) {
+      console.error("[Actions] Failed creating subtask:", error);
+      Alert.alert("Error", "Failed to create subtask.");
+    }
+  }, [createSubtask, newSubtaskTitle, subtasksTaskId]);
+
   return (
     <ScreenContainer>
       <View className="p-4 border-b border-border">
@@ -781,6 +1150,54 @@ export default function ActionsScreen() {
             <MaterialIcons name="add" size={22} color="white" />
           </Pressable>
         </View>
+        <View style={{ flexDirection: "row", marginTop: 10 }}>
+          {(["list", "kanban"] as const).map((modeOption) => (
+            <Pressable
+              key={modeOption}
+              onPress={() => setViewMode(modeOption)}
+              style={{
+                marginRight: 8,
+                paddingHorizontal: 10,
+                paddingVertical: 6,
+                borderRadius: 999,
+                borderWidth: 1,
+                borderColor: colors.border,
+                backgroundColor: viewMode === modeOption ? colors.primary : colors.background,
+              }}
+            >
+              <Text style={{ color: viewMode === modeOption ? "white" : colors.foreground, fontSize: 12, fontWeight: "700" }}>
+                {modeOption === "list" ? "List View" : "Kanban View"}
+              </Text>
+            </Pressable>
+          ))}
+        </View>
+        <View style={{ flexDirection: "row", marginTop: 10 }}>
+          {[
+            { key: "gtd", label: "GTD" },
+            { key: "eisenhower", label: "Eisenhower" },
+            { key: "timeblock", label: "Time Block" },
+          ].map((template) => (
+            <Pressable
+              key={template.key}
+              onPress={() => openTaskTemplate(template.key as "gtd" | "eisenhower" | "timeblock")}
+              style={{
+                marginRight: 8,
+                paddingHorizontal: 10,
+                paddingVertical: 6,
+                borderRadius: 999,
+                borderWidth: 1,
+                borderColor: colors.border,
+                backgroundColor: colors.surface,
+              }}
+            >
+              <Text style={{ color: colors.foreground, fontSize: 12, fontWeight: "700" }}>{template.label}</Text>
+            </Pressable>
+          ))}
+        </View>
+      </View>
+
+      <View className="px-4 py-3 border-b border-border">
+        <PomodoroTimer />
       </View>
 
       <View className="px-4 py-3 border-b border-border">
@@ -825,16 +1242,40 @@ export default function ActionsScreen() {
       <View className="px-4 py-3 border-b border-border">
         <View style={{ flexDirection: "row", justifyContent: "space-between", marginBottom: 8 }}>
           <Text style={{ color: colors.muted, fontSize: 12, fontWeight: "600" }}>Quick Filters</Text>
-          <Pressable onPress={handleSaveCurrentView}>
-            <Text style={{ color: colors.primary, fontWeight: "700", fontSize: 12 }}>Save View</Text>
-          </Pressable>
+          <View style={{ flexDirection: "row" }}>
+            <Pressable onPress={handleSaveCurrentView} style={{ marginRight: 10 }}>
+              <Text style={{ color: colors.primary, fontWeight: "700", fontSize: 12 }}>Save View</Text>
+            </Pressable>
+            <Pressable onPress={handleClearCompletedTasks} disabled={bulkActionLoading}>
+              <Text style={{ color: colors.primary, fontWeight: "700", fontSize: 12 }}>
+                {bulkActionLoading ? "Clearing..." : "Clear Completed"}
+              </Text>
+            </Pressable>
+          </View>
         </View>
+        <TextInput
+          value={taskSearch}
+          onChangeText={setTaskSearch}
+          placeholder="Search tasks..."
+          placeholderTextColor={colors.muted}
+          style={{
+            borderWidth: 1,
+            borderColor: colors.border,
+            borderRadius: 8,
+            backgroundColor: colors.background,
+            color: colors.foreground,
+            paddingHorizontal: 10,
+            paddingVertical: 8,
+            marginBottom: 8,
+          }}
+        />
         <View style={{ flexDirection: "row", flexWrap: "wrap", zIndex: 5, elevation: 5 }}>
           {[
             { label: "All", value: "all" as const },
             { label: "Today", value: "today" as const },
             { label: "Completed", value: "completed" as const },
             { label: "High Priority", value: "high" as const },
+            { label: `Overdue (${overdueCount})`, value: "overdue" as const },
           ].map((tab) => (
             <Pressable
               key={tab.value}
@@ -901,6 +1342,9 @@ export default function ActionsScreen() {
               Today: {focusStats.sessions} sessions • {focusStats.minutes} min
             </Text>
           </View>
+          <Pressable onPress={resetFocusStats} style={{ alignSelf: "flex-start", marginTop: 6 }}>
+            <Text style={{ color: colors.primary, fontSize: 12, fontWeight: "700" }}>Reset Focus Stats</Text>
+          </Pressable>
           <Text style={{ color: colors.primary, fontWeight: "800", fontSize: 28, marginTop: 8 }}>
             {formatFocusTime(focusRemainingSeconds)}
           </Text>
@@ -969,6 +1413,23 @@ export default function ActionsScreen() {
           }}
         >
           <Text style={{ color: colors.foreground, fontWeight: "700", fontSize: 14 }}>My Day</Text>
+          <Pressable
+            onPress={handleCompleteMyDay}
+            style={{
+              alignSelf: "flex-start",
+              marginTop: 8,
+              marginBottom: 2,
+              paddingHorizontal: 10,
+              paddingVertical: 6,
+              borderRadius: 8,
+              backgroundColor: colors.primary,
+            }}
+          >
+            <Text style={{ color: "white", fontWeight: "700", fontSize: 12 }}>Complete My Day</Text>
+          </Pressable>
+          <Pressable onPress={() => setMyDayTaskIds([])} style={{ alignSelf: "flex-start", marginTop: 6 }}>
+            <Text style={{ color: colors.primary, fontSize: 12, fontWeight: "700" }}>Clear My Day Pins</Text>
+          </Pressable>
           {myDayTasks.length === 0 ? (
             <Text style={{ color: colors.muted, marginTop: 6, fontSize: 12 }}>
               No tasks yet. Pin tasks with "My Day" from the list below.
@@ -1004,6 +1465,12 @@ export default function ActionsScreen() {
           }}
         >
           <Text style={{ color: colors.foreground, fontWeight: "700", fontSize: 14 }}>Habit Tracker</Text>
+          <Text style={{ color: colors.muted, marginTop: 6, fontSize: 12 }}>
+            Done today: {habitsStats.doneToday}/{habitsStats.total} • Longest streak: {habitsStats.longest}
+          </Text>
+          <Pressable onPress={resetHabitsProgress} style={{ alignSelf: "flex-start", marginTop: 6 }}>
+            <Text style={{ color: colors.primary, fontSize: 12, fontWeight: "700" }}>Reset Habits Progress</Text>
+          </Pressable>
           <View style={{ flexDirection: "row", marginTop: 8 }}>
             <TextInput
               value={newHabitName}
@@ -1077,6 +1544,9 @@ export default function ActionsScreen() {
           }}
         >
           <Text style={{ color: colors.foreground, fontWeight: "700", fontSize: 14 }}>Weekly Goals</Text>
+          <Pressable onPress={resetWeeklyGoals} style={{ alignSelf: "flex-start", marginTop: 6 }}>
+            <Text style={{ color: colors.primary, fontSize: 12, fontWeight: "700" }}>Reset Weekly Goals</Text>
+          </Pressable>
           <View style={{ flexDirection: "row", marginTop: 8 }}>
             <TextInput
               value={newWeeklyGoalTitle}
@@ -1110,6 +1580,9 @@ export default function ActionsScreen() {
           </View>
           {weeklyGoals.length > 0 ? (
             <View style={{ marginTop: 10 }}>
+              <Text style={{ color: colors.muted, fontSize: 12, marginBottom: 6 }}>
+                Completion: {Math.round((weeklyGoals.filter((goal) => goal.done).length / weeklyGoals.length) * 100)}%
+              </Text>
               {weeklyGoals.map((goal) => (
                 <View key={goal.id} style={{ flexDirection: "row", alignItems: "center", marginBottom: 8 }}>
                   <Pressable onPress={() => toggleWeeklyGoal(goal.id)} style={{ marginRight: 8 }}>
@@ -1176,6 +1649,9 @@ export default function ActionsScreen() {
           }}
         >
           <Text style={{ color: colors.foreground, fontWeight: "700", fontSize: 14 }}>Monthly Goals</Text>
+          <Pressable onPress={resetMonthlyGoalsProgress} style={{ alignSelf: "flex-start", marginTop: 6 }}>
+            <Text style={{ color: colors.primary, fontSize: 12, fontWeight: "700" }}>Reset Monthly Progress</Text>
+          </Pressable>
           <View style={{ flexDirection: "row", marginTop: 8 }}>
             <TextInput
               value={newMonthlyGoalTitle}
@@ -1274,6 +1750,7 @@ export default function ActionsScreen() {
                       <Pressable
                         onPress={() => resetMonthlyGoal(goal.id)}
                         style={{
+                          marginRight: 8,
                           paddingHorizontal: 10,
                           paddingVertical: 5,
                           borderRadius: 8,
@@ -1283,6 +1760,19 @@ export default function ActionsScreen() {
                         }}
                       >
                         <Text style={{ color: colors.foreground, fontWeight: "700", fontSize: 12 }}>Reset</Text>
+                      </Pressable>
+                      <Pressable
+                        onPress={() => completeMonthlyGoal(goal.id)}
+                        style={{
+                          paddingHorizontal: 10,
+                          paddingVertical: 5,
+                          borderRadius: 8,
+                          borderWidth: 1,
+                          borderColor: colors.primary,
+                          backgroundColor: colors.surface,
+                        }}
+                      >
+                        <Text style={{ color: colors.primary, fontWeight: "700", fontSize: 12 }}>Mark Done</Text>
                       </Pressable>
                     </View>
                   </View>
@@ -1371,6 +1861,7 @@ export default function ActionsScreen() {
                       onPress={() => handleSnoozeTask(task, 1)}
                       disabled={reminderUpdatingTaskId === task.id}
                       style={{
+                        marginRight: 8,
                         paddingHorizontal: 10,
                         paddingVertical: 6,
                         borderRadius: 8,
@@ -1381,6 +1872,35 @@ export default function ActionsScreen() {
                     >
                       <Text style={{ color: colors.foreground, fontWeight: "700", fontSize: 12 }}>Snooze +1d</Text>
                     </Pressable>
+                    <Pressable
+                      onPress={() => handleSnoozeTask(task, 3)}
+                      disabled={reminderUpdatingTaskId === task.id}
+                      style={{
+                        marginRight: 8,
+                        paddingHorizontal: 10,
+                        paddingVertical: 6,
+                        borderRadius: 8,
+                        borderWidth: 1,
+                        borderColor: colors.border,
+                        backgroundColor: colors.background,
+                      }}
+                    >
+                      <Text style={{ color: colors.foreground, fontWeight: "700", fontSize: 12 }}>+3d</Text>
+                    </Pressable>
+                    <Pressable
+                      onPress={() => handleSnoozeTask(task, 7)}
+                      disabled={reminderUpdatingTaskId === task.id}
+                      style={{
+                        paddingHorizontal: 10,
+                        paddingVertical: 6,
+                        borderRadius: 8,
+                        borderWidth: 1,
+                        borderColor: colors.border,
+                        backgroundColor: colors.background,
+                      }}
+                    >
+                      <Text style={{ color: colors.foreground, fontWeight: "700", fontSize: 12 }}>+7d</Text>
+                    </Pressable>
                   </View>
                 </View>
               ))}
@@ -1389,7 +1909,78 @@ export default function ActionsScreen() {
         </View>
       </View>
 
-      {isLoading ? (
+      {viewMode === "kanban" ? (
+        <ScrollView horizontal contentContainerStyle={{ padding: 12 }}>
+          {([
+            { key: "todo", label: "To Do" },
+            { key: "inprogress", label: "In Progress" },
+            { key: "done", label: "Done" },
+          ] as Array<{ key: TaskBoardStatus; label: string }>).map((column) => (
+            <View
+              key={column.key}
+              style={{
+                width: 280,
+                marginRight: 12,
+                borderWidth: 1,
+                borderColor: colors.border,
+                borderRadius: 12,
+                backgroundColor: colors.surface,
+                padding: 10,
+              }}
+            >
+              <Text style={{ color: colors.foreground, fontWeight: "700", marginBottom: 8 }}>
+                {column.label} ({kanbanColumns[column.key].length})
+              </Text>
+              {kanbanColumns[column.key].length === 0 ? (
+                <Text style={{ color: colors.muted, fontSize: 12 }}>No tasks</Text>
+              ) : (
+                kanbanColumns[column.key].map((task: any) => (
+                  <View
+                    key={task.id}
+                    style={{
+                      borderWidth: 1,
+                      borderColor: colors.border,
+                      borderRadius: 10,
+                      padding: 10,
+                      marginBottom: 8,
+                    }}
+                  >
+                    <Text style={{ color: colors.foreground, fontWeight: "600" }} numberOfLines={2}>
+                      {task.title}
+                    </Text>
+                    <Text style={{ color: colors.muted, fontSize: 11, marginTop: 4 }}>
+                      {task.dueDate ? `Due: ${task.dueDate}` : "No due date"}
+                    </Text>
+                    <View style={{ flexDirection: "row", marginTop: 8 }}>
+                      {column.key !== "todo" ? (
+                        <Pressable
+                          onPress={() => moveTaskToBoardStatus(task, column.key === "done" ? "inprogress" : "todo")}
+                          style={{ marginRight: 10 }}
+                          disabled={rowActionTaskId === task.id}
+                        >
+                          <Text style={{ color: colors.primary, fontWeight: "700", fontSize: 12 }}>
+                            Move Left
+                          </Text>
+                        </Pressable>
+                      ) : null}
+                      {column.key !== "done" ? (
+                        <Pressable
+                          onPress={() => moveTaskToBoardStatus(task, column.key === "todo" ? "inprogress" : "done")}
+                          disabled={rowActionTaskId === task.id}
+                        >
+                          <Text style={{ color: colors.primary, fontWeight: "700", fontSize: 12 }}>
+                            Move Right
+                          </Text>
+                        </Pressable>
+                      ) : null}
+                    </View>
+                  </View>
+                ))
+              )}
+            </View>
+          ))}
+        </ScrollView>
+      ) : isLoading ? (
         <View className="flex-1 items-center mt-8">
           <ActivityIndicator size="large" color={colors.primary} />
           <Text className="text-muted mt-4">Loading tasks...</Text>
@@ -1489,11 +2080,58 @@ export default function ActionsScreen() {
                         </Text>
                       </View>
                     ) : null}
+                    {task.blockedByTaskId ? (
+                      <View className="flex-row items-center mt-1">
+                        <MaterialIcons name="link" size={14} color={colors.error} />
+                        <Text className="text-xs ml-1" style={{ color: colors.error }}>
+                          Blocked by: {taskById.get(task.blockedByTaskId)?.title || "Another task"}
+                        </Text>
+                      </View>
+                    ) : null}
                     <Pressable onPress={() => toggleMyDayTask(task.id)} style={{ marginTop: 6, alignSelf: "flex-start" }}>
                       <Text style={{ color: colors.primary, fontSize: 12, fontWeight: "700" }}>
                         {myDayTaskIds.includes(task.id) ? "Remove from My Day" : "Add to My Day"}
                       </Text>
                     </Pressable>
+                    <View style={{ flexDirection: "row", marginTop: 6 }}>
+                      <Pressable onPress={() => handleDuplicateTask(task)} disabled={rowActionTaskId === task.id}>
+                        <Text style={{ color: colors.primary, fontSize: 12, fontWeight: "700", marginRight: 12 }}>
+                          {rowActionTaskId === task.id ? "..." : "Duplicate"}
+                        </Text>
+                      </Pressable>
+                      <Pressable onPress={() => handleCycleTaskPriority(task)} disabled={rowActionTaskId === task.id}>
+                        <Text style={{ color: colors.primary, fontSize: 12, fontWeight: "700" }}>
+                          Cycle Priority
+                        </Text>
+                      </Pressable>
+                    </View>
+                    <View style={{ flexDirection: "row", alignItems: "center", marginTop: 8 }}>
+                      <Text style={{ color: colors.muted, fontSize: 12, marginRight: 10 }}>
+                        Time: {formatTrackedTime(taskTimeQuery.data?.totals?.[task.id] ?? 0)}
+                      </Text>
+                      <Pressable
+                        onPress={() => handleToggleTaskTimer(task.id)}
+                        disabled={startTaskTimer.isPending || stopTaskTimer.isPending}
+                      >
+                        <Text style={{ color: colors.primary, fontSize: 12, fontWeight: "700" }}>
+                          {taskTimeQuery.data?.activeTaskId === task.id ? "Stop Timer" : "Start Timer"}
+                        </Text>
+                      </Pressable>
+                    </View>
+                    {subtasksSummaryQuery.data?.[task.id]?.total ? (
+                      <View style={{ flexDirection: "row", alignItems: "center", marginTop: 6 }}>
+                        <Text style={{ color: colors.muted, fontSize: 12, marginRight: 10 }}>
+                          Subtasks: {subtasksSummaryQuery.data[task.id].completed}/{subtasksSummaryQuery.data[task.id].total}
+                        </Text>
+                        <Pressable onPress={() => openSubtasksModal(task.id)}>
+                          <Text style={{ color: colors.primary, fontSize: 12, fontWeight: "700" }}>Manage</Text>
+                        </Pressable>
+                      </View>
+                    ) : (
+                      <Pressable onPress={() => openSubtasksModal(task.id)} style={{ marginTop: 6, alignSelf: "flex-start" }}>
+                        <Text style={{ color: colors.primary, fontSize: 12, fontWeight: "700" }}>Add subtask</Text>
+                      </Pressable>
+                    )}
                   </View>
 
                   <Pressable onPress={() => handleDeleteTask(task.id)} disabled={isDeleting} className="ml-3 mt-0.5">
@@ -1510,6 +2148,108 @@ export default function ActionsScreen() {
           />
         </View>
       )}
+
+      <Modal
+        visible={Boolean(subtasksTaskId)}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setSubtasksTaskId(null)}
+      >
+        <View className="flex-1 bg-black/50 justify-end">
+          <View className="bg-surface rounded-t-3xl p-6 max-h-3/4" style={{ backgroundColor: colors.surface }}>
+            <Text className="text-xl font-bold text-foreground mb-4">Manage Subtasks</Text>
+
+            <View style={{ flexDirection: "row", marginBottom: 12 }}>
+              <TextInput
+                value={newSubtaskTitle}
+                onChangeText={setNewSubtaskTitle}
+                placeholder="New subtask"
+                placeholderTextColor={colors.muted}
+                style={{
+                  flex: 1,
+                  borderWidth: 1,
+                  borderColor: colors.border,
+                  borderRadius: 10,
+                  paddingHorizontal: 12,
+                  paddingVertical: 10,
+                  color: colors.foreground,
+                  backgroundColor: colors.background,
+                  marginRight: 8,
+                }}
+              />
+              <Pressable
+                onPress={handleCreateSubtask}
+                disabled={createSubtask.isPending || !newSubtaskTitle.trim()}
+                style={{
+                  borderRadius: 10,
+                  paddingHorizontal: 12,
+                  justifyContent: "center",
+                  backgroundColor: colors.primary,
+                  opacity: createSubtask.isPending || !newSubtaskTitle.trim() ? 0.6 : 1,
+                }}
+              >
+                <Text style={{ color: "white", fontWeight: "700" }}>Add</Text>
+              </Pressable>
+            </View>
+
+            <ScrollView showsVerticalScrollIndicator={false}>
+              {(subtasksQuery.data ?? []).map((subtask: any) => (
+                <View
+                  key={subtask.id}
+                  style={{
+                    flexDirection: "row",
+                    alignItems: "center",
+                    justifyContent: "space-between",
+                    borderWidth: 1,
+                    borderColor: colors.border,
+                    borderRadius: 10,
+                    paddingHorizontal: 10,
+                    paddingVertical: 8,
+                    marginBottom: 8,
+                  }}
+                >
+                  <Pressable
+                    onPress={() => toggleSubtask.mutate({ id: subtask.id })}
+                    style={{ flexDirection: "row", alignItems: "center", flex: 1 }}
+                  >
+                    <MaterialIcons
+                      name={subtask.isCompleted ? "check-box" : "check-box-outline-blank"}
+                      size={20}
+                      color={subtask.isCompleted ? colors.primary : colors.muted}
+                    />
+                    <Text
+                      style={{
+                        marginLeft: 8,
+                        color: colors.foreground,
+                        textDecorationLine: subtask.isCompleted ? "line-through" : "none",
+                      }}
+                    >
+                      {subtask.title}
+                    </Text>
+                  </Pressable>
+                  <Pressable onPress={() => deleteSubtask.mutate({ id: subtask.id })}>
+                    <MaterialIcons name="delete" size={18} color={colors.error} />
+                  </Pressable>
+                </View>
+              ))}
+              {subtasksQuery.isLoading ? (
+                <View style={{ paddingVertical: 12 }}>
+                  <ActivityIndicator color={colors.primary} />
+                </View>
+              ) : null}
+              {(subtasksQuery.data ?? []).length === 0 && !subtasksQuery.isLoading ? (
+                <Text style={{ color: colors.muted }}>No subtasks yet.</Text>
+              ) : null}
+            </ScrollView>
+
+            <Pressable onPress={() => setSubtasksTaskId(null)} style={{ marginTop: 12 }}>
+              <View className="bg-border rounded-lg py-3 items-center">
+                <Text className="text-foreground font-semibold">Close</Text>
+              </View>
+            </Pressable>
+          </View>
+        </View>
+      </Modal>
 
       <Modal
         visible={showCreateModal}
@@ -1573,6 +2313,15 @@ export default function ActionsScreen() {
                 className="bg-background border border-border rounded-lg p-3 text-foreground mb-3"
                 style={{ color: colors.foreground }}
               />
+              <VoiceInputButton
+                label="Mic for title"
+                onTranscript={(spoken) => setNewTaskTitle((prev) => `${prev} ${spoken}`.trim())}
+              />
+              {newTaskDetectedDateValue ? (
+                <Text className="text-xs mb-3" style={{ color: colors.primary, fontWeight: "600" }}>
+                  Detected date: "{newTaskDetectedDateText}" to {newTaskDetectedDateValue}
+                </Text>
+              ) : null}
               <TextInput
                 placeholder="Description (optional)"
                 placeholderTextColor={colors.muted}
@@ -1583,13 +2332,27 @@ export default function ActionsScreen() {
                 className="bg-background border border-border rounded-lg p-3 text-foreground mb-3"
                 style={{ color: colors.foreground }}
               />
+              <VoiceInputButton
+                label="Mic for description"
+                onTranscript={(spoken) => setNewTaskDescription((prev) => `${prev} ${spoken}`.trim())}
+              />
               <TextInput
                 placeholder="Due date (YYYY-MM-DD / tomorrow / بكرة)"
                 placeholderTextColor={colors.muted}
                 value={newTaskDueDate}
-                onChangeText={setNewTaskDueDate}
+                onChangeText={(value) => {
+                  setNewTaskDueDateTouched(true);
+                  setNewTaskDueDate(value);
+                }}
                 className="bg-background border border-border rounded-lg p-3 text-foreground mb-3"
                 style={{ color: colors.foreground }}
+              />
+              <VoiceInputButton
+                label="Mic for due date"
+                onTranscript={(spoken) => {
+                  setNewTaskDueDateTouched(true);
+                  setNewTaskDueDate((prev) => `${prev} ${spoken}`.trim());
+                }}
               />
               <Text className="text-xs mb-3" style={{ color: colors.muted }}>
                 Supports: today, tomorrow, next week, in 3 days, بكرة
@@ -1659,6 +2422,44 @@ export default function ActionsScreen() {
                   ))}
                 </View>
               </View>
+              <View className="mb-4">
+                <Text className="text-sm font-semibold text-foreground mb-2">Blocked By</Text>
+                <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+                  <Pressable
+                    onPress={() => setNewTaskBlockedByTaskId("")}
+                    style={{
+                      marginRight: 8,
+                      paddingHorizontal: 10,
+                      paddingVertical: 6,
+                      borderRadius: 999,
+                      borderWidth: 1,
+                      borderColor: colors.border,
+                      backgroundColor: newTaskBlockedByTaskId === "" ? colors.primary : colors.background,
+                    }}
+                  >
+                    <Text style={{ color: newTaskBlockedByTaskId === "" ? "white" : colors.foreground, fontSize: 12 }}>None</Text>
+                  </Pressable>
+                  {dependencyCandidates.map((task: any) => (
+                    <Pressable
+                      key={task.id}
+                      onPress={() => setNewTaskBlockedByTaskId(task.id)}
+                      style={{
+                        marginRight: 8,
+                        paddingHorizontal: 10,
+                        paddingVertical: 6,
+                        borderRadius: 999,
+                        borderWidth: 1,
+                        borderColor: colors.border,
+                        backgroundColor: newTaskBlockedByTaskId === task.id ? colors.primary : colors.background,
+                      }}
+                    >
+                      <Text style={{ color: newTaskBlockedByTaskId === task.id ? "white" : colors.foreground, fontSize: 12 }}>
+                        {task.title}
+                      </Text>
+                    </Pressable>
+                  ))}
+                </ScrollView>
+              </View>
             </ScrollView>
             <View className="flex-row gap-3 mt-4">
               <Pressable onPress={() => setShowCreateModal(false)} style={{ flex: 1 }}>
@@ -1700,3 +2501,4 @@ export default function ActionsScreen() {
     </ScreenContainer>
   );
 }
+

@@ -2,6 +2,12 @@ import express from 'express';
 import { createExpressMiddleware } from '@trpc/server/adapters/express';
 import { createTRPCContext, router, publicProcedure } from '../trpc';
 import { verifyToken } from '../lib/auth';
+import { db } from '../db';
+import { users } from '../schema/users';
+import { tasks } from '../schema/tasks';
+import { randomUUID } from 'crypto';
+import { eq } from 'drizzle-orm';
+import { resolveUserIdFromTaskInboxAddress } from '../lib/email-task-address';
 import { itemsRouter } from '../routers/items';
 import { tasksRouter } from '../routers/tasks';
 import { journalRouter } from '../routers/journal';
@@ -15,6 +21,10 @@ import { syncRouter } from '../routers/sync';
 import { devicesRouter } from '../routers/devices';
 import { transcriptionRouter } from '../routers/transcription';
 import { analyticsRouter } from '../routers/analytics';
+import { taskTimeRouter } from '../routers/task-time';
+import { habitsRouter } from '../routers/habits';
+import { goalsRouter } from '../routers/goals';
+import { subtasksRouter } from '../routers/subtasks';
 
 const app = express();
 const port = process.env.PORT || 3000;
@@ -35,6 +45,10 @@ const appRouter = router({
   devices: devicesRouter,
   transcription: transcriptionRouter,
   analytics: analyticsRouter,
+  taskTime: taskTimeRouter,
+  habits: habitsRouter,
+  goals: goalsRouter,
+  subtasks: subtasksRouter,
   // test endpoint
   hello: publicProcedure.query(() => {
     return { message: 'Hello from tRPC!' };
@@ -45,6 +59,7 @@ export type AppRouter = typeof appRouter;
 
 // Required for tRPC POST/JSON batch requests
 app.use(express.json());
+app.use(express.urlencoded({ extended: true }));
 
 // CORS middleware
 app.use((req, res, next) => {
@@ -55,6 +70,97 @@ app.use((req, res, next) => {
     return res.sendStatus(200);
   }
   next();
+});
+
+function extractSingleValue(value: unknown): string {
+  if (typeof value === 'string') return value;
+  if (Array.isArray(value) && typeof value[0] === 'string') return value[0];
+  return '';
+}
+
+function extractEmailAddress(raw: string): string {
+  const trimmed = raw.trim();
+  const angleMatch = trimmed.match(/<([^>]+)>/);
+  if (angleMatch?.[1]) {
+    return angleMatch[1].trim().toLowerCase();
+  }
+  const plain = trimmed.split(',')[0]?.trim() ?? '';
+  return plain.toLowerCase();
+}
+
+app.post('/email/inbound', async (req, res) => {
+  try {
+    const configuredSecret = (process.env.EMAIL_WEBHOOK_SECRET ?? '').trim();
+    const requestSecret = String(req.headers['x-email-webhook-secret'] ?? req.query.secret ?? '').trim();
+
+    if (configuredSecret) {
+      if (requestSecret !== configuredSecret) {
+        return res.status(401).json({ success: false, error: 'unauthorized' });
+      }
+    } else if (process.env.NODE_ENV === 'production') {
+      return res.status(503).json({ success: false, error: 'webhook_secret_not_configured' });
+    }
+
+    const toRaw =
+      extractSingleValue((req.body as any)?.to) ||
+      extractSingleValue((req.body as any)?.recipient) ||
+      String(req.headers['x-original-to'] ?? '');
+    const fromRaw = extractSingleValue((req.body as any)?.from);
+    const subjectRaw = extractSingleValue((req.body as any)?.subject);
+    const textRaw = extractSingleValue((req.body as any)?.text);
+    const htmlRaw = extractSingleValue((req.body as any)?.html);
+
+    const toAddress = extractEmailAddress(toRaw);
+    const userId = resolveUserIdFromTaskInboxAddress(toAddress);
+    if (!userId) {
+      return res.status(400).json({ success: false, error: 'invalid_recipient' });
+    }
+
+    const userRows = await db.select().from(users).where(eq(users.id, userId)).limit(1);
+    const user = userRows[0];
+    if (!user || !user.isActive) {
+      return res.status(404).json({ success: false, error: 'user_not_found' });
+    }
+
+    const cleanSubject = subjectRaw.trim();
+    const textBody = textRaw.trim();
+    const htmlBody = htmlRaw.trim();
+    const normalizedBody = textBody || htmlBody.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim();
+
+    const title = cleanSubject || normalizedBody.split('\n')[0]?.trim() || 'Email task';
+    const descriptionLines = [
+      fromRaw ? `From: ${fromRaw.trim()}` : '',
+      normalizedBody ? `Body: ${normalizedBody.slice(0, 2000)}` : '',
+    ].filter(Boolean);
+
+    const newTask = {
+      id: randomUUID(),
+      userId: user.id,
+      title: title.slice(0, 300),
+      description: descriptionLines.join('\n'),
+      dueDate: null,
+      priority: 'medium' as const,
+      isCompleted: false,
+      completedAt: null,
+      recurrence: null,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+      deletedAt: null,
+    };
+    await db.insert(tasks).values(newTask);
+
+    console.log('[Email->Task] Created task from inbound email:', {
+      taskId: newTask.id,
+      userId: user.id,
+      to: toAddress,
+      title: newTask.title,
+    });
+
+    return res.status(200).json({ success: true, taskId: newTask.id });
+  } catch (error) {
+    console.error('[Email->Task] Failed processing inbound email:', error);
+    return res.status(500).json({ success: false, error: 'internal_error' });
+  }
 });
 
 // tRPC middleware

@@ -1,5 +1,6 @@
 import { randomUUID } from 'crypto';
 import { and, desc, eq } from 'drizzle-orm';
+import { TRPCError } from '@trpc/server';
 import { z } from 'zod';
 import { db } from '../db';
 import { attachments } from '../schema/attachments';
@@ -171,5 +172,57 @@ export const attachmentsRouter = router({
         success: true,
         attachment: record,
       };
+    }),
+
+  extractText: protectedProcedure
+    .input(
+      z.object({
+        attachmentId: z.string().min(1),
+      })
+    )
+    .mutation(async ({ input, ctx }) => {
+      try {
+        const rows = await db.select().from(attachments).where(eq(attachments.id, input.attachmentId)).limit(1);
+        if (rows.length === 0) {
+          throw new TRPCError({ code: 'NOT_FOUND', message: 'Attachment not found' });
+        }
+
+        const target = rows[0];
+        if (target.type !== 'image' || !target.itemId) {
+          throw new TRPCError({ code: 'BAD_REQUEST', message: 'OCR is supported only for item images' });
+        }
+
+        const ownerItem = await db
+          .select()
+          .from(items)
+          .where(and(eq(items.id, target.itemId), eq(items.userId, ctx.user.id)))
+          .limit(1);
+        if (ownerItem.length === 0) {
+          throw new TRPCError({ code: 'FORBIDDEN', message: 'Not authorized to read this attachment' });
+        }
+
+        const imageSource = target.fileUrl;
+        if (!imageSource || imageSource.trim().length === 0) {
+          throw new TRPCError({ code: 'BAD_REQUEST', message: 'Attachment image is empty' });
+        }
+
+        const { recognize } = await import('tesseract.js');
+        const result = await recognize(imageSource, 'eng');
+        const text = (result?.data?.text ?? '').trim();
+        const confidence = Number(result?.data?.confidence ?? 0);
+
+        return {
+          success: true,
+          text,
+          confidence,
+          attachmentId: target.id,
+        };
+      } catch (error) {
+        if (error instanceof TRPCError) {
+          throw error;
+        }
+        console.error('[attachments.extractText] OCR failed:', error);
+        throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR', message: 'Failed to extract text from image' });
+      }
     }),
 });

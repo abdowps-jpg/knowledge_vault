@@ -1,4 +1,4 @@
-import React, { Suspense, useState } from "react";
+import React, { Suspense, useMemo, useState } from "react";
 import { useRouter } from "expo-router";
 import { FlatList, Text, View, Pressable, RefreshControl, Modal, ActivityIndicator, TextInput, Alert } from "react-native";
 import { ScreenContainer } from "@/components/screen-container";
@@ -257,6 +257,7 @@ export default function InboxScreen() {
   const router = useRouter();
   const { items, loading, openQuickAdd, loadInboxItems, deleteItem, updateItem, addItem } = useInbox();
   const [refreshing, setRefreshing] = useState(false);
+  const [inboxTypeFilter, setInboxTypeFilter] = useState<"all" | "note" | "task" | "journal">("all");
   const [selectedItem, setSelectedItem] = useState<Item | null>(null);
   const [showContextMenu, setShowContextMenu] = useState(false);
   const [editingItem, setEditingItem] = useState<Item | null>(null);
@@ -346,6 +347,13 @@ export default function InboxScreen() {
     }
   };
 
+  const filteredItems = useMemo(() => {
+    if (inboxTypeFilter === "all") return items;
+    if (inboxTypeFilter === "note") return items.filter((item) => item.type === ItemType.NOTE);
+    if (inboxTypeFilter === "task") return items.filter((item) => item.type === ItemType.TASK);
+    return items.filter((item) => item.type === ItemType.JOURNAL);
+  }, [inboxTypeFilter, items]);
+
   return (
     <ScreenContainer className="bg-background" containerClassName="bg-background">
       {/* Header */}
@@ -398,6 +406,32 @@ export default function InboxScreen() {
             </Pressable>
           ))}
         </View>
+        <View style={{ flexDirection: "row", marginTop: 10 }}>
+          {[
+            { key: "all", label: "All" },
+            { key: "note", label: "Notes" },
+            { key: "task", label: "Tasks" },
+            { key: "journal", label: "Journal" },
+          ].map((filter) => (
+            <Pressable
+              key={filter.key}
+              onPress={() => setInboxTypeFilter(filter.key as "all" | "note" | "task" | "journal")}
+              style={{
+                marginRight: 8,
+                paddingHorizontal: 10,
+                paddingVertical: 6,
+                borderRadius: 999,
+                borderWidth: 1,
+                borderColor: colors.border,
+                backgroundColor: inboxTypeFilter === filter.key ? colors.primary : colors.surface,
+              }}
+            >
+              <Text style={{ color: inboxTypeFilter === filter.key ? "white" : colors.foreground, fontSize: 12, fontWeight: "600" }}>
+                {filter.label}
+              </Text>
+            </Pressable>
+          ))}
+        </View>
       </View>
 
       {/* Items List */}
@@ -406,17 +440,17 @@ export default function InboxScreen() {
           <MaterialIcons name="hourglass-empty" size={48} color={colors.muted} />
           <Text className="text-muted mt-4">Loading...</Text>
         </View>
-      ) : items.length === 0 ? (
+      ) : filteredItems.length === 0 ? (
         <View className="flex-1 items-center justify-center gap-3">
           <MaterialIcons name="inbox" size={64} color={colors.muted} />
           <Text className="text-lg font-semibold text-foreground">Inbox Empty</Text>
           <Text className="text-sm text-muted text-center px-4 max-w-xs">
-            Tap the + button to add your first note, quote, link, or task
+            No items for this filter yet
           </Text>
         </View>
       ) : (
         <FlatList
-          data={items}
+          data={filteredItems}
           keyExtractor={(item) => item.id}
           renderItem={({ item }) => (
             <InboxItem

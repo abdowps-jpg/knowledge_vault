@@ -12,6 +12,7 @@ type UnauthorizedHandler = () => void | Promise<void>;
 let getTokenHandler: GetTokenFn | null = null;
 let unauthorizedHandler: UnauthorizedHandler | null = null;
 let lastAuthToken: string | null = null;
+let sharedClient: ReturnType<typeof trpc.createClient> | null = null;
 
 export function configureTRPCAuth(opts: { getToken?: GetTokenFn; onUnauthorized?: UnauthorizedHandler }) {
   getTokenHandler = opts.getToken ?? null;
@@ -19,6 +20,8 @@ export function configureTRPCAuth(opts: { getToken?: GetTokenFn; onUnauthorized?
 }
 
 export function createTRPCClient() {
+  if (sharedClient) return sharedClient;
+
   const isLikelyTunnelHost = (value: string): boolean => {
     return /exp\.direct|expo\.dev|ngrok|tunnel/i.test(value);
   };
@@ -64,7 +67,6 @@ export function createTRPCClient() {
   };
 
   const baseUrl = resolveBaseUrl();
-  console.log('[tRPC] Base URL:', baseUrl);
   const hasBearerToken = (headers: unknown): boolean => {
     if (!headers) return false;
     if (headers instanceof Headers) {
@@ -83,7 +85,7 @@ export function createTRPCClient() {
     return false;
   };
 
-  return trpc.createClient({
+  sharedClient = trpc.createClient({
     links: [
       loggerLink({
         enabled: (opts) => process.env.NODE_ENV === 'development' || (opts.direction === 'down' && opts.result instanceof Error),
@@ -92,11 +94,7 @@ export function createTRPCClient() {
         url: `${baseUrl}/trpc`,
         headers: async () => {
           const token = getTokenHandler ? await getTokenHandler() : null;
-          if (token !== lastAuthToken) {
-            console.log('[tRPC] Token changed, using latest auth token for requests');
-            lastAuthToken = token;
-          }
-          console.log('[tRPC] Sending auth header:', token ? 'Bearer <redacted>' : 'none');
+          lastAuthToken = token;
           return {
             authorization: token ? `Bearer ${token}` : '',
           };
@@ -115,4 +113,5 @@ export function createTRPCClient() {
       }),
     ],
   });
+  return sharedClient;
 }

@@ -2,6 +2,7 @@ import React from "react";
 import { Text, View, TouchableOpacity, ActivityIndicator, Alert, Modal, Pressable, TextInput } from "react-native";
 import { FlashList } from "@shopify/flash-list";
 import AsyncStorage from "@react-native-async-storage/async-storage";
+import { useRouter } from "expo-router";
 import { ScreenContainer } from "@/components/screen-container";
 import { ErrorState } from "@/components/error-state";
 import { FilterBar } from "@/components/filter-bar";
@@ -14,6 +15,7 @@ import { Image as ExpoImage } from "expo-image";
 
 type ItemTypeFilter = "all" | "note" | "quote" | "link" | "audio";
 type SortFilter = "newest" | "oldest" | "az" | "za";
+type SmartFolderKey = "all" | "today" | "thisWeek" | "overdue" | "highPriority" | "favorites";
 type LibrarySavedView = {
   id: string;
   name: string;
@@ -92,6 +94,7 @@ function ItemAttachments({ itemId }: { itemId: string }) {
 
 export default function LibraryScreen() {
   const colors = useColors();
+  const router = useRouter();
   const utils = trpc.useUtils();
 
   const [typeFilter, setTypeFilter] = React.useState<ItemTypeFilter>("all");
@@ -103,6 +106,7 @@ export default function LibraryScreen() {
   const [newTitle, setNewTitle] = React.useState("");
   const [newContent, setNewContent] = React.useState("");
   const [savedViews, setSavedViews] = React.useState<LibrarySavedView[]>([]);
+  const [smartFolder, setSmartFolder] = React.useState<SmartFolderKey>("all");
 
   const querySort =
     sortFilter === "newest"
@@ -282,12 +286,16 @@ export default function LibraryScreen() {
     }
 
     try {
-      await createItem.mutateAsync({
+      const created = await createItem.mutateAsync({
         type: "note",
         title: newTitle.trim(),
         content: newContent.trim() || newTitle.trim(),
         location: "library",
       });
+      if (created?.id) {
+        console.log("[Library] Opening new item details:", created.id);
+        router.push(`/(app)/item/${created.id}` as any);
+      }
     } catch (error) {
       console.error("[Library] Failed creating library item:", error);
       Alert.alert("Error", "Failed to create item.");
@@ -424,7 +432,47 @@ export default function LibraryScreen() {
     await persistSavedViews(next);
   };
 
-  const filteredItems = items as any[];
+  const filteredItems = React.useMemo(() => {
+    const now = new Date();
+    const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    const endOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59, 999);
+    const day = now.getDay();
+    const diffToMonday = day === 0 ? -6 : 1 - day;
+    const startOfWeek = new Date(now);
+    startOfWeek.setDate(now.getDate() + diffToMonday);
+    startOfWeek.setHours(0, 0, 0, 0);
+    const endOfWeek = new Date(startOfWeek);
+    endOfWeek.setDate(startOfWeek.getDate() + 6);
+    endOfWeek.setHours(23, 59, 59, 999);
+
+    const toDate = (value: unknown): Date | null => {
+      if (!value) return null;
+      const parsed = new Date(value as string | number | Date);
+      return Number.isNaN(parsed.getTime()) ? null : parsed;
+    };
+
+    return (items as any[]).filter((item) => {
+      if (smartFolder === "all") return true;
+      if (smartFolder === "favorites") return Boolean(item.isFavorite);
+      if (smartFolder === "highPriority") return String(item.priority || "").toLowerCase() === "high";
+
+      const dueDate = toDate(item.dueDate);
+      const createdAt = toDate(item.createdAt);
+      const candidateDate = dueDate || createdAt;
+      if (!candidateDate) return false;
+
+      if (smartFolder === "today") {
+        return candidateDate >= startOfToday && candidateDate <= endOfToday;
+      }
+      if (smartFolder === "thisWeek") {
+        return candidateDate >= startOfWeek && candidateDate <= endOfWeek;
+      }
+      if (smartFolder === "overdue") {
+        return Boolean(dueDate && dueDate < now);
+      }
+      return true;
+    });
+  }, [items, smartFolder]);
 
   return (
     <ScreenContainer>
@@ -445,6 +493,38 @@ export default function LibraryScreen() {
         onRemoveChip={handleRemoveChip}
         onClearAll={handleClearAll}
       />
+      <View style={{ paddingHorizontal: 16, paddingVertical: 8, borderBottomWidth: 1, borderBottomColor: colors.border }}>
+        <Text style={{ color: colors.muted, fontSize: 12, fontWeight: "600", marginBottom: 8 }}>Smart Folders</Text>
+        <View style={{ flexDirection: "row", flexWrap: "wrap" }}>
+          {[
+            { key: "all", label: "All" },
+            { key: "today", label: "Today" },
+            { key: "thisWeek", label: "This Week" },
+            { key: "overdue", label: "Overdue" },
+            { key: "highPriority", label: "High Priority" },
+            { key: "favorites", label: "Favorites" },
+          ].map((folder) => (
+            <Pressable
+              key={folder.key}
+              onPress={() => setSmartFolder(folder.key as SmartFolderKey)}
+              style={{
+                marginRight: 8,
+                marginBottom: 8,
+                paddingHorizontal: 10,
+                paddingVertical: 6,
+                borderRadius: 999,
+                borderWidth: 1,
+                borderColor: colors.border,
+                backgroundColor: smartFolder === folder.key ? colors.primary : colors.surface,
+              }}
+            >
+              <Text style={{ color: smartFolder === folder.key ? "white" : colors.foreground, fontSize: 12, fontWeight: "600" }}>
+                {folder.label}
+              </Text>
+            </Pressable>
+          ))}
+        </View>
+      </View>
       <View style={{ paddingHorizontal: 16, paddingVertical: 8, borderBottomWidth: 1, borderBottomColor: colors.border }}>
         <View style={{ flexDirection: "row", justifyContent: "space-between", marginBottom: 8 }}>
           <Text style={{ color: colors.muted, fontSize: 12, fontWeight: "600" }}>Saved Views</Text>

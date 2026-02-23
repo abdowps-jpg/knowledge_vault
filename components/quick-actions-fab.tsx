@@ -6,6 +6,7 @@ import Animated, {
   useAnimatedStyle,
   useSharedValue,
   withTiming,
+  type SharedValue,
 } from "react-native-reanimated";
 import { MaterialIcons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
@@ -30,7 +31,7 @@ function QuickActionItem({
 }: {
   index: number;
   action: ActionConfig;
-  progress: Animated.SharedValue<number>;
+  progress: SharedValue<number>;
   onPress: () => void;
 }) {
   const colors = useColors();
@@ -136,8 +137,8 @@ export function QuickActionsFab() {
 
   return (
     <View
+      pointerEvents={isOpen ? "auto" : "box-none"}
       style={{
-        pointerEvents: "box-none",
         position: "absolute",
         top: 0,
         right: 0,
@@ -164,19 +165,21 @@ export function QuickActionsFab() {
         </Animated.View>
       ) : null}
 
-      <View style={{ flex: 1, alignItems: "flex-end", justifyContent: "flex-end", paddingRight: 16, paddingBottom: 90 }}>
-        {actions.map((action, index) => (
-          <QuickActionItem
-            key={action.key}
-            index={index}
-            action={action}
-            progress={progress}
-            onPress={() => {
-              close();
-              action.onPress();
-            }}
-          />
-        ))}
+      <View pointerEvents="box-none" style={{ flex: 1, alignItems: "flex-end", justifyContent: "flex-end", paddingRight: 16, paddingBottom: 90 }}>
+        {isOpen
+          ? actions.map((action, index) => (
+              <QuickActionItem
+                key={action.key}
+                index={index}
+                action={action}
+                progress={progress}
+                onPress={() => {
+                  close();
+                  action.onPress();
+                }}
+              />
+            ))
+          : null}
 
         <Pressable
           onPress={toggle}

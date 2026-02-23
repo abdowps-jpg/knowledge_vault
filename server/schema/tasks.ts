@@ -8,6 +8,7 @@ export const tasks = sqliteTable(
     title: text('title').notNull(),
     description: text('description'),
     dueDate: text('due_date'),
+    blockedByTaskId: text('blocked_by_task_id'),
     priority: text('priority', { enum: ['low', 'medium', 'high'] }).default('medium'),
     isCompleted: integer('is_completed', { mode: 'boolean' }).default(false),
     completedAt: integer('completed_at', { mode: 'timestamp' }),
@@ -19,6 +20,7 @@ export const tasks = sqliteTable(
   (table) => ({
     userIdx: index('tasks_user_idx').on(table.userId),
     dueDateIdx: index('tasks_due_date_idx').on(table.dueDate),
+    blockedByIdx: index('tasks_blocked_by_idx').on(table.blockedByTaskId),
     priorityIdx: index('tasks_priority_idx').on(table.priority),
   })
 );

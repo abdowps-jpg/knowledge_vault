@@ -11,7 +11,17 @@ import {
 } from "react-native";
 import { useRouter } from "expo-router";
 import { trpc } from "@/lib/trpc";
-import { getOrCreateDeviceId, saveStayLoggedIn, saveToken } from "@/lib/auth-storage";
+import { VoiceInputButton } from "@/components/voice-input-button";
+import {
+  getCurrentUserId,
+  getOrCreateDeviceId,
+  saveCurrentUserId,
+  saveStayLoggedIn,
+  saveToken,
+} from "@/lib/auth-storage";
+import { clearAllData } from "@/lib/db/storage";
+import { clearSyncQueue } from "@/lib/sync-manager";
+import { loadAppSettings, saveAppSettings } from "@/lib/settings-storage";
 
 export default function LoginScreen() {
   const router = useRouter();
@@ -26,11 +36,24 @@ export default function LoginScreen() {
       console.log("[Auth/Login] Login mutation succeeded for:", result.user?.email);
       console.log("Login response:", result);
       try {
+        const previousUserId = await getCurrentUserId();
+        if (previousUserId && previousUserId !== result.user.id) {
+          // Prevent cross-account data leakage on shared device.
+          await clearAllData();
+          await clearSyncQueue();
+        }
+        await saveCurrentUserId(result.user.id);
         await saveToken(result.token);
         console.log("Token saved:", result.token);
         console.log("[Auth/Login] Token saved successfully");
         await saveStayLoggedIn(stayLoggedIn);
         console.log("[Auth/Login] Stay logged in preference saved:", stayLoggedIn);
+        const currentSettings = await loadAppSettings();
+        await saveAppSettings({
+          ...currentSettings,
+          username: result.user.username?.trim() || currentSettings.username,
+          email: result.user.email?.trim().toLowerCase() || currentSettings.email,
+        });
       } catch (error) {
         console.error("[Auth/Login] Failed saving auth state:", error);
         Alert.alert("Login Failed", "Could not save your session. Please try again.");
@@ -61,6 +84,32 @@ export default function LoginScreen() {
       router.replace("/(app)/(tabs)" as any);
     },
     onError: (error) => {
+      if (/not registered|create an account/i.test(error.message)) {
+        Alert.alert("Email not registered", "You need to register first.", [
+          {
+            text: "Register",
+            onPress: () => router.push("/(auth)/register" as any),
+          },
+          { text: "Cancel", style: "cancel" },
+        ]);
+        return;
+      }
+      if (/verify your email/i.test(error.message)) {
+        Alert.alert("Email verification required", "Please verify your email first.", [
+          {
+            text: "Verify now",
+            onPress: () => {
+              const normalizedEmail = email.trim().toLowerCase();
+              router.push({
+                pathname: "/(auth)/verify-email" as any,
+                params: normalizedEmail ? { email: normalizedEmail } : undefined,
+              });
+            },
+          },
+          { text: "Cancel", style: "cancel" },
+        ]);
+        return;
+      }
       console.error("[Auth/Login] Login mutation failed:", error);
       Alert.alert("Login Failed", error.message || "Unable to sign in.");
     },
@@ -97,6 +146,11 @@ export default function LoginScreen() {
         placeholder="Email"
         className="bg-surface border border-border rounded-xl px-4 py-3 text-foreground mb-3"
         placeholderTextColor="#9ca3af"
+      />
+      <VoiceInputButton
+        language="en-US"
+        label="Mic for email"
+        onTranscript={(spoken) => setEmail((prev) => `${prev} ${spoken}`.trim())}
       />
       <TextInput
         value={password}

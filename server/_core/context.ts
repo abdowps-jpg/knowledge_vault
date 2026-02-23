@@ -1,15 +1,22 @@
 import type { CreateExpressContextOptions } from "@trpc/server/adapters/express";
-import type { User } from "../../drizzle/schema";
 import { sdk } from "./sdk";
+
+type AuthContextUser = {
+  id?: string | null;
+  openId?: string;
+  email?: string | null;
+  name?: string | null;
+  username?: string | null;
+};
 
 export type TrpcContext = {
   req: CreateExpressContextOptions["req"];
   res: CreateExpressContextOptions["res"];
-  user: User | null;
+  user: AuthContextUser | null;
 };
 
 export async function createContext(opts: CreateExpressContextOptions): Promise<TrpcContext> {
-  let user: User | null = null;
+  let user: AuthContextUser | null = null;
 
   try {
     user = await sdk.authenticateRequest(opts.req);

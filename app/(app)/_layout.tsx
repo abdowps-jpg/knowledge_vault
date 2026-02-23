@@ -10,6 +10,11 @@ export default function AppLayout() {
       <Stack.Screen name="devices" />
       <Stack.Screen name="conflicts" />
       <Stack.Screen name="ai-features" />
+      <Stack.Screen name="share" />
+      <Stack.Screen name="goals" />
+      <Stack.Screen name="reviews" />
+      <Stack.Screen name="widgets/quick-add" />
+      <Stack.Screen name="widgets/today-tasks" />
     </Stack>
   );
 }

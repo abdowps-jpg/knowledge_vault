@@ -10,6 +10,10 @@ import {
 } from "react-native";
 import { useRouter } from "expo-router";
 import { trpc } from "@/lib/trpc";
+import { VoiceInputButton } from "@/components/voice-input-button";
+import { clearToken, saveStayLoggedIn } from "@/lib/auth-storage";
+import { clearAllData } from "@/lib/db/storage";
+import { clearSyncQueue } from "@/lib/sync-manager";
 
 function isValidEmail(email: string): boolean {
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
@@ -21,9 +25,25 @@ export default function RegisterScreen() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
   const registerMutation = trpc.auth.register.useMutation({
-    onSuccess: () => {
+    onSuccess: async (result) => {
+      setErrorMessage(null);
+      // Ensure register flow starts from a clean unauthenticated state.
+      await clearToken();
+      await saveStayLoggedIn(false);
+      await clearAllData();
+      await clearSyncQueue();
+
+      if (result?.requiresVerification) {
+        Alert.alert("Check your email", "We sent a 6-digit verification code to your email.");
+        router.replace({
+          pathname: "/(auth)/verify-email" as any,
+          params: { email: email.trim().toLowerCase() },
+        });
+        return;
+      }
       Alert.alert("Success", "Account created. Please login.");
       router.replace("/(auth)/login");
     },
@@ -32,12 +52,13 @@ export default function RegisterScreen() {
         error.data?.code === "CONFLICT" || /already in use/i.test(error.message)
           ? "An account with this email already exists."
           : error.message || "Unable to create account.";
-      Alert.alert("Register Failed", message);
+      setErrorMessage(message);
     },
   });
 
   const handleRegister = async () => {
     if (registerMutation.isPending) return;
+    setErrorMessage(null);
 
     const normalizedUsername = username.trim();
     const normalizedEmail = email.trim().toLowerCase();
@@ -83,6 +104,11 @@ export default function RegisterScreen() {
         className="bg-surface border border-border rounded-xl px-4 py-3 text-foreground mb-3"
         placeholderTextColor="#9ca3af"
       />
+      <VoiceInputButton
+        language="en-US"
+        label="Mic for username"
+        onTranscript={(spoken) => setUsername((prev) => `${prev} ${spoken}`.trim())}
+      />
       <TextInput
         value={email}
         onChangeText={setEmail}
@@ -91,6 +117,11 @@ export default function RegisterScreen() {
         placeholder="Email"
         className="bg-surface border border-border rounded-xl px-4 py-3 text-foreground mb-3"
         placeholderTextColor="#9ca3af"
+      />
+      <VoiceInputButton
+        language="en-US"
+        label="Mic for email"
+        onTranscript={(spoken) => setEmail((prev) => `${prev} ${spoken}`.trim())}
       />
       <TextInput
         value={password}
@@ -126,6 +157,10 @@ export default function RegisterScreen() {
           <Text style={{ color: "white", fontSize: 18, fontWeight: "700" }}>Register</Text>
         )}
       </TouchableOpacity>
+
+      {errorMessage ? (
+        <Text style={{ color: "#dc2626", marginTop: 10, textAlign: "center" }}>{errorMessage}</Text>
+      ) : null}
 
       <View className="flex-row justify-center mt-4">
         <Text className="text-muted">Already have an account? </Text>

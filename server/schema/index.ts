@@ -6,3 +6,7 @@ export * from './tags';
 export * from './categories';
 export * from './attachments';
 export * from './devices';
+export * from './task_time_entries';
+export * from './habits';
+export * from './goals';
+export * from './subtasks';

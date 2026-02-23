@@ -191,6 +191,16 @@ export default function SearchScreen() {
     await AsyncStorage.setItem(SEARCH_SAVED_KEY, JSON.stringify(next));
   };
 
+  const clearRecentSearches = async () => {
+    setRecentSearches([]);
+    await AsyncStorage.removeItem(SEARCH_RECENT_KEY);
+  };
+
+  const clearSavedSearches = async () => {
+    setSavedSearches([]);
+    await AsyncStorage.removeItem(SEARCH_SAVED_KEY);
+  };
+
   const combinedResults = React.useMemo(() => {
     const term = debouncedSearchText.trim();
     if (!term) return [] as SearchResult[];
@@ -337,7 +347,12 @@ export default function SearchScreen() {
             <View style={{ marginBottom: 10 }}>
               {savedSearches.length > 0 ? (
                 <View style={{ marginBottom: 8 }}>
-                  <Text style={{ color: colors.muted, fontSize: 12, fontWeight: "700", marginBottom: 6 }}>Saved Searches</Text>
+                  <View style={{ flexDirection: "row", justifyContent: "space-between", marginBottom: 6 }}>
+                    <Text style={{ color: colors.muted, fontSize: 12, fontWeight: "700" }}>Saved Searches ({savedSearches.length})</Text>
+                    <Pressable onPress={clearSavedSearches}>
+                      <Text style={{ color: colors.primary, fontSize: 12, fontWeight: "700" }}>Clear</Text>
+                    </Pressable>
+                  </View>
                   <View style={{ flexDirection: "row", flexWrap: "wrap" }}>
                     {savedSearches.map((term) => (
                       <Pressable
@@ -363,7 +378,12 @@ export default function SearchScreen() {
               ) : null}
               {recentSearches.length > 0 ? (
                 <View>
-                  <Text style={{ color: colors.muted, fontSize: 12, fontWeight: "700", marginBottom: 6 }}>Recent</Text>
+                  <View style={{ flexDirection: "row", justifyContent: "space-between", marginBottom: 6 }}>
+                    <Text style={{ color: colors.muted, fontSize: 12, fontWeight: "700" }}>Recent ({recentSearches.length})</Text>
+                    <Pressable onPress={clearRecentSearches}>
+                      <Text style={{ color: colors.primary, fontSize: 12, fontWeight: "700" }}>Clear</Text>
+                    </Pressable>
+                  </View>
                   <View style={{ flexDirection: "row", flexWrap: "wrap" }}>
                     {recentSearches.map((term) => (
                       <Pressable
@@ -453,56 +473,63 @@ export default function SearchScreen() {
           </View>
         </View>
       ) : (
-        <FlashList
-          data={listRows}
-          estimatedItemSize={112}
-          keyExtractor={(row: SearchListRow) => row.key}
-          contentContainerStyle={{ padding: 16 }}
-          onEndReachedThreshold={0.35}
-          onEndReached={() => {
-            if (!hasNextPage || isFetchingNextPage) return;
-            Promise.all([
-              itemsQuery.hasNextPage ? itemsQuery.fetchNextPage() : Promise.resolve(),
-              tasksQuery.hasNextPage ? tasksQuery.fetchNextPage() : Promise.resolve(),
-              journalQuery.hasNextPage ? journalQuery.fetchNextPage() : Promise.resolve(),
-            ]).catch((err) => console.error("Search pagination failed:", err));
-          }}
-          ListFooterComponent={
-            isFetchingNextPage ? (
-              <View className="py-4">
-                <ActivityIndicator size="small" color={colors.primary} />
-              </View>
-            ) : null
-          }
-          renderItem={({ item: row }: { item: SearchListRow }) => {
-            if (row.kind === "header") {
-              return (
-                <View className="flex-row items-center mb-2 mt-2">
-                  <MaterialIcons name={row.icon} size={18} color={colors.primary} />
-                  <Text className="text-sm font-semibold text-foreground ml-2">
-                    {row.label} ({row.count})
-                  </Text>
+        <View style={{ flex: 1 }}>
+          <View style={{ paddingHorizontal: 16, paddingTop: 12 }}>
+            <Text style={{ color: colors.muted, fontSize: 12 }}>
+              Showing {filteredResults.length} result(s) for "{debouncedSearchText.trim()}"
+            </Text>
+          </View>
+          <FlashList
+            data={listRows}
+            estimatedItemSize={112}
+            keyExtractor={(row: SearchListRow) => row.key}
+            contentContainerStyle={{ padding: 16 }}
+            onEndReachedThreshold={0.35}
+            onEndReached={() => {
+              if (!hasNextPage || isFetchingNextPage) return;
+              Promise.all([
+                itemsQuery.hasNextPage ? itemsQuery.fetchNextPage() : Promise.resolve(),
+                tasksQuery.hasNextPage ? tasksQuery.fetchNextPage() : Promise.resolve(),
+                journalQuery.hasNextPage ? journalQuery.fetchNextPage() : Promise.resolve(),
+              ]).catch((err) => console.error("Search pagination failed:", err));
+            }}
+            ListFooterComponent={
+              isFetchingNextPage ? (
+                <View className="py-4">
+                  <ActivityIndicator size="small" color={colors.primary} />
                 </View>
-              );
+              ) : null
             }
+            renderItem={({ item: row }: { item: SearchListRow }) => {
+              if (row.kind === "header") {
+                return (
+                  <View className="flex-row items-center mb-2 mt-2">
+                    <MaterialIcons name={row.icon} size={18} color={colors.primary} />
+                    <Text className="text-sm font-semibold text-foreground ml-2">
+                      {row.label} ({row.count})
+                    </Text>
+                  </View>
+                );
+              }
 
-            return (
-              <Pressable onPress={() => setSelectedResult(row.result)}>
-                <View className="bg-surface p-4 rounded-lg mb-3 border border-border">
-                  <Text className="font-semibold text-foreground">
-                    <HighlightedText text={row.result.title} term={debouncedSearchText} />
-                  </Text>
-                  <HighlightedText
-                    text={row.result.content || "No content"}
-                    term={debouncedSearchText}
-                    textClassName="text-muted text-sm mt-1"
-                  />
-                  <Text className="text-muted text-xs mt-2">{row.result.createdAt.toLocaleString("ar-EG")}</Text>
-                </View>
-              </Pressable>
-            );
-          }}
-        />
+              return (
+                <Pressable onPress={() => setSelectedResult(row.result)}>
+                  <View className="bg-surface p-4 rounded-lg mb-3 border border-border">
+                    <Text className="font-semibold text-foreground">
+                      <HighlightedText text={row.result.title} term={debouncedSearchText} />
+                    </Text>
+                    <HighlightedText
+                      text={row.result.content || "No content"}
+                      term={debouncedSearchText}
+                      textClassName="text-muted text-sm mt-1"
+                    />
+                    <Text className="text-muted text-xs mt-2">{row.result.createdAt.toLocaleString("ar-EG")}</Text>
+                  </View>
+                </Pressable>
+              );
+            }}
+          />
+        </View>
       )}
 
       <Modal visible={!!selectedResult} transparent animationType="fade" onRequestClose={() => setSelectedResult(null)}>

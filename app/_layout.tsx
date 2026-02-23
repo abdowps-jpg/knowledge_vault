@@ -20,7 +20,7 @@ import {
 import type { EdgeInsets, Metrics, Rect } from "react-native-safe-area-context";
 
 import { trpc, createTRPCClient, configureTRPCAuth } from "@/lib/trpc";
-import { clearToken, getStayLoggedIn, getToken } from "@/lib/auth-storage";
+import { clearToken, getStayLoggedIn, getToken, subscribeAuthToken } from "@/lib/auth-storage";
 import { fullSync } from "@/lib/sync-manager";
 import { initManusRuntime, subscribeSafeAreaInsets } from "@/lib/_core/manus-runtime";
 import { InboxProvider } from "@/lib/context/inbox-context";
@@ -29,13 +29,14 @@ import { ActionsProvider } from "@/lib/context/actions-context";
 import { JournalProvider } from "@/lib/context/journal-context";
 import { SearchProvider } from "@/lib/context/search-context";
 import { requestTaskNotificationPermissions } from "@/lib/notifications/task-notifications";
+import { scheduleReviewPrompts } from "@/lib/notifications/review-notifications";
 import { OfflineSnapshot, offlineManager } from "@/lib/offline-manager";
 
 const DEFAULT_WEB_INSETS: EdgeInsets = { top: 0, right: 0, bottom: 0, left: 0 };
 const DEFAULT_WEB_FRAME: Rect = { x: 0, y: 0, width: 0, height: 0 };
 
 export const unstable_settings = {
-  anchor: "(app)",
+  anchor: "(auth)",
 };
 
 export default function RootLayout() {
@@ -157,9 +158,7 @@ export default function RootLayout() {
 
       setIsAuthenticated(true);
       console.log("Is authenticated:", true);
-      if (sessionExpired) {
-        setSessionExpired(false);
-      }
+      setSessionExpired((prev) => (prev ? false : prev));
     } catch (error) {
       console.error("[Auth/Layout] Failed loading auth state:", error);
       setIsAuthenticated(false);
@@ -167,7 +166,7 @@ export default function RootLayout() {
     } finally {
       setIsLoading(false);
     }
-  }, [isTokenExpired, sessionExpired]);
+  }, [isTokenExpired]);
 
   useEffect(() => {
     checkAuth().catch((error) => {
@@ -176,6 +175,16 @@ export default function RootLayout() {
       setIsAuthenticated(false);
     });
   }, [checkAuth]);
+
+  useEffect(() => {
+    const unsubscribe = subscribeAuthToken((token) => {
+      setIsAuthenticated(Boolean(token));
+      if (!token) {
+        setSessionExpired(false);
+      }
+    });
+    return () => unsubscribe();
+  }, []);
 
   useEffect(() => {
     console.log("[Auth] isAuthenticated:", isAuthenticated);
@@ -207,6 +216,9 @@ export default function RootLayout() {
 
       requestTaskNotificationPermissions().catch((error) => {
         console.error("Notification permission request failed:", error);
+      });
+      scheduleReviewPrompts().catch((error) => {
+        console.error("Review notification scheduling failed:", error);
       });
 
       const handleTaskNavigation = (taskId?: string) => {
@@ -270,11 +282,8 @@ export default function RootLayout() {
     });
   }, []);
 
-  // Recreate client when auth state flips so links/context fully refresh.
-  const trpcClient = useMemo(() => {
-    console.log("[Auth/Layout] Recreating tRPC client (isAuthenticated):", isAuthenticated);
-    return createTRPCClient();
-  }, [isAuthenticated]);
+  // Keep a stable client instance; auth headers are resolved per request in lib/trpc.ts.
+  const [trpcClient] = useState(() => createTRPCClient());
 
   useEffect(() => {
     if (offlineSnapshot.status === "synced") {

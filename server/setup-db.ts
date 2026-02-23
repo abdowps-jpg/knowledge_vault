@@ -10,6 +10,11 @@ db.exec(`
     password TEXT NOT NULL,
     username TEXT,
     is_active INTEGER DEFAULT 1,
+    email_verified INTEGER DEFAULT 0,
+    email_verified_at INTEGER,
+    pending_email TEXT,
+    email_verification_code TEXT,
+    email_verification_expires_at INTEGER,
     last_synced_at INTEGER,
     created_at INTEGER DEFAULT (strftime('%s', 'now')),
     updated_at INTEGER DEFAULT (strftime('%s', 'now'))
@@ -21,6 +26,38 @@ try {
 } catch {
   // Column already exists.
 }
+
+try {
+  db.exec(`ALTER TABLE users ADD COLUMN email_verified INTEGER DEFAULT 0;`);
+} catch {
+  // Column already exists.
+}
+
+try {
+  db.exec(`ALTER TABLE users ADD COLUMN email_verified_at INTEGER;`);
+} catch {
+  // Column already exists.
+}
+
+try {
+  db.exec(`ALTER TABLE users ADD COLUMN pending_email TEXT;`);
+} catch {
+  // Column already exists.
+}
+
+try {
+  db.exec(`ALTER TABLE users ADD COLUMN email_verification_code TEXT;`);
+} catch {
+  // Column already exists.
+}
+
+try {
+  db.exec(`ALTER TABLE users ADD COLUMN email_verification_expires_at INTEGER;`);
+} catch {
+  // Column already exists.
+}
+
+db.exec(`CREATE INDEX IF NOT EXISTS idx_users_email_verified ON users(email_verified);`);
 
 // إنشاء جدول العناصر
 db.exec(`
@@ -51,6 +88,7 @@ db.exec(`
     title TEXT NOT NULL,
     description TEXT,
     due_date TEXT,
+    blocked_by_task_id TEXT,
     priority TEXT DEFAULT 'medium' CHECK(priority IN ('low', 'medium', 'high')),
     is_completed INTEGER DEFAULT 0,
     completed_at INTEGER,
@@ -64,6 +102,18 @@ db.exec(`
   CREATE INDEX IF NOT EXISTS idx_tasks_due_date ON tasks(due_date);
   CREATE INDEX IF NOT EXISTS idx_tasks_priority ON tasks(priority);
 `);
+
+try {
+  db.exec(`ALTER TABLE tasks ADD COLUMN blocked_by_task_id TEXT;`);
+} catch {
+  // Column already exists.
+}
+
+try {
+  db.exec(`CREATE INDEX IF NOT EXISTS idx_tasks_blocked_by ON tasks(blocked_by_task_id);`);
+} catch {
+  // Legacy DB might still be migrating; index creation can be retried next run.
+}
 
 // إنشاء جدول اليوميات
 db.exec(`
@@ -168,6 +218,88 @@ db.exec(`
 
   CREATE INDEX IF NOT EXISTS idx_devices_user_id ON devices(user_id);
   CREATE INDEX IF NOT EXISTS idx_devices_device_id ON devices(device_id);
+`);
+
+db.exec(`
+  CREATE TABLE IF NOT EXISTS task_time_entries (
+    id TEXT PRIMARY KEY,
+    user_id TEXT NOT NULL,
+    task_id TEXT NOT NULL,
+    started_at INTEGER NOT NULL,
+    ended_at INTEGER,
+    duration_seconds INTEGER,
+    created_at INTEGER DEFAULT (strftime('%s', 'now'))
+  );
+
+  CREATE INDEX IF NOT EXISTS idx_task_time_entries_user_id ON task_time_entries(user_id);
+  CREATE INDEX IF NOT EXISTS idx_task_time_entries_task_id ON task_time_entries(task_id);
+  CREATE INDEX IF NOT EXISTS idx_task_time_entries_started_at ON task_time_entries(started_at);
+`);
+
+db.exec(`
+  CREATE TABLE IF NOT EXISTS habits (
+    id TEXT PRIMARY KEY,
+    user_id TEXT NOT NULL,
+    name TEXT NOT NULL,
+    streak INTEGER DEFAULT 0,
+    done_today INTEGER DEFAULT 0,
+    last_completed_date TEXT,
+    created_at INTEGER DEFAULT (strftime('%s', 'now')),
+    updated_at INTEGER DEFAULT (strftime('%s', 'now'))
+  );
+
+  CREATE INDEX IF NOT EXISTS idx_habits_user_id ON habits(user_id);
+  CREATE INDEX IF NOT EXISTS idx_habits_updated_at ON habits(updated_at);
+`);
+
+db.exec(`
+  CREATE TABLE IF NOT EXISTS goals (
+    id TEXT PRIMARY KEY,
+    user_id TEXT NOT NULL,
+    title TEXT NOT NULL,
+    description TEXT,
+    is_completed INTEGER DEFAULT 0,
+    created_at INTEGER DEFAULT (strftime('%s', 'now')),
+    updated_at INTEGER DEFAULT (strftime('%s', 'now'))
+  );
+
+  CREATE TABLE IF NOT EXISTS goal_milestones (
+    id TEXT PRIMARY KEY,
+    goal_id TEXT NOT NULL,
+    title TEXT NOT NULL,
+    is_completed INTEGER DEFAULT 0,
+    sort_order INTEGER DEFAULT 0,
+    created_at INTEGER DEFAULT (strftime('%s', 'now')),
+    updated_at INTEGER DEFAULT (strftime('%s', 'now'))
+  );
+
+  CREATE TABLE IF NOT EXISTS milestone_tasks (
+    id TEXT PRIMARY KEY,
+    milestone_id TEXT NOT NULL,
+    task_id TEXT NOT NULL,
+    created_at INTEGER DEFAULT (strftime('%s', 'now'))
+  );
+
+  CREATE INDEX IF NOT EXISTS idx_goals_user_id ON goals(user_id);
+  CREATE INDEX IF NOT EXISTS idx_goal_milestones_goal_id ON goal_milestones(goal_id);
+  CREATE INDEX IF NOT EXISTS idx_milestone_tasks_milestone_id ON milestone_tasks(milestone_id);
+  CREATE INDEX IF NOT EXISTS idx_milestone_tasks_task_id ON milestone_tasks(task_id);
+`);
+
+db.exec(`
+  CREATE TABLE IF NOT EXISTS subtasks (
+    id TEXT PRIMARY KEY,
+    user_id TEXT NOT NULL,
+    task_id TEXT NOT NULL,
+    title TEXT NOT NULL,
+    is_completed INTEGER DEFAULT 0,
+    sort_order INTEGER DEFAULT 0,
+    created_at INTEGER DEFAULT (strftime('%s', 'now')),
+    updated_at INTEGER DEFAULT (strftime('%s', 'now'))
+  );
+
+  CREATE INDEX IF NOT EXISTS idx_subtasks_user_id ON subtasks(user_id);
+  CREATE INDEX IF NOT EXISTS idx_subtasks_task_id ON subtasks(task_id);
 `);
 
 console.log('✅ Database tables created successfully!');

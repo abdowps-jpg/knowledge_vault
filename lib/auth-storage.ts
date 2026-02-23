@@ -6,18 +6,38 @@ const TOKEN_KEY = "auth_token";
 const LEGACY_TOKEN_KEY = "kv_auth_token";
 const STAY_LOGGED_IN_KEY = "kv_stay_logged_in";
 const DEVICE_ID_KEY = "kv_device_id";
+const CURRENT_USER_ID_KEY = "kv_current_user_id";
+type AuthTokenListener = (token: string | null) => void;
+const tokenListeners = new Set<AuthTokenListener>();
+
+function notifyTokenListeners(token: string | null) {
+  tokenListeners.forEach((listener) => {
+    try {
+      listener(token);
+    } catch (error) {
+      console.error("Auth token listener failed:", error);
+    }
+  });
+}
+
+export function subscribeAuthToken(listener: AuthTokenListener): () => void {
+  tokenListeners.add(listener);
+  return () => tokenListeners.delete(listener);
+}
 
 export async function saveToken(token: string): Promise<void> {
   try {
-    console.log("Saving token:", token);
+    console.log("Saving auth token");
     if (Platform.OS === "web") {
       await AsyncStorage.setItem(TOKEN_KEY, token);
       console.log("Saving token to SecureStore");
       console.log("Using AsyncStorage fallback on web");
+      notifyTokenListeners(token);
       return;
     }
     console.log("Saving token to SecureStore");
     await SecureStore.setItemAsync(TOKEN_KEY, token);
+    notifyTokenListeners(token);
   } catch (error) {
     console.error("Failed saving token:", error);
     Alert.alert("Auth Error", "Failed to save login token.");
@@ -49,7 +69,6 @@ export async function getToken(): Promise<string | null> {
         }
       }
     }
-    console.log("Retrieved token:", token);
     console.log("Token retrieved:", !!token);
     return token;
   } catch (error) {
@@ -64,11 +83,14 @@ export async function clearToken(): Promise<void> {
     if (Platform.OS === "web") {
       await AsyncStorage.removeItem(TOKEN_KEY);
       await AsyncStorage.removeItem(LEGACY_TOKEN_KEY);
+      await AsyncStorage.removeItem(CURRENT_USER_ID_KEY);
     } else {
       await SecureStore.deleteItemAsync(TOKEN_KEY);
       await SecureStore.deleteItemAsync(LEGACY_TOKEN_KEY);
+      await AsyncStorage.removeItem(CURRENT_USER_ID_KEY);
     }
     console.log("Token cleared");
+    notifyTokenListeners(null);
   } catch (error) {
     console.error("Failed clearing token:", error);
     Alert.alert("Auth Error", "Failed to clear login token.");
@@ -95,6 +117,10 @@ export async function saveStayLoggedIn(enabled: boolean): Promise<void> {
 
 export async function getStayLoggedIn(): Promise<boolean> {
   const value = await AsyncStorage.getItem(STAY_LOGGED_IN_KEY);
+  if (value === null) {
+    // Keep sessions by default unless user explicitly opted out.
+    return true;
+  }
   return value === "true";
 }
 
@@ -104,4 +130,12 @@ export async function getOrCreateDeviceId(): Promise<string> {
   const generated = `device-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
   await AsyncStorage.setItem(DEVICE_ID_KEY, generated);
   return generated;
+}
+
+export async function getCurrentUserId(): Promise<string | null> {
+  return AsyncStorage.getItem(CURRENT_USER_ID_KEY);
+}
+
+export async function saveCurrentUserId(userId: string): Promise<void> {
+  await AsyncStorage.setItem(CURRENT_USER_ID_KEY, userId);
 }

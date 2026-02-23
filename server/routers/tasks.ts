@@ -75,6 +75,7 @@ export const tasksRouter = router({
         title: z.string().min(1),
         description: z.string().optional(),
         dueDate: z.string().optional(),
+        blockedByTaskId: z.string().optional(),
         priority: z.enum(['low', 'medium', 'high']).default('medium'),
         recurrence: recurrenceSchema.optional(),
       })
@@ -88,6 +89,7 @@ export const tasksRouter = router({
           title: input.title,
           description: input.description || null,
           dueDate: input.dueDate || null,
+          blockedByTaskId: input.blockedByTaskId || null,
           priority: input.priority,
           isCompleted: false,
           completedAt: null,
@@ -111,6 +113,7 @@ export const tasksRouter = router({
         title: z.string().optional(),
         description: z.string().optional(),
         dueDate: z.string().optional(),
+        blockedByTaskId: z.string().nullable().optional(),
         priority: z.enum(['low', 'medium', 'high']).optional(),
         isCompleted: z.boolean().optional(),
         recurrence: recurrenceSchema.nullable().optional(),
@@ -119,12 +122,36 @@ export const tasksRouter = router({
     .mutation(async ({ input, ctx }) => {
       try {
         const { id, isCompleted, ...data } = input;
+        const existingTaskRows = await db
+          .select()
+          .from(tasks)
+          .where(and(eq(tasks.id, id), eq(tasks.userId, ctx.user.id)))
+          .limit(1);
+        const existingTask = existingTaskRows[0];
+        if (!existingTask) {
+          return { success: false };
+        }
+
         const updateData: Record<string, unknown> = {
           ...data,
           updatedAt: new Date(),
         };
 
         if (typeof isCompleted === 'boolean') {
+          const blockerId =
+            typeof input.blockedByTaskId === 'string'
+              ? input.blockedByTaskId
+              : existingTask.blockedByTaskId || null;
+          if (isCompleted && blockerId) {
+            const blocker = await db
+              .select()
+              .from(tasks)
+              .where(and(eq(tasks.id, blockerId), eq(tasks.userId, ctx.user.id)))
+              .limit(1);
+            if (blocker.length > 0 && !blocker[0].isCompleted) {
+              throw new TRPCError({ code: 'BAD_REQUEST', message: 'Task is blocked by an incomplete dependency' });
+            }
+          }
           updateData.isCompleted = isCompleted;
           updateData.completedAt = isCompleted ? new Date() : null;
         }
@@ -174,6 +201,16 @@ export const tasksRouter = router({
         }
 
         const nextIsCompleted = !existing[0].isCompleted;
+        if (nextIsCompleted && existing[0].blockedByTaskId) {
+          const blocker = await db
+            .select()
+            .from(tasks)
+            .where(and(eq(tasks.id, existing[0].blockedByTaskId), eq(tasks.userId, ctx.user.id)))
+            .limit(1);
+          if (blocker.length > 0 && !blocker[0].isCompleted) {
+            return { success: false, isCompleted: false, blocked: true };
+          }
+        }
 
         await db
           .update(tasks)
@@ -242,6 +279,7 @@ export const tasksRouter = router({
             title: current.title,
             description: current.description,
             dueDate: formatDateOnly(nextDueDate),
+            blockedByTaskId: current.blockedByTaskId,
             priority: current.priority,
             isCompleted: false,
             completedAt: null,
