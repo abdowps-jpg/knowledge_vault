@@ -2,6 +2,7 @@ import React from "react";
 import { ActivityIndicator, Pressable, ScrollView, Text, View } from "react-native";
 import { Calendar } from "react-native-calendars";
 import { MaterialIcons } from "@expo/vector-icons";
+import { useRouter } from "expo-router";
 
 import { ScreenContainer } from "@/components/screen-container";
 import { ErrorState } from "@/components/error-state";
@@ -31,6 +32,7 @@ function startOfWeek(date: Date): Date {
 
 export default function CalendarScreen() {
   const colors = useColors();
+  const router = useRouter();
   const [mode, setMode] = React.useState<CalendarMode>("month");
   const [selectedDate, setSelectedDate] = React.useState(() => toYmd(new Date()) || "");
 
@@ -42,16 +44,65 @@ export default function CalendarScreen() {
     () => tasksQuery.data?.pages.flatMap((page) => page.items ?? []) ?? [],
     [tasksQuery.data]
   );
+  const itemsQuery = trpc.items.list.useInfiniteQuery(
+    { limit: 100, type: "note", sortBy: "createdAt", sortOrder: "desc" },
+    { getNextPageParam: (lastPage) => lastPage.nextCursor }
+  );
+  const notes = React.useMemo(
+    () => itemsQuery.data?.pages.flatMap((page) => page.items ?? []) ?? [],
+    [itemsQuery.data]
+  );
+  const journalQuery = trpc.journal.list.useInfiniteQuery(
+    { limit: 100 },
+    { getNextPageParam: (lastPage) => lastPage.nextCursor }
+  );
+  const journalEntries = React.useMemo(
+    () => journalQuery.data?.pages.flatMap((page) => page.items ?? []) ?? [],
+    [journalQuery.data]
+  );
+
+  const allEntries = React.useMemo(() => {
+    const taskEntries = (tasks as any[]).map((task) => ({
+      id: task.id as string,
+      kind: "task" as const,
+      title: String(task.title || "Untitled task"),
+      subtitle: task.description ? String(task.description) : "",
+      dateKey: toYmd(task.dueDate),
+      raw: task,
+    }));
+    const noteEntries = (notes as any[]).map((note) => ({
+      id: note.id as string,
+      kind: "note" as const,
+      title: String(note.title || "Untitled note"),
+      subtitle: note.content ? String(note.content) : "",
+      dateKey: toYmd(note.createdAt),
+      raw: note,
+    }));
+    const journalCalendarEntries = (journalEntries as any[]).map((entry) => ({
+      id: entry.id as string,
+      kind: "journal" as const,
+      title: String(entry.title || "Journal entry"),
+      subtitle: entry.content ? String(entry.content) : "",
+      dateKey: toYmd(entry.entryDate),
+      raw: entry,
+    }));
+    return [...taskEntries, ...noteEntries, ...journalCalendarEntries].filter((entry) => Boolean(entry.dateKey));
+  }, [journalEntries, notes, tasks]);
 
   const markedDates = React.useMemo(() => {
     const marks: Record<string, any> = {};
-    for (const task of tasks as any[]) {
-      const due = toYmd(task.dueDate);
+    for (const entry of allEntries) {
+      const due = entry.dateKey;
       if (!due) continue;
+      const dots = new Map<string, { key: string; color: string }>(
+        (marks[due]?.dots ?? []).map((dot: any) => [dot.key, dot])
+      );
+      if (entry.kind === "task") dots.set("task", { key: "task", color: colors.primary });
+      if (entry.kind === "note") dots.set("note", { key: "note", color: "#0EA5E9" });
+      if (entry.kind === "journal") dots.set("journal", { key: "journal", color: "#8B5CF6" });
       marks[due] = {
         ...(marks[due] || {}),
-        marked: true,
-        dotColor: colors.primary,
+        dots: Array.from(dots.values()),
       };
     }
     if (selectedDate) {
@@ -62,10 +113,10 @@ export default function CalendarScreen() {
       };
     }
     return marks;
-  }, [colors.primary, selectedDate, tasks]);
+  }, [allEntries, colors.primary, selectedDate]);
 
-  const visibleTasks = React.useMemo(() => {
-    const byDay = (tasks as any[]).filter((task) => toYmd(task.dueDate) === selectedDate);
+  const visibleEntries = React.useMemo(() => {
+    const byDay = allEntries.filter((entry) => entry.dateKey === selectedDate);
     if (mode === "day" || mode === "month") return byDay;
 
     const selected = new Date(selectedDate);
@@ -75,13 +126,13 @@ export default function CalendarScreen() {
     weekEnd.setDate(weekStart.getDate() + 6);
     weekEnd.setHours(23, 59, 59, 999);
 
-    return (tasks as any[]).filter((task) => {
-      const due = task.dueDate ? new Date(task.dueDate) : null;
+    return allEntries.filter((entry) => {
+      const due = entry.dateKey ? new Date(entry.dateKey) : null;
       return !!due && due >= weekStart && due <= weekEnd;
     });
-  }, [mode, selectedDate, tasks]);
+  }, [allEntries, mode, selectedDate]);
 
-  if (tasksQuery.isLoading) {
+  if (tasksQuery.isLoading || itemsQuery.isLoading || journalQuery.isLoading) {
     return (
       <ScreenContainer>
         <View className="flex-1 items-center justify-center">
@@ -92,11 +143,19 @@ export default function CalendarScreen() {
     );
   }
 
-  if (tasksQuery.error) {
+  if (tasksQuery.error || itemsQuery.error || journalQuery.error) {
+    const error = tasksQuery.error || itemsQuery.error || journalQuery.error;
     return (
       <ScreenContainer>
         <View className="flex-1 p-4">
-          <ErrorState error={tasksQuery.error} onRetry={tasksQuery.refetch} />
+          <ErrorState
+            error={error}
+            onRetry={() => {
+              tasksQuery.refetch();
+              itemsQuery.refetch();
+              journalQuery.refetch();
+            }}
+          />
         </View>
       </ScreenContainer>
     );
@@ -133,6 +192,7 @@ export default function CalendarScreen() {
       </View>
 
       <Calendar
+        markingType="multi-dot"
         markedDates={markedDates}
         onDayPress={(day) => setSelectedDate(day.dateString)}
         theme={{
@@ -154,18 +214,46 @@ export default function CalendarScreen() {
       </View>
 
       <ScrollView className="flex-1 px-4 pb-6">
-        {visibleTasks.length === 0 ? (
+        {visibleEntries.length === 0 ? (
           <View className="mt-6 items-center">
             <MaterialIcons name="event-busy" size={52} color={colors.muted} />
-            <Text className="text-muted mt-3">No tasks for this period</Text>
+            <Text className="text-muted mt-3">No entries for this period</Text>
           </View>
         ) : (
-          visibleTasks.map((task: any) => (
-            <View key={task.id} className="bg-surface border border-border rounded-lg p-3 mb-3">
-              <Text className="text-foreground font-semibold">{task.title}</Text>
-              {task.description ? <Text className="text-muted mt-1">{task.description}</Text> : null}
-              <Text className="text-muted text-xs mt-2">Due: {toYmd(task.dueDate) || "No due date"}</Text>
-            </View>
+          visibleEntries.map((entry) => (
+            <Pressable
+              key={`${entry.kind}-${entry.id}`}
+              onPress={() => {
+                if (entry.kind === "task") {
+                  router.push({ pathname: "/(app)/(tabs)/actions", params: { taskId: entry.id } } as any);
+                  return;
+                }
+                if (entry.kind === "note") {
+                  router.push(`/(app)/item/${entry.id}` as any);
+                  return;
+                }
+                router.push({ pathname: "/(app)/(tabs)/journal", params: { openEntryId: entry.id } } as any);
+              }}
+              className="bg-surface border border-border rounded-lg p-3 mb-3"
+            >
+              <View className="flex-row items-center justify-between">
+                <Text className="text-foreground font-semibold" style={{ flex: 1 }}>
+                  {entry.title}
+                </Text>
+                <Text
+                  style={{
+                    fontSize: 11,
+                    fontWeight: "700",
+                    color:
+                      entry.kind === "task" ? colors.primary : entry.kind === "note" ? "#0EA5E9" : "#8B5CF6",
+                  }}
+                >
+                  {entry.kind.toUpperCase()}
+                </Text>
+              </View>
+              {entry.subtitle ? <Text className="text-muted mt-1">{entry.subtitle}</Text> : null}
+              <Text className="text-muted text-xs mt-2">{entry.dateKey}</Text>
+            </Pressable>
           ))
         )}
       </ScrollView>

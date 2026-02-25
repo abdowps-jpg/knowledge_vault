@@ -146,6 +146,55 @@ db.exec(`
   CREATE INDEX IF NOT EXISTS idx_public_links_owner_user_id ON public_links(owner_user_id);
 `);
 
+db.exec(`
+  CREATE TABLE IF NOT EXISTS api_keys (
+    id TEXT PRIMARY KEY,
+    user_id TEXT NOT NULL,
+    name TEXT NOT NULL,
+    key_hash TEXT NOT NULL,
+    key_preview TEXT NOT NULL,
+    is_active INTEGER DEFAULT 1,
+    created_at INTEGER DEFAULT (strftime('%s', 'now')),
+    last_used_at INTEGER
+  );
+
+  CREATE INDEX IF NOT EXISTS idx_api_keys_user_id ON api_keys(user_id);
+  CREATE INDEX IF NOT EXISTS idx_api_keys_key_hash ON api_keys(key_hash);
+  CREATE INDEX IF NOT EXISTS idx_api_keys_is_active ON api_keys(is_active);
+`);
+
+db.exec(`
+  CREATE TABLE IF NOT EXISTS webhook_subscriptions (
+    id TEXT PRIMARY KEY,
+    user_id TEXT NOT NULL,
+    url TEXT NOT NULL,
+    event TEXT NOT NULL,
+    secret TEXT,
+    is_active INTEGER DEFAULT 1,
+    created_at INTEGER DEFAULT (strftime('%s', 'now')),
+    updated_at INTEGER DEFAULT (strftime('%s', 'now'))
+  );
+
+  CREATE INDEX IF NOT EXISTS idx_webhooks_user_id ON webhook_subscriptions(user_id);
+  CREATE INDEX IF NOT EXISTS idx_webhooks_event ON webhook_subscriptions(event);
+  CREATE INDEX IF NOT EXISTS idx_webhooks_is_active ON webhook_subscriptions(is_active);
+`);
+
+db.exec(`
+  CREATE TABLE IF NOT EXISTS item_versions (
+    id TEXT PRIMARY KEY,
+    item_id TEXT NOT NULL,
+    user_id TEXT NOT NULL,
+    title TEXT NOT NULL,
+    content TEXT,
+    created_at INTEGER DEFAULT (strftime('%s', 'now'))
+  );
+
+  CREATE INDEX IF NOT EXISTS idx_item_versions_item_id ON item_versions(item_id);
+  CREATE INDEX IF NOT EXISTS idx_item_versions_user_id ON item_versions(user_id);
+  CREATE INDEX IF NOT EXISTS idx_item_versions_created_at ON item_versions(created_at);
+`);
+
 // إنشاء جدول المهام
 db.exec(`
   CREATE TABLE IF NOT EXISTS tasks (

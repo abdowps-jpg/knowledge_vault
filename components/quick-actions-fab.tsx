@@ -135,9 +135,36 @@ export function QuickActionsFab() {
     opacity: interpolate(progress.value, [0, 1], [0, 1], Extrapolation.CLAMP),
   }));
 
+  if (!isOpen) {
+    return (
+      <View
+        style={{
+          position: "absolute",
+          right: 16,
+          bottom: 90,
+          zIndex: 80,
+        }}
+      >
+        <Pressable
+          onPress={toggle}
+          style={{
+            width: 56,
+            height: 56,
+            borderRadius: 28,
+            backgroundColor: colors.primary,
+            alignItems: "center",
+            justifyContent: "center",
+            elevation: 6,
+          }}
+        >
+          <MaterialIcons name="bolt" size={26} color="white" />
+        </Pressable>
+      </View>
+    );
+  }
+
   return (
     <View
-      pointerEvents={isOpen ? "auto" : "box-none"}
       style={{
         position: "absolute",
         top: 0,
@@ -147,39 +174,35 @@ export function QuickActionsFab() {
         zIndex: 80,
       }}
     >
-      {isOpen ? (
-        <Animated.View
-          style={[
-            {
-              position: "absolute",
-              top: 0,
-              left: 0,
-              right: 0,
-              bottom: 0,
-              backgroundColor: "rgba(0,0,0,0.25)",
-            },
-            backdropStyle,
-          ]}
-        >
-          <Pressable style={{ flex: 1 }} onPress={close} />
-        </Animated.View>
-      ) : null}
+      <Animated.View
+        style={[
+          {
+            position: "absolute",
+            top: 0,
+            left: 0,
+            right: 0,
+            bottom: 0,
+            backgroundColor: "rgba(0,0,0,0.25)",
+          },
+          backdropStyle,
+        ]}
+      >
+        <Pressable style={{ flex: 1 }} onPress={close} />
+      </Animated.View>
 
-      <View pointerEvents="box-none" style={{ flex: 1, alignItems: "flex-end", justifyContent: "flex-end", paddingRight: 16, paddingBottom: 90 }}>
-        {isOpen
-          ? actions.map((action, index) => (
-              <QuickActionItem
-                key={action.key}
-                index={index}
-                action={action}
-                progress={progress}
-                onPress={() => {
-                  close();
-                  action.onPress();
-                }}
-              />
-            ))
-          : null}
+      <View style={{ flex: 1, alignItems: "flex-end", justifyContent: "flex-end", paddingRight: 16, paddingBottom: 90 }}>
+        {actions.map((action, index) => (
+          <QuickActionItem
+            key={action.key}
+            index={index}
+            action={action}
+            progress={progress}
+            onPress={() => {
+              close();
+              action.onPress();
+            }}
+          />
+        ))}
 
         <Pressable
           onPress={toggle}
@@ -193,7 +216,7 @@ export function QuickActionsFab() {
             elevation: 6,
           }}
         >
-          <MaterialIcons name={isOpen ? "close" : "bolt"} size={26} color="white" />
+          <MaterialIcons name="close" size={26} color="white" />
         </Pressable>
       </View>
     </View>

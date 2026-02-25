@@ -597,11 +597,21 @@ export default function LibraryScreen() {
               ) : null
             }
             renderItem={({ item }: { item: any }) => (
-            <View key={item.id} className="bg-surface p-4 rounded-lg mb-3 border border-border">
+            <Pressable
+              key={item.id}
+              onPress={() => router.push(`/(app)/item/${item.id}` as any)}
+              className="bg-surface p-4 rounded-lg mb-3 border border-border"
+            >
               <View className="flex-row items-center justify-between">
                 <Text className="font-semibold text-foreground mb-1 flex-1 mr-3">{item.title}</Text>
                 <View className="flex-row items-center">
-                  <TouchableOpacity onPress={() => handleToggleFavorite(item.id)} className="p-1 mr-2">
+                  <TouchableOpacity
+                    onPress={(event: any) => {
+                      event?.stopPropagation?.();
+                      handleToggleFavorite(item.id);
+                    }}
+                    className="p-1 mr-2"
+                  >
                     <MaterialIcons
                       name={item.isFavorite ? "star" : "star-outline"}
                       size={20}
@@ -609,7 +619,10 @@ export default function LibraryScreen() {
                     />
                   </TouchableOpacity>
                   <TouchableOpacity
-                    onPress={() => handleMoveToInbox(item.id)}
+                    onPress={(event: any) => {
+                      event?.stopPropagation?.();
+                      handleMoveToInbox(item.id);
+                    }}
                     disabled={moveItem.isPending && movingItemId === item.id}
                     className="p-1 mr-2"
                   >
@@ -620,7 +633,10 @@ export default function LibraryScreen() {
                     )}
                   </TouchableOpacity>
                   <TouchableOpacity
-                    onPress={() => handleDeleteItem(item.id)}
+                    onPress={(event: any) => {
+                      event?.stopPropagation?.();
+                      handleDeleteItem(item.id);
+                    }}
                     disabled={deleteItem.isPending && deletingItemId === item.id}
                     className="p-1"
                   >
@@ -649,7 +665,7 @@ export default function LibraryScreen() {
               ) : null}
               <ItemAttachments itemId={item.id} />
               <Text className="text-muted text-xs mt-2">{new Date(item.createdAt).toLocaleString("ar-EG")}</Text>
-            </View>
+            </Pressable>
             )}
           />
         </View>

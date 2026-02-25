@@ -3,11 +3,13 @@ import { and, eq } from 'drizzle-orm';
 import { TRPCError } from '@trpc/server';
 import { z } from 'zod';
 import { db } from '../db';
+import { getSessionCookieOptions } from '../_core/cookies';
 import { comparePassword, generateToken, hashPassword, verifyToken as verifyJwtToken } from '../lib/auth';
 import { buildTaskInboxAddressForUser } from '../lib/email-task-address';
 import { sendVerificationEmail } from '../lib/email';
 import { users } from '../schema/users';
 import { protectedProcedure, publicProcedure, router } from '../trpc';
+import { COOKIE_NAME } from '../../shared/const.js';
 
 const authUserSelect = {
   id: users.id,
@@ -27,6 +29,14 @@ function hashVerificationCode(code: string): string {
 }
 
 export const authRouter = router({
+  me: publicProcedure.query(({ ctx }) => ctx.user),
+
+  logout: publicProcedure.mutation(({ ctx }) => {
+    const cookieOptions = getSessionCookieOptions(ctx.req);
+    ctx.res.clearCookie(COOKIE_NAME, { ...cookieOptions, maxAge: -1 });
+    return { success: true } as const;
+  }),
+
   register: publicProcedure
     .input(
       z.object({

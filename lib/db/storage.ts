@@ -141,7 +141,9 @@ export async function getItemsByType(type: string): Promise<Item[]> {
 
 export async function getInboxItems(): Promise<Item[]> {
   const items = await getAllItems();
-  return items.filter((item) => !item.isArchived).sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+  return items
+    .filter((item) => !item.isArchived && item.type !== "journal")
+    .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
 }
 
 export async function searchItems(query: string): Promise<Item[]> {

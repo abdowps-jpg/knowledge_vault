@@ -18,9 +18,6 @@ const QuickAddModal = React.lazy(() =>
 const ItemContextMenu = React.lazy(() =>
   import("@/components/item-context-menu").then((mod) => ({ default: mod.ItemContextMenu }))
 );
-const QuickActionsFab = React.lazy(() =>
-  import("@/components/quick-actions-fab").then((mod) => ({ default: mod.QuickActionsFab }))
-);
 const RichTextEditor = React.lazy(() =>
   import("@/components/rich-text-editor").then((mod) => ({ default: mod.RichTextEditor }))
 );
@@ -96,10 +93,19 @@ interface InboxItemProps {
   onLongPress: (item: Item) => void;
   onDelete: (itemId: string) => void;
   onMoveToLibrary: (item: Item) => void;
-  onCopy: (item: Item) => void;
+  onMoveToJournal: (item: Item) => void;
+  onMoveToActions: (item: Item) => void;
 }
 
-function InboxItem({ item, onPress, onLongPress, onDelete, onMoveToLibrary, onCopy }: InboxItemProps) {
+function InboxItem({
+  item,
+  onPress,
+  onLongPress,
+  onDelete,
+  onMoveToLibrary,
+  onMoveToJournal,
+  onMoveToActions,
+}: InboxItemProps) {
   const colors = useColors();
   const [previewImageUri, setPreviewImageUri] = useState<string | null>(null);
   const { data: attachments = [], isLoading: isAttachmentsLoading } = trpc.attachments.list.useQuery({
@@ -199,8 +205,11 @@ function InboxItem({ item, onPress, onLongPress, onDelete, onMoveToLibrary, onCo
             <Pressable onPress={() => onMoveToLibrary(item)}>
               <Text style={{ color: colors.primary, fontWeight: "700", fontSize: 12 }}>Move to Library</Text>
             </Pressable>
-            <Pressable onPress={() => onCopy(item)}>
-              <Text style={{ color: colors.primary, fontWeight: "700", fontSize: 12 }}>Copy</Text>
+            <Pressable onPress={() => onMoveToActions(item)}>
+              <Text style={{ color: colors.primary, fontWeight: "700", fontSize: 12 }}>Move to Actions</Text>
+            </Pressable>
+            <Pressable onPress={() => onMoveToJournal(item)}>
+              <Text style={{ color: colors.primary, fontWeight: "700", fontSize: 12 }}>Move to Journal</Text>
             </Pressable>
           </View>
         </View>
@@ -255,15 +264,35 @@ function InboxItem({ item, onPress, onLongPress, onDelete, onMoveToLibrary, onCo
 export default function InboxScreen() {
   const colors = useColors();
   const router = useRouter();
-  const { items, loading, openQuickAdd, loadInboxItems, deleteItem, updateItem, addItem } = useInbox();
+  const utils = trpc.useUtils();
+  const { items, loading, openQuickAdd, loadInboxItems, deleteItem, updateItem, convertToTask } = useInbox();
   const [refreshing, setRefreshing] = useState(false);
-  const [inboxTypeFilter, setInboxTypeFilter] = useState<"all" | "note" | "task" | "journal">("all");
+  const [inboxView, setInboxView] = useState<"list" | "search">("list");
+  const [searchQuery, setSearchQuery] = useState("");
   const [selectedItem, setSelectedItem] = useState<Item | null>(null);
   const [showContextMenu, setShowContextMenu] = useState(false);
   const [editingItem, setEditingItem] = useState<Item | null>(null);
   const [editTitle, setEditTitle] = useState("");
   const [editContent, setEditContent] = useState("");
   const [savingEdit, setSavingEdit] = useState(false);
+  const isSearchMode = inboxView === "search";
+
+  const itemsSearchQuery = trpc.items.list.useInfiniteQuery(
+    { limit: 100, sortBy: "createdAt", sortOrder: "desc" },
+    { getNextPageParam: (lastPage) => lastPage.nextCursor, enabled: isSearchMode }
+  );
+  const tasksSearchQuery = trpc.tasks.list.useInfiniteQuery(
+    { limit: 100, sortOrder: "desc" },
+    { getNextPageParam: (lastPage) => lastPage.nextCursor, enabled: isSearchMode }
+  );
+  const journalSearchQuery = trpc.journal.list.useInfiniteQuery(
+    { limit: 100 },
+    { getNextPageParam: (lastPage) => lastPage.nextCursor, enabled: isSearchMode }
+  );
+  const updateItemMutation = trpc.items.update.useMutation();
+  const createItemMutation = trpc.items.create.useMutation();
+  const createTaskMutation = trpc.tasks.create.useMutation();
+  const createJournalMutation = trpc.journal.create.useMutation();
 
   // Handle refresh
   const handleRefresh = async () => {
@@ -300,26 +329,107 @@ export default function InboxScreen() {
 
   const handleMoveToLibrary = async (item: Item) => {
     try {
-      await updateItem(item.id, { categoryId: "library" as any });
+      await updateItemMutation.mutateAsync({
+        id: item.id,
+        location: "library",
+      });
+      await updateItem(item.id, { categoryId: "library" as any, isArchived: true as any });
+      await utils.items.list.invalidate();
       console.log("[Inbox] Moved item to library:", item.id);
+      Alert.alert("Done", "Item moved to Library.");
     } catch (error) {
       console.error("[Inbox] Failed moving item to library:", error);
-      Alert.alert("Error", "Failed to move item.");
+      try {
+        const normalizedType =
+          item.type === ItemType.QUOTE || item.type === ItemType.LINK || item.type === ItemType.AUDIO
+            ? item.type
+            : ItemType.NOTE;
+        await createItemMutation.mutateAsync({
+          type: normalizedType as "note" | "quote" | "link" | "audio",
+          title: item.title?.trim() || "Untitled",
+          content: item.content?.trim() || item.title?.trim() || "",
+          url: item.type === ItemType.LINK ? ((item as any).url || undefined) : undefined,
+          location: "library",
+        });
+        await deleteItem(item.id);
+        await utils.items.list.invalidate();
+        Alert.alert("Done", "Item copied to Library and removed from Inbox.");
+      } catch {
+        try {
+          await updateItem(item.id, { categoryId: "library" as any, isArchived: true as any });
+          Alert.alert("Done", "Item moved locally. It will sync later.");
+        } catch {
+          Alert.alert("Error", "Failed to move item.");
+        }
+      }
     }
   };
 
-  const handleCopyItem = async (item: Item) => {
+  const getTodayDateString = () => {
+    const now = new Date();
+    const y = now.getFullYear();
+    const m = String(now.getMonth() + 1).padStart(2, "0");
+    const d = String(now.getDate()).padStart(2, "0");
+    return `${y}-${m}-${d}`;
+  };
+
+  const handleMoveToJournal = async (item: Item) => {
     try {
-      const { id: _id, createdAt: _createdAt, updatedAt: _updatedAt, ...copySource } = item as any;
-      const duplicated = await addItem({
-        ...copySource,
-        title: `${item.title} (Copy)`,
+      const title = item.title?.trim() || null;
+      const content = item.content?.trim() || item.title?.trim() || "Untitled";
+      await createJournalMutation.mutateAsync({
+        entryDate: getTodayDateString(),
+        title,
+        content,
+        mood: null,
+        location: null,
+        weather: null,
       });
-      console.log("[Inbox] Copied item:", item.id, "->", duplicated.id);
-      Alert.alert("Copied", "Item duplicated successfully.");
+      await deleteItem(item.id);
+      await utils.journal.list.invalidate();
+      await utils.items.list.invalidate();
+      console.log("[Inbox] Moved item to journal:", item.id);
+      Alert.alert("Done", "Item moved to Journal.");
     } catch (error) {
-      console.error("[Inbox] Failed copying item:", error);
-      Alert.alert("Error", "Failed to copy item.");
+      console.error("[Inbox] Failed moving item to journal:", error);
+      try {
+        await updateItem(item.id, {
+          type: ItemType.JOURNAL as any,
+          entryDate: new Date() as any,
+        } as any);
+        Alert.alert("Done", "Item moved locally to Journal.");
+      } catch {
+        Alert.alert("Error", "Failed to move item to Journal.");
+      }
+    }
+  };
+
+  const handleMoveToActions = async (item: Item) => {
+    try {
+      const title = item.title?.trim() || "Inbox Item";
+      const descriptionParts = [item.content?.trim() || ""];
+      const url = (item as any).url;
+      if (typeof url === "string" && url.trim()) {
+        descriptionParts.push(`URL: ${url.trim()}`);
+      }
+      const description = descriptionParts.filter(Boolean).join("\n\n") || undefined;
+      await createTaskMutation.mutateAsync({
+        title,
+        description,
+        priority: "medium",
+      });
+      await deleteItem(item.id);
+      await utils.tasks.list.invalidate();
+      await utils.items.list.invalidate();
+      Alert.alert("Done", "Item moved to Actions.");
+    } catch (error) {
+      console.error("[Inbox] Failed moving item to actions:", error);
+      try {
+        await convertToTask(item.id);
+        Alert.alert("Done", "Item moved locally to Actions.");
+      } catch {
+        Alert.alert("Error", "Failed to move item to Actions.");
+      }
     }
   };
 
@@ -348,11 +458,53 @@ export default function InboxScreen() {
   };
 
   const filteredItems = useMemo(() => {
-    if (inboxTypeFilter === "all") return items;
-    if (inboxTypeFilter === "note") return items.filter((item) => item.type === ItemType.NOTE);
-    if (inboxTypeFilter === "task") return items.filter((item) => item.type === ItemType.TASK);
-    return items.filter((item) => item.type === ItemType.JOURNAL);
-  }, [inboxTypeFilter, items]);
+    return items;
+  }, [items]);
+
+  const allSearchResults = useMemo(() => {
+    const itemRows =
+      itemsSearchQuery.data?.pages.flatMap((page) => page.items ?? []).map((item: any) => ({
+        key: `item:${item.id}`,
+        kind: "item" as const,
+        id: item.id as string,
+        title: String(item.title || "Untitled"),
+        content: String(item.content || ""),
+        subLabel: `Item • ${item.location || "inbox"}`,
+      })) ?? [];
+    const taskRows =
+      tasksSearchQuery.data?.pages.flatMap((page) => page.items ?? []).map((task: any) => ({
+        key: `task:${task.id}`,
+        kind: "task" as const,
+        id: task.id as string,
+        title: String(task.title || "Untitled task"),
+        content: String(task.description || ""),
+        subLabel: `Task • ${task.dueDate || "No due date"}`,
+      })) ?? [];
+    const journalRows =
+      journalSearchQuery.data?.pages.flatMap((page) => page.items ?? []).map((entry: any) => ({
+        key: `journal:${entry.id}`,
+        kind: "journal" as const,
+        id: entry.id as string,
+        title: String(entry.title || "Journal entry"),
+        content: String(entry.content || ""),
+        subLabel: `Journal • ${entry.entryDate || ""}`,
+      })) ?? [];
+    return [...itemRows, ...taskRows, ...journalRows];
+  }, [itemsSearchQuery.data, tasksSearchQuery.data, journalSearchQuery.data]);
+
+  const filteredSearchResults = useMemo(() => {
+    const q = searchQuery.trim().toLowerCase();
+    if (!q) return allSearchResults;
+    return allSearchResults.filter((item) => {
+      const title = String(item.title || "").toLowerCase();
+      const content = String(item.content || "").toLowerCase();
+      return title.includes(q) || content.includes(q);
+    });
+  }, [allSearchResults, searchQuery]);
+
+  const searchLoading =
+    isSearchMode && (itemsSearchQuery.isLoading || tasksSearchQuery.isLoading || journalSearchQuery.isLoading);
+  const searchError = isSearchMode ? itemsSearchQuery.error || tasksSearchQuery.error || journalSearchQuery.error : null;
 
   return (
     <ScreenContainer className="bg-background" containerClassName="bg-background">
@@ -362,35 +514,64 @@ export default function InboxScreen() {
           <Text className="text-2xl font-bold text-foreground">Inbox</Text>
           <Text className="text-xs text-muted mt-1">{items.length} items</Text>
         </View>
-        <Pressable
-          onPress={handleQuickAdd}
-          style={({ pressed }) => [
-            {
-              opacity: pressed ? 0.7 : 1,
-              transform: [{ scale: pressed ? 0.95 : 1 }],
-            },
-          ]}
-        >
-          <View className="w-12 h-12 rounded-full bg-primary items-center justify-center">
-            <MaterialIcons name="add" size={28} color="white" />
-          </View>
-        </Pressable>
       </View>
 
       <View className="px-4 py-3 border-b border-border">
-        <Text className="text-xs text-muted mb-2">Quick Shortcuts</Text>
-        <View className="flex-row">
+        <View style={{ flexDirection: "row", marginBottom: 10 }}>
           {[
-            { label: "My Day", icon: "today", route: "/(app)/(tabs)/actions" },
-            { label: "Library", icon: "menu-book", route: "/(app)/(tabs)/library" },
-            { label: "Search", icon: "search", route: "/(app)/(tabs)/search" },
-          ].map((shortcut) => (
+            { key: "list", label: "Inbox" },
+            { key: "search", label: "Search" },
+          ].map((tab) => (
             <Pressable
-              key={shortcut.label}
-              onPress={() => router.push(shortcut.route as any)}
+              key={tab.key}
+              onPress={() => setInboxView(tab.key as "list" | "search")}
+              style={{
+                marginRight: 8,
+                paddingHorizontal: 12,
+                paddingVertical: 6,
+                borderRadius: 999,
+                borderWidth: 1,
+                borderColor: colors.border,
+                backgroundColor: inboxView === tab.key ? colors.primary : colors.surface,
+              }}
+            >
+              <Text style={{ color: inboxView === tab.key ? "white" : colors.foreground, fontSize: 12, fontWeight: "700" }}>
+                {tab.label}
+              </Text>
+            </Pressable>
+          ))}
+        </View>
+        {inboxView === "search" ? (
+          <TextInput
+            placeholder="Search all data (inbox, library, tasks, journal)..."
+            placeholderTextColor={colors.muted}
+            value={searchQuery}
+            onChangeText={setSearchQuery}
+            style={{
+              backgroundColor: colors.surface,
+              borderColor: colors.border,
+              borderWidth: 1,
+              borderRadius: 10,
+              color: colors.foreground,
+              paddingHorizontal: 12,
+              paddingVertical: 10,
+              marginBottom: 10,
+            }}
+          />
+        ) : null}
+        <Text className="text-xs text-muted mb-2">Capture</Text>
+        <View style={{ flexDirection: "row", marginBottom: 10 }}>
+          {[
+            { label: "Write", icon: "edit-note", onPress: () => handleQuickAdd() },
+            { label: "Image", icon: "image", onPress: () => openQuickAdd("note", { autoPickImage: true }) },
+            { label: "Voice", icon: "keyboard-voice", onPress: () => openQuickAdd("audio") },
+          ].map((action) => (
+            <Pressable
+              key={action.label}
+              onPress={action.onPress}
               style={{
                 flex: 1,
-                marginRight: shortcut.label === "Search" ? 0 : 8,
+                marginRight: action.label === "Voice" ? 0 : 8,
                 borderWidth: 1,
                 borderColor: colors.border,
                 borderRadius: 10,
@@ -399,35 +580,9 @@ export default function InboxScreen() {
                 backgroundColor: colors.surface,
               }}
             >
-              <MaterialIcons name={shortcut.icon as any} size={18} color={colors.primary} />
+              <MaterialIcons name={action.icon as any} size={18} color={colors.primary} />
               <Text style={{ color: colors.foreground, fontSize: 12, marginTop: 4, fontWeight: "600" }}>
-                {shortcut.label}
-              </Text>
-            </Pressable>
-          ))}
-        </View>
-        <View style={{ flexDirection: "row", marginTop: 10 }}>
-          {[
-            { key: "all", label: "All" },
-            { key: "note", label: "Notes" },
-            { key: "task", label: "Tasks" },
-            { key: "journal", label: "Journal" },
-          ].map((filter) => (
-            <Pressable
-              key={filter.key}
-              onPress={() => setInboxTypeFilter(filter.key as "all" | "note" | "task" | "journal")}
-              style={{
-                marginRight: 8,
-                paddingHorizontal: 10,
-                paddingVertical: 6,
-                borderRadius: 999,
-                borderWidth: 1,
-                borderColor: colors.border,
-                backgroundColor: inboxTypeFilter === filter.key ? colors.primary : colors.surface,
-              }}
-            >
-              <Text style={{ color: inboxTypeFilter === filter.key ? "white" : colors.foreground, fontSize: 12, fontWeight: "600" }}>
-                {filter.label}
+                {action.label}
               </Text>
             </Pressable>
           ))}
@@ -435,7 +590,60 @@ export default function InboxScreen() {
       </View>
 
       {/* Items List */}
-      {loading ? (
+      {isSearchMode ? (
+        searchLoading ? (
+          <View className="flex-1 items-center justify-center">
+            <ActivityIndicator size="large" color={colors.primary} />
+            <Text className="text-muted mt-4">Searching...</Text>
+          </View>
+        ) : searchError ? (
+          <View className="flex-1 items-center justify-center px-4">
+            <Text className="text-muted text-center">Search failed. Try again.</Text>
+          </View>
+        ) : filteredSearchResults.length === 0 ? (
+          <View className="flex-1 items-center justify-center gap-3">
+            <MaterialIcons name="search-off" size={64} color={colors.muted} />
+            <Text className="text-lg font-semibold text-foreground">No results</Text>
+          </View>
+        ) : (
+          <FlatList
+            data={filteredSearchResults}
+            keyExtractor={(item) => item.key}
+            renderItem={({ item }) => (
+              <Pressable
+                onPress={() => {
+                  if (item.kind === "item") {
+                    router.push(`/(app)/item/${item.id}` as any);
+                    return;
+                  }
+                  if (item.kind === "task") {
+                    router.push({ pathname: "/(app)/(tabs)/actions", params: { taskId: item.id } } as any);
+                    return;
+                  }
+                  router.push({ pathname: "/(app)/(tabs)/journal", params: { openEntryId: item.id } } as any);
+                }}
+                style={{
+                  backgroundColor: colors.surface,
+                  borderBottomColor: colors.border,
+                  borderBottomWidth: 1,
+                  paddingHorizontal: 16,
+                  paddingVertical: 12,
+                }}
+              >
+                <Text className="text-base font-semibold text-foreground" numberOfLines={1}>
+                  {item.title}
+                </Text>
+                <Text className="text-xs text-muted mt-1">{item.subLabel}</Text>
+                {item.content ? (
+                  <Text className="text-sm text-muted mt-1" numberOfLines={2}>
+                    {item.content}
+                  </Text>
+                ) : null}
+              </Pressable>
+            )}
+          />
+        )
+      ) : loading ? (
         <View className="flex-1 items-center justify-center">
           <MaterialIcons name="hourglass-empty" size={48} color={colors.muted} />
           <Text className="text-muted mt-4">Loading...</Text>
@@ -459,7 +667,8 @@ export default function InboxScreen() {
               onLongPress={handleItemLongPress}
               onDelete={handleDelete}
               onMoveToLibrary={handleMoveToLibrary}
-              onCopy={handleCopyItem}
+              onMoveToJournal={handleMoveToJournal}
+              onMoveToActions={handleMoveToActions}
             />
           )}
           refreshControl={
@@ -539,11 +748,27 @@ export default function InboxScreen() {
           }}
         />
       </Suspense>
-
-      {/* Quick Actions FAB */}
-      <Suspense fallback={null}>
-        <QuickActionsFab />
-      </Suspense>
+      <Pressable
+        onPress={handleQuickAdd}
+        style={({ pressed }) => [
+          {
+            position: "absolute",
+            right: 18,
+            bottom: 22,
+            width: 56,
+            height: 56,
+            borderRadius: 28,
+            alignItems: "center",
+            justifyContent: "center",
+            backgroundColor: colors.primary,
+            elevation: 8,
+            opacity: pressed ? 0.75 : 1,
+            transform: [{ scale: pressed ? 0.96 : 1 }],
+          },
+        ]}
+      >
+        <MaterialIcons name="add" size={28} color="white" />
+      </Pressable>
     </ScreenContainer>
   );
 }

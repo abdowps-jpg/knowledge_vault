@@ -20,11 +20,15 @@ const MAPPING = {
   "gearshape.fill": "settings",
   "magnifyingglass": "search",
   "calendar": "calendar-month",
+  "pencil.circle": "edit",
   "check-circle": "check-circle",
   "book": "library-books",
   "inbox": "inbox",
+  "tray.fill": "inbox",
   "books.vertical.fill": "library-books",
   "checkmark.circle": "check-circle",
+  "checkmark.circle.fill": "check-circle",
+  "flame.fill": "local-fire-department",
   "magnifyingglass.circle": "search",
 } as unknown as IconMapping;
 

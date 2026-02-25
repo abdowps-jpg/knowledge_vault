@@ -1,6 +1,7 @@
 import React from "react";
 import { Text, View, TouchableOpacity, ActivityIndicator, Alert, Modal, Pressable } from "react-native";
 import { FlashList } from "@shopify/flash-list";
+import { useRouter } from "expo-router";
 import { ScreenContainer } from "@/components/screen-container";
 import { ErrorState } from "@/components/error-state";
 import { MaterialIcons } from "@expo/vector-icons";
@@ -77,6 +78,7 @@ function ItemAttachments({ itemId }: { itemId: string }) {
 
 export default function InboxScreen() {
   const colors = useColors();
+  const router = useRouter();
   const utils = trpc.useUtils();
   const [activeFilter, setActiveFilter] = React.useState<"all" | "favorites">("all");
 
@@ -111,6 +113,7 @@ export default function InboxScreen() {
 
   const [deletingItemId, setDeletingItemId] = React.useState<string | null>(null);
   const [movingItemId, setMovingItemId] = React.useState<string | null>(null);
+  const [movingToJournalItemId, setMovingToJournalItemId] = React.useState<string | null>(null);
   const [copyingItemId, setCopyingItemId] = React.useState<string | null>(null);
 
   const deleteItem = trpc.items.delete.useMutation({
@@ -128,6 +131,12 @@ export default function InboxScreen() {
     },
     onSettled: () => {
       setMovingItemId(null);
+    },
+  });
+
+  const createJournalEntry = trpc.journal.create.useMutation({
+    onSuccess: () => {
+      utils.journal.list.invalidate();
     },
   });
 
@@ -250,6 +259,40 @@ export default function InboxScreen() {
     }
   };
 
+  const handleOpenItem = (itemId: string) => {
+    router.push({
+      pathname: "/(app)/item/[id]",
+      params: { id: itemId },
+    });
+  };
+
+  const handleMoveToJournal = async (item: any) => {
+    try {
+      setMovingToJournalItemId(item.id);
+      const entryDate = new Date().toISOString().slice(0, 10);
+      const journalContent = (item.content ?? "").trim() || (item.title ?? "").trim() || "New note";
+
+      await createJournalEntry.mutateAsync({
+        entryDate,
+        title: item.title ?? null,
+        content: journalContent,
+      });
+
+      await deleteItem.mutateAsync({ id: item.id });
+
+      await Promise.all([
+        utils.items.list.invalidate(),
+        utils.journal.list.invalidate(),
+      ]);
+      Alert.alert("Done", "Note moved to Journal.");
+    } catch (err) {
+      console.error("Failed to move item to journal:", err);
+      Alert.alert("Error", "Failed to move item to journal");
+    } finally {
+      setMovingToJournalItemId(null);
+    }
+  };
+
   return (
     <ScreenContainer>
       <View className="p-4 border-b border-border">
@@ -334,8 +377,9 @@ export default function InboxScreen() {
               ) : null
             }
             renderItem={({ item }: { item: any }) => (
-            <View
+            <Pressable
               key={item.id}
+              onPress={() => handleOpenItem(item.id)}
               className="bg-surface p-4 rounded-lg mb-3 border border-border"
             >
               <View className="flex-row items-center justify-between">
@@ -343,8 +387,12 @@ export default function InboxScreen() {
                   {item.title}
                 </Text>
                 <View className="flex-row items-center">
-                  <TouchableOpacity
-                    onPress={() => handleToggleFavorite(item.id)}
+                  <Pressable
+                    onPress={(e) => {
+                      e.stopPropagation?.();
+                      handleToggleFavorite(item.id);
+                    }}
+                    hitSlop={8}
                     className="p-1 mr-2"
                   >
                     <MaterialIcons
@@ -352,10 +400,14 @@ export default function InboxScreen() {
                       size={20}
                       color={colors.warning}
                     />
-                  </TouchableOpacity>
-                  <TouchableOpacity
-                    onPress={() => handleMoveToLibrary(item.id)}
+                  </Pressable>
+                  <Pressable
+                    onPress={(e) => {
+                      e.stopPropagation?.();
+                      handleMoveToLibrary(item.id);
+                    }}
                     disabled={moveItem.isPending && movingItemId === item.id}
+                    hitSlop={8}
                     className="p-1 mr-2"
                   >
                     {moveItem.isPending && movingItemId === item.id ? (
@@ -363,10 +415,29 @@ export default function InboxScreen() {
                     ) : (
                       <MaterialIcons name="folder" size={20} color={colors.primary} />
                     )}
-                  </TouchableOpacity>
-                  <TouchableOpacity
-                    onPress={() => handleCopyItem(item)}
+                  </Pressable>
+                  <Pressable
+                    onPress={(e) => {
+                      e.stopPropagation?.();
+                      handleMoveToJournal(item);
+                    }}
+                    disabled={createJournalEntry.isPending && movingToJournalItemId === item.id}
+                    hitSlop={8}
+                    className="p-1 mr-2"
+                  >
+                    {createJournalEntry.isPending && movingToJournalItemId === item.id ? (
+                      <ActivityIndicator size="small" color={colors.primary} />
+                    ) : (
+                      <MaterialIcons name="menu-book" size={20} color={colors.primary} />
+                    )}
+                  </Pressable>
+                  <Pressable
+                    onPress={(e) => {
+                      e.stopPropagation?.();
+                      handleCopyItem(item);
+                    }}
                     disabled={copyItem.isPending && copyingItemId === item.id}
+                    hitSlop={8}
                     className="p-1 mr-2"
                   >
                     {copyItem.isPending && copyingItemId === item.id ? (
@@ -374,10 +445,14 @@ export default function InboxScreen() {
                     ) : (
                       <MaterialIcons name="content-copy" size={18} color={colors.primary} />
                     )}
-                  </TouchableOpacity>
-                  <TouchableOpacity
-                    onPress={() => handleDeleteItem(item.id)}
+                  </Pressable>
+                  <Pressable
+                    onPress={(e) => {
+                      e.stopPropagation?.();
+                      handleDeleteItem(item.id);
+                    }}
                     disabled={deleteItem.isPending && deletingItemId === item.id}
+                    hitSlop={8}
                     className="p-1"
                   >
                     {deleteItem.isPending && deletingItemId === item.id ? (
@@ -385,7 +460,7 @@ export default function InboxScreen() {
                     ) : (
                       <MaterialIcons name="delete" size={20} color={colors.error} />
                     )}
-                  </TouchableOpacity>
+                  </Pressable>
                 </View>
               </View>
               {item.content && (
@@ -407,7 +482,7 @@ export default function InboxScreen() {
               <Text className="text-muted text-xs mt-2">
                 {new Date(item.createdAt).toLocaleString('ar-EG')}
               </Text>
-            </View>
+            </Pressable>
             )}
           />
         </View>

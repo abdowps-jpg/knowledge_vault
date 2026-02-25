@@ -42,6 +42,18 @@ export default function TabLayout() {
         }}
       />
       <Tabs.Screen
+        name="search"
+        options={{
+          href: null,
+        }}
+      />
+      <Tabs.Screen
+        name="calendar"
+        options={{
+          href: null,
+        }}
+      />
+      <Tabs.Screen
         name="library"
         options={{
           title: "Library",
@@ -59,14 +71,7 @@ export default function TabLayout() {
         name="journal"
         options={{
           title: "Journal",
-          tabBarIcon: ({ color }) => <IconSymbol size={28} name="calendar" color={color} />,
-        }}
-      />
-      <Tabs.Screen
-        name="calendar"
-        options={{
-          title: "Calendar",
-          tabBarIcon: ({ color }) => <IconSymbol size={28} name="calendar" color={color} />,
+          tabBarIcon: ({ color }) => <IconSymbol size={28} name="pencil.circle" color={color} />,
         }}
       />
       <Tabs.Screen
@@ -74,13 +79,6 @@ export default function TabLayout() {
         options={{
           title: "Habits",
           tabBarIcon: ({ color }) => <IconSymbol size={28} name="flame.fill" color={color} />,
-        }}
-      />
-      <Tabs.Screen
-        name="search"
-        options={{
-          title: "Search",
-          tabBarIcon: ({ color }) => <IconSymbol size={28} name="magnifyingglass" color={color} />,
         }}
       />
       <Tabs.Screen

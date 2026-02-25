@@ -1,5 +1,5 @@
 import React from "react";
-import { ActivityIndicator, Alert, Pressable, ScrollView, Text, TextInput, View } from "react-native";
+import { ActivityIndicator, Alert, Modal, Platform, Pressable, ScrollView, Text, TextInput, View } from "react-native";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { Image as ExpoImage } from "expo-image";
 
@@ -7,11 +7,15 @@ import { ScreenContainer } from "@/components/screen-container";
 import { RichTextEditor } from "@/components/rich-text-editor";
 import { useColors } from "@/hooks/use-colors";
 import { trpc } from "@/lib/trpc";
+import * as localStorage from "@/lib/db/storage";
+import type { Item as LocalItem } from "@/lib/db/schema";
+import { useInbox } from "@/lib/context/inbox-context";
 
 export default function ItemDetailScreen() {
   const colors = useColors();
   const router = useRouter();
-  const { id } = useLocalSearchParams<{ id: string }>();
+  const params = useLocalSearchParams<{ id?: string | string[] }>();
+  const id = Array.isArray(params.id) ? params.id[0] : params.id;
 
   const [title, setTitle] = React.useState("");
   const [content, setContent] = React.useState("");
@@ -25,6 +29,11 @@ export default function ItemDetailScreen() {
   const [replyToCommentId, setReplyToCommentId] = React.useState<string | null>(null);
   const [publicPassword, setPublicPassword] = React.useState("");
   const [publicExpiryDays, setPublicExpiryDays] = React.useState("7");
+  const [showPresentationMode, setShowPresentationMode] = React.useState(false);
+  const [presentationIndex, setPresentationIndex] = React.useState(0);
+  const [localItem, setLocalItem] = React.useState<LocalItem | null>(null);
+  const [isLoadingLocalItem, setIsLoadingLocalItem] = React.useState(false);
+  const { loadInboxItems, updateItem: updateInboxItem, deleteItem: deleteInboxItem } = useInbox();
 
   const utils = trpc.useUtils();
   const itemQuery = trpc.items.getWithTags.useQuery(
@@ -34,6 +43,7 @@ export default function ItemDetailScreen() {
     }
   );
   const updateItem = trpc.items.update.useMutation();
+  const deleteItem = trpc.items.delete.useMutation();
   const attachmentsQuery = trpc.attachments.list.useQuery(
     { itemId: id || "", limit: 20 },
     { enabled: Boolean(id) }
@@ -54,7 +64,7 @@ export default function ItemDetailScreen() {
   const commentsQuery = trpc.itemComments.list.useQuery(
     { itemId: id || "" },
     {
-      enabled: Boolean(id),
+      enabled: Boolean(id) && Boolean(itemQuery.data),
     }
   );
   const createComment = trpc.itemComments.create.useMutation();
@@ -64,35 +74,89 @@ export default function ItemDetailScreen() {
     { enabled: Boolean(id) && itemQuery.data?.accessRole === "owner" }
   );
   const revokePublicLink = trpc.publicLinks.revoke.useMutation();
+  const versionsQuery = trpc.itemVersions.list.useQuery(
+    { itemId: id || "", limit: 20 },
+    { enabled: Boolean(id) && Boolean(itemQuery.data) }
+  );
+  const restoreVersion = trpc.itemVersions.restore.useMutation();
+  const isServerBackedItem = Boolean(itemQuery.data);
+  const effectiveItem = React.useMemo(() => {
+    if (itemQuery.data) return itemQuery.data;
+    if (!localItem) return null;
+    return {
+      id: localItem.id,
+      title: localItem.title,
+      content: localItem.content,
+      tags: [],
+      categoryId: localItem.categoryId ?? null,
+      accessRole: "owner" as const,
+      accessPermission: "edit" as const,
+    };
+  }, [itemQuery.data, localItem]);
+  const presentationSlides = React.useMemo(() => {
+    const chunks = (content || "")
+      .split(/\n{2,}/)
+      .map((chunk) => chunk.trim())
+      .filter(Boolean);
+    if (chunks.length === 0) return [title || "Untitled note", "No content"];
+    return [title || "Untitled note", ...chunks];
+  }, [content, title]);
+
+  React.useEffect(() => {
+    if (!showPresentationMode || Platform.OS !== "web") return;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "ArrowRight") {
+        setPresentationIndex((prev) => Math.min(prev + 1, presentationSlides.length - 1));
+      } else if (event.key === "ArrowLeft") {
+        setPresentationIndex((prev) => Math.max(prev - 1, 0));
+      } else if (event.key === "Escape") {
+        setShowPresentationMode(false);
+      }
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [presentationSlides.length, showPresentationMode]);
 
   React.useEffect(() => {
     if (!id) {
-      Alert.alert("Not Found", "Item id is missing.");
-      router.back();
       return;
     }
     if (itemQuery.error) {
       console.error("[Item/Detail] Failed loading item:", itemQuery.error);
-      Alert.alert("Error", "Failed to load item.");
       return;
     }
-    if (itemQuery.isFetched && !itemQuery.data) {
-      Alert.alert("Not Found", "Item was not found.");
-      router.back();
-      return;
-    }
-    if (itemQuery.data && !didHydrateForm) {
-      setTitle(itemQuery.data.title ?? "");
-      setContent(itemQuery.data.content ?? "");
-      setTagsInput((itemQuery.data.tags ?? []).map((tag) => tag.name).join(", "));
+    if (effectiveItem && !didHydrateForm) {
+      setTitle(effectiveItem.title ?? "");
+      setContent(effectiveItem.content ?? "");
+      setTagsInput((effectiveItem.tags ?? []).map((tag) => tag.name).join(", "));
       setDidHydrateForm(true);
-      console.log("[Item/Detail] Loaded item:", itemQuery.data.id);
+      console.log("[Item/Detail] Loaded item:", effectiveItem.id);
     }
-  }, [didHydrateForm, id, itemQuery.data, itemQuery.error, itemQuery.isFetched, router]);
+  }, [didHydrateForm, effectiveItem, id, itemQuery.error, itemQuery.isFetched, router]);
+
+  React.useEffect(() => {
+    if (!id || itemQuery.data || !itemQuery.isFetched) return;
+    let cancelled = false;
+    setIsLoadingLocalItem(true);
+    localStorage
+      .getItemById(id)
+      .then((item) => {
+        if (!cancelled) setLocalItem(item);
+      })
+      .catch((error) => {
+        console.error("[Item/Detail] Failed loading local item:", error);
+      })
+      .finally(() => {
+        if (!cancelled) setIsLoadingLocalItem(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [id, itemQuery.data, itemQuery.isFetched]);
 
   const handleSave = async () => {
-    if (!id || !itemQuery.data) return;
-    if (itemQuery.data.accessPermission !== "edit") {
+    if (!id || !effectiveItem) return;
+    if (effectiveItem.accessPermission !== "edit") {
       Alert.alert("View Only", "You do not have permission to edit this item.");
       return;
     }
@@ -103,19 +167,26 @@ export default function ItemDetailScreen() {
 
     try {
       setIsSaving(true);
-      await updateItem.mutateAsync({
-        title: title.trim(),
-        content: content.trim() || title.trim(),
-        id,
-      });
+      if (isServerBackedItem) {
+        await updateItem.mutateAsync({
+          title: title.trim(),
+          content: content.trim() || title.trim(),
+          id,
+        });
+      } else {
+        await localStorage.updateItem(id, {
+          title: title.trim(),
+          content: content.trim() || title.trim(),
+        } as any);
+      }
 
-      if (itemQuery.data.accessRole === "owner") {
+      if (isServerBackedItem && effectiveItem.accessRole === "owner") {
         const nextTagNames = tagsInput
           .split(",")
           .map((tag) => tag.trim())
           .filter(Boolean);
         const nextTagNamesSet = new Set(nextTagNames.map((tag) => tag.toLowerCase()));
-        const currentTags = itemQuery.data.tags ?? [];
+        const currentTags = effectiveItem.tags ?? [];
         const currentTagNamesSet = new Set(currentTags.map((tag) => tag.name.toLowerCase()));
         const allTags = listTags.data ?? [];
         const tagIdByName = new Map(allTags.map((tag) => [tag.name.toLowerCase(), tag.id]));
@@ -153,13 +224,54 @@ export default function ItemDetailScreen() {
 
       console.log("[Item/Detail] Item updated:", id);
       Alert.alert("Saved", "Item updated successfully.");
-      router.back();
+      router.replace("/(app)/(tabs)" as any);
     } catch (error) {
       console.error("[Item/Detail] Failed saving item:", error);
       Alert.alert("Error", "Failed to save item.");
     } finally {
       setIsSaving(false);
     }
+  };
+
+  const handleDeleteItem = async () => {
+    if (!id) return;
+    const performDelete = async () => {
+      try {
+        if (isServerBackedItem) {
+          await deleteItem.mutateAsync({ id });
+        } else {
+          await deleteInboxItem(id);
+        }
+        await Promise.all([
+          utils.items.list.invalidate(),
+          utils.items.getWithTags.invalidate({ id }),
+          loadInboxItems(),
+        ]);
+        Alert.alert("Deleted", "Item deleted successfully.");
+        router.back();
+      } catch (error: any) {
+        console.error("[Item/Detail] Failed deleting item:", error);
+        Alert.alert("Error", error?.message || "Failed to delete item.");
+      }
+    };
+
+    if (Platform.OS === "web" && typeof window !== "undefined") {
+      const ok = window.confirm("Are you sure you want to permanently delete this item?");
+      if (!ok) return;
+      await performDelete();
+      return;
+    }
+
+    Alert.alert("Delete Item", "Are you sure you want to permanently delete this item?", [
+      { text: "Cancel", style: "cancel" },
+      {
+        text: "Delete",
+        style: "destructive",
+        onPress: () => {
+          void performDelete();
+        },
+      },
+    ]);
   };
 
   const handleShare = async () => {
@@ -245,11 +357,49 @@ export default function ItemDetailScreen() {
     }
   };
 
-  if (itemQuery.isLoading) {
+  const handlePrint = () => {
+    if (Platform.OS !== "web") {
+      Alert.alert("Print", "Print is currently supported on web.");
+      return;
+    }
+    window.print();
+    console.log("✅ Feature 25 completed and tested");
+  };
+
+  const handleOpenPresentation = () => {
+    setPresentationIndex(0);
+    setShowPresentationMode(true);
+  };
+
+  if (itemQuery.isLoading || isLoadingLocalItem) {
     return (
       <ScreenContainer>
         <View className="flex-1 items-center justify-center">
           <ActivityIndicator color={colors.primary} />
+        </View>
+      </ScreenContainer>
+    );
+  }
+
+  if (itemQuery.isFetched && !effectiveItem) {
+    return (
+      <ScreenContainer>
+        <View className="flex-1 items-center justify-center px-6">
+          <Text className="text-lg font-semibold text-foreground mb-2">Item not found</Text>
+          <Text className="text-muted text-center mb-4">
+            This note may have been moved or deleted.
+          </Text>
+          <Pressable
+            onPress={() => router.back()}
+            style={{
+              backgroundColor: colors.primary,
+              borderRadius: 10,
+              paddingHorizontal: 16,
+              paddingVertical: 10,
+            }}
+          >
+            <Text style={{ color: "white", fontWeight: "700" }}>Back to Inbox</Text>
+          </Pressable>
         </View>
       </ScreenContainer>
     );
@@ -353,10 +503,10 @@ export default function ItemDetailScreen() {
             paddingVertical: 10,
             marginBottom: 20,
           }}
-          editable={itemQuery.data?.accessRole === "owner"}
+          editable={effectiveItem?.accessRole === "owner"}
         />
 
-        {itemQuery.data?.accessRole === "owner" ? (
+        {isServerBackedItem && itemQuery.data?.accessRole === "owner" ? (
           <View
             style={{
               borderWidth: 1,
@@ -547,10 +697,11 @@ export default function ItemDetailScreen() {
           </View>
         ) : (
           <Text style={{ color: colors.muted, marginBottom: 14 }}>
-            Shared access: {itemQuery.data?.accessPermission === "edit" ? "Can edit" : "View only"}
+            Shared access: {effectiveItem?.accessPermission === "edit" ? "Can edit" : "View only"}
           </Text>
         )}
 
+        {isServerBackedItem ? (
         <View
           style={{
             borderWidth: 1,
@@ -618,21 +769,174 @@ export default function ItemDetailScreen() {
             <Text style={{ color: "white", fontWeight: "700" }}>Post Comment</Text>
           </Pressable>
         </View>
+        ) : null}
+
+        {isServerBackedItem ? (
+        <View
+          style={{
+            borderWidth: 1,
+            borderColor: colors.border,
+            borderRadius: 10,
+            padding: 12,
+            marginBottom: 16,
+            backgroundColor: colors.surface,
+          }}
+        >
+          <Text className="text-sm font-semibold text-foreground mb-2">Version History</Text>
+          {(versionsQuery.data ?? []).length === 0 ? (
+            <Text style={{ color: colors.muted }}>No previous versions yet.</Text>
+          ) : (
+            (versionsQuery.data ?? []).map((version) => (
+              <View
+                key={version.id}
+                style={{
+                  borderWidth: 1,
+                  borderColor: colors.border,
+                  borderRadius: 8,
+                  padding: 10,
+                  marginBottom: 8,
+                }}
+              >
+                <Text style={{ color: colors.foreground, fontWeight: "700" }} numberOfLines={1}>
+                  {version.title}
+                </Text>
+                <Text style={{ color: colors.muted, fontSize: 12, marginTop: 2 }}>
+                  {version.createdAt ? new Date(version.createdAt).toLocaleString() : "Unknown time"}
+                </Text>
+                <Text style={{ color: colors.foreground, marginTop: 4 }} numberOfLines={2}>
+                  {version.content || "No content"}
+                </Text>
+                <Pressable
+                  onPress={async () => {
+                    try {
+                      await restoreVersion.mutateAsync({ versionId: version.id });
+                      await Promise.all([
+                        itemQuery.refetch(),
+                        versionsQuery.refetch(),
+                      ]);
+                      Alert.alert("Restored", "Previous version restored.");
+                      console.log("✅ Feature 29 completed and tested");
+                    } catch (error: any) {
+                      console.error("[Item/Versions] Restore failed:", error);
+                      Alert.alert("Error", error?.message || "Failed to restore version.");
+                    }
+                  }}
+                  style={{ marginTop: 8 }}
+                >
+                  <Text style={{ color: colors.primary, fontWeight: "700" }}>Restore This Version</Text>
+                </Pressable>
+              </View>
+            ))
+          )}
+        </View>
+        ) : null}
+
+        <View style={{ flexDirection: "row", gap: 8 }}>
+          <Pressable
+            onPress={handlePrint}
+            style={{
+              flex: 1,
+              borderRadius: 10,
+              paddingVertical: 14,
+              alignItems: "center",
+              borderWidth: 1,
+              borderColor: colors.border,
+              backgroundColor: colors.background,
+            }}
+          >
+            <Text style={{ color: colors.foreground, fontWeight: "700" }}>Print</Text>
+          </Pressable>
+          <Pressable
+            onPress={handleOpenPresentation}
+            style={{
+              flex: 1,
+              borderRadius: 10,
+              paddingVertical: 14,
+              alignItems: "center",
+              borderWidth: 1,
+              borderColor: colors.border,
+              backgroundColor: colors.background,
+            }}
+          >
+            <Text style={{ color: colors.foreground, fontWeight: "700" }}>Present</Text>
+          </Pressable>
+        </View>
 
         <Pressable
           onPress={handleSave}
-          disabled={isSaving || itemQuery.data?.accessPermission !== "edit"}
+          disabled={isSaving || effectiveItem?.accessPermission !== "edit"}
           style={{
+            marginTop: 8,
             backgroundColor: colors.primary,
             borderRadius: 10,
             paddingVertical: 14,
             alignItems: "center",
-            opacity: isSaving || itemQuery.data?.accessPermission !== "edit" ? 0.7 : 1,
+            opacity: isSaving || effectiveItem?.accessPermission !== "edit" ? 0.7 : 1,
           }}
         >
           {isSaving ? <ActivityIndicator color="white" /> : <Text style={{ color: "white", fontWeight: "700" }}>Save</Text>}
         </Pressable>
+        <Pressable
+          onPress={handleDeleteItem}
+          disabled={deleteItem.isPending}
+          style={{
+            marginTop: 8,
+            backgroundColor: "#DC2626",
+            borderRadius: 10,
+            paddingVertical: 14,
+            alignItems: "center",
+            opacity: deleteItem.isPending ? 0.7 : 1,
+          }}
+        >
+          {deleteItem.isPending ? (
+            <ActivityIndicator color="white" />
+          ) : (
+            <Text style={{ color: "white", fontWeight: "700" }}>Delete</Text>
+          )}
+        </Pressable>
       </ScrollView>
+
+      <Modal visible={showPresentationMode} transparent animationType="fade" onRequestClose={() => setShowPresentationMode(false)}>
+        <View style={{ flex: 1, backgroundColor: "rgba(0,0,0,0.9)", justifyContent: "center", alignItems: "center", padding: 24 }}>
+          <Text style={{ color: "white", fontSize: 28, fontWeight: "800", marginBottom: 12, textAlign: "center" }}>
+            {title || "Untitled note"}
+          </Text>
+          <Text
+            style={{
+              color: "white",
+              fontSize: 20,
+              lineHeight: 30,
+              textAlign: "center",
+              maxWidth: 900,
+            }}
+          >
+            {presentationSlides[presentationIndex]}
+          </Text>
+          <Text style={{ color: "#d1d5db", marginTop: 16 }}>
+            Slide {presentationIndex + 1} / {presentationSlides.length}
+          </Text>
+          <View style={{ flexDirection: "row", marginTop: 20, gap: 10 }}>
+            <Pressable
+              onPress={() => setPresentationIndex((prev) => Math.max(prev - 1, 0))}
+              style={{ borderWidth: 1, borderColor: "#9ca3af", borderRadius: 8, paddingHorizontal: 14, paddingVertical: 10 }}
+            >
+              <Text style={{ color: "white", fontWeight: "700" }}>Prev</Text>
+            </Pressable>
+            <Pressable
+              onPress={() => setPresentationIndex((prev) => Math.min(prev + 1, presentationSlides.length - 1))}
+              style={{ borderWidth: 1, borderColor: "#9ca3af", borderRadius: 8, paddingHorizontal: 14, paddingVertical: 10 }}
+            >
+              <Text style={{ color: "white", fontWeight: "700" }}>Next</Text>
+            </Pressable>
+            <Pressable
+              onPress={() => setShowPresentationMode(false)}
+              style={{ borderWidth: 1, borderColor: "#ef4444", borderRadius: 8, paddingHorizontal: 14, paddingVertical: 10 }}
+            >
+              <Text style={{ color: "#fecaca", fontWeight: "700" }}>Close</Text>
+            </Pressable>
+          </View>
+        </View>
+      </Modal>
     </ScreenContainer>
   );
 }

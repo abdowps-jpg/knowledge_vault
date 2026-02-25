@@ -45,7 +45,7 @@ function getTimeLabel(value: unknown): string {
 
 export default function JournalScreen() {
   const colors = useColors();
-  const params = useLocalSearchParams<{ openCreate?: string }>();
+  const params = useLocalSearchParams<{ openCreate?: string; openEntryId?: string }>();
   const utils = trpc.useUtils();
 
   const today = React.useMemo(() => getTodayDateString(), []);
@@ -170,6 +170,15 @@ export default function JournalScreen() {
       setShowCreateModal(true);
     }
   }, [params.openCreate]);
+
+  React.useEffect(() => {
+    const entryId = typeof params.openEntryId === "string" ? params.openEntryId : "";
+    if (!entryId || entries.length === 0) return;
+    const target = entries.find((entry: any) => entry.id === entryId);
+    if (!target) return;
+    setSelectedEntry(target);
+    setShowEntryModal(true);
+  }, [entries, params.openEntryId]);
 
   return (
     <ScreenContainer>

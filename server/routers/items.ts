@@ -7,6 +7,7 @@ import { randomUUID } from 'crypto';
 import { itemTags, tags } from '../schema/tags';
 import { itemCategories } from '../schema/categories';
 import { ensureItemAccess, getItemAccessById } from '../lib/item-access';
+import { itemVersions } from '../schema/item_versions';
 
 export const itemsRouter = router({
   // قراءة كل العناصر
@@ -131,12 +132,25 @@ export const itemsRouter = router({
     )
     .query(async ({ input, ctx }) => {
       try {
-        const access = await getItemAccessById({
-          itemId: input.id,
-          userId: ctx.user.id,
-          userEmail: ctx.user.email,
-        });
-        const ensuredAccess = ensureItemAccess(access, 'view');
+        const ownerRows = await db
+          .select()
+          .from(items)
+          .where(and(eq(items.id, input.id), eq(items.userId, ctx.user.id)))
+          .limit(1);
+
+        let accessRole: 'owner' | 'shared' = 'owner';
+        let accessPermission: 'view' | 'edit' = 'edit';
+
+        if (ownerRows.length === 0) {
+          const access = await getItemAccessById({
+            itemId: input.id,
+            userId: ctx.user.id,
+            userEmail: ctx.user.email,
+          });
+          const ensuredAccess = ensureItemAccess(access, 'view');
+          accessRole = ensuredAccess.role;
+          accessPermission = ensuredAccess.permission;
+        }
 
         const rows = await db
           .select()
@@ -160,8 +174,8 @@ export const itemsRouter = router({
           ...baseItem,
           tags: [] as Array<{ id: string; name: string; color: string | null }>,
           categoryId: categoryLink[0]?.categoryId ?? null,
-          accessRole: ensuredAccess.role,
-          accessPermission: ensuredAccess.permission,
+          accessRole,
+          accessPermission,
         };
 
         for (const row of rows) {
@@ -232,6 +246,19 @@ export const itemsRouter = router({
         userEmail: ctx.user.email,
       });
       ensureItemAccess(access, 'edit');
+
+      const currentRows = await db.select().from(items).where(eq(items.id, id)).limit(1);
+      const current = currentRows[0];
+      if (current) {
+        await db.insert(itemVersions).values({
+          id: randomUUID(),
+          itemId: current.id,
+          userId: current.userId,
+          title: current.title,
+          content: current.content,
+          createdAt: new Date(),
+        });
+      }
 
       await db
         .update(items)

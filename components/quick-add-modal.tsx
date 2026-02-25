@@ -218,7 +218,13 @@ export function QuickAddModal() {
         isArchived: false,
       });
       setShowAudioRecorder(false);
+      resetForm();
       closeQuickAdd();
+      if (router.canGoBack()) {
+        router.back();
+      } else {
+        router.replace("/(app)/(tabs)" as any);
+      }
     } catch (error) {
       console.error("Error saving audio:", error);
       Alert.alert("Error", "Failed to save audio note");
@@ -286,8 +292,12 @@ export function QuickAddModal() {
 
       resetForm();
       closeQuickAdd();
-      if (newItem?.id) {
-        router.push(`/(app)/item/${newItem.id}` as any);
+      if (destination === "actions") {
+        router.replace("/(app)/(tabs)/actions" as any);
+      } else if (destination === "library") {
+        router.replace("/(app)/(tabs)/library" as any);
+      } else {
+        router.replace("/(app)/(tabs)" as any);
       }
     } catch (error) {
       console.error("Error saving item:", error);
@@ -410,7 +420,7 @@ export function QuickAddModal() {
       </View>
 
       {/* Content */}
-      <ScrollView className="flex-1 bg-background">
+      <ScrollView className="flex-1 bg-background" keyboardShouldPersistTaps="handled">
         <View className="p-4 gap-4">
           {/* Image Attachment */}
           <View>
@@ -854,7 +864,7 @@ export function QuickAddModal() {
                 <MaterialIcons name="close" size={22} color={colors.foreground} />
               </Pressable>
             </View>
-            <ScrollView showsVerticalScrollIndicator={false}>
+            <ScrollView showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
               {QUICK_TEMPLATES.map((template) => (
                 <Pressable
                   key={template.id}

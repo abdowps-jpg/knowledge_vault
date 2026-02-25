@@ -3,7 +3,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { Redirect, Stack, useRouter, useSegments } from "expo-router";
 import { usePathname } from "expo-router";
 import { StatusBar } from "expo-status-bar";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
 import "react-native-reanimated";
 import { AppState, Platform, Text, View } from "react-native";
@@ -56,6 +56,8 @@ export default function RootLayout() {
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const [sessionExpired, setSessionExpired] = useState(false);
+  const syncInFlightRef = useRef(false);
+  const lastSyncRunRef = useRef(0);
 
   const decodeBase64Url = useCallback((input: string): string | null => {
     try {
@@ -294,12 +296,23 @@ export default function RootLayout() {
   useEffect(() => {
     if (!isAuthenticated) return;
 
-    const runSync = () => {
-      fullSync().catch((error) => {
-        console.error("Background sync failed:", error);
-      });
+    const runSync = (force = false) => {
+      const now = Date.now();
+      if (syncInFlightRef.current) return;
+      if (!force && now - lastSyncRunRef.current < 15_000) return;
+
+      syncInFlightRef.current = true;
+      lastSyncRunRef.current = now;
+      fullSync()
+        .catch((error) => {
+          console.error("Background sync failed:", error);
+        })
+        .finally(() => {
+          syncInFlightRef.current = false;
+        });
     };
 
+    runSync(true);
     const interval = setInterval(runSync, 5 * 60 * 1000);
     const appStateSub = AppState.addEventListener("change", (state) => {
       if (state === "active") runSync();
@@ -337,8 +350,10 @@ export default function RootLayout() {
       ? { icon: "⚠️", color: "#eab308", label: "Offline" }
       : { icon: "❌", color: "#ef4444", label: "Sync Failed" };
 
+  const RootContainer = Platform.OS === "web" ? View : GestureHandlerRootView;
+
   const content = (
-    <GestureHandlerRootView style={{ flex: 1 }}>
+    <RootContainer style={{ flex: 1 }}>
       <trpc.Provider client={trpcClient} queryClient={queryClient}>
         <QueryClientProvider client={queryClient}>
           {/* Default to hiding native headers so raw route segments don't appear (e.g. "(tabs)", "products/[id]"). */}
@@ -429,7 +444,7 @@ export default function RootLayout() {
             : ""}
         </Text>
       </View>
-    </GestureHandlerRootView>
+    </RootContainer>
   );
 
   if (!onboardingChecked || isLoading) {

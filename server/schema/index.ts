@@ -14,3 +14,5 @@ export * from './item_shares';
 export * from './item_comments';
 export * from './user_notifications';
 export * from './public_links';
+export * from './api_keys';
+export * from './item_versions';
