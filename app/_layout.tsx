@@ -129,42 +129,32 @@ export default function RootLayout() {
 
   const checkAuth = useCallback(async () => {
     try {
-      console.log("Checking authentication...");
-      console.log("[Auth/Layout] Checking auth state...");
       const token = await getToken();
-      console.log("[Auth/Layout] Startup token:", token ? "present" : "missing");
 
       if (!token) {
         setIsAuthenticated(false);
-        console.log("Is authenticated:", false);
         return;
       }
 
       if (isTokenExpired(token)) {
-        console.log("[Auth/Layout] Token is expired/invalid, clearing token");
         await clearToken();
         setIsAuthenticated(false);
         setSessionExpired(true);
-        console.log("Is authenticated:", false);
         return;
       }
 
       const stayLoggedIn = await getStayLoggedIn();
       if (!stayLoggedIn) {
-        console.log("[Auth/Layout] stayLoggedIn is false, clearing token");
         await clearToken();
         setIsAuthenticated(false);
-        console.log("Is authenticated:", false);
         return;
       }
 
       setIsAuthenticated(true);
-      console.log("Is authenticated:", true);
       setSessionExpired((prev) => (prev ? false : prev));
     } catch (error) {
       console.error("[Auth/Layout] Failed loading auth state:", error);
       setIsAuthenticated(false);
-      console.log("Is authenticated:", false);
     } finally {
       setIsLoading(false);
     }
@@ -188,12 +178,6 @@ export default function RootLayout() {
     return () => unsubscribe();
   }, []);
 
-  useEffect(() => {
-    console.log("[Auth] isAuthenticated:", isAuthenticated);
-    console.log("[Auth] isLoading:", isLoading);
-    console.log("[Auth] segments:", segments);
-    console.log("[Auth] pathname:", pathname);
-  }, [isAuthenticated, isLoading, pathname, segments]);
 
   useEffect(() => {
     if (Platform.OS === "web") {
@@ -459,21 +443,18 @@ export default function RootLayout() {
     );
   }
 
-  if (!hasSeenOnboarding && pathname !== "/onboarding") {
-    console.log("[Auth/Layout] Onboarding not completed, but auth flow takes priority");
-  }
-
   const firstSegment = String(segments[0] ?? "");
   const inAuthGroup = firstSegment === "(auth)";
   const inPublicRoute = firstSegment === "public";
-  if (!isAuthenticated && !inAuthGroup && !inPublicRoute) {
-    console.log("[Auth/Layout] Redirecting unauthenticated user to login");
-    console.log("Redirecting to:", "auth");
+  const inOnboarding = firstSegment === "onboarding";
+
+  if (!hasSeenOnboarding && !inOnboarding) {
+    return <Redirect href={"/onboarding" as any} />;
+  }
+  if (!isAuthenticated && !inAuthGroup && !inPublicRoute && !inOnboarding) {
     return <Redirect href={"/(auth)/login" as any} />;
   }
   if (isAuthenticated && inAuthGroup) {
-    console.log("[Auth/Layout] Redirecting authenticated user to app tabs");
-    console.log("Redirecting to:", "tabs");
     return <Redirect href={"/(app)/(tabs)" as any} />;
   }
 

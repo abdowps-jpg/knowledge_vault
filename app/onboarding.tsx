@@ -1,6 +1,5 @@
 import React, { useRef, useState } from "react";
 import {
-  Alert,
   FlatList,
   Pressable,
   Text,
@@ -119,8 +118,8 @@ export default function OnboardingScreen() {
   };
 
   const handleCreateAccount = async () => {
-    Alert.alert("Coming Soon", "Account creation will be available in a future update.");
     await finishOnboarding();
+    router.replace("/(auth)/register" as any);
   };
 
   return (

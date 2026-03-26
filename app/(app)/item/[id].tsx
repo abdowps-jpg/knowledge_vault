@@ -33,7 +33,7 @@ export default function ItemDetailScreen() {
   const [presentationIndex, setPresentationIndex] = React.useState(0);
   const [localItem, setLocalItem] = React.useState<LocalItem | null>(null);
   const [isLoadingLocalItem, setIsLoadingLocalItem] = React.useState(false);
-  const { loadInboxItems, updateItem: updateInboxItem, deleteItem: deleteInboxItem } = useInbox();
+  const { loadInboxItems, deleteItem: deleteInboxItem } = useInbox();
 
   const utils = trpc.useUtils();
   const itemQuery = trpc.items.getWithTags.useQuery(

@@ -599,7 +599,6 @@ const [showApiModal, setShowApiModal] = useState(false);
     await importData(latest.payload);
     await refreshStorageUsed();
     Alert.alert("Restore Complete", `Restored backup from ${new Date(latest.createdAt).toLocaleString()}.`);
-    console.log("✅ Feature 28 completed and tested");
   };
 
   const openExternalUrl = async (url: string) => {
@@ -999,7 +998,6 @@ const [showApiModal, setShowApiModal] = useState(false);
       setExportPreview(previewText);
       setShowExportOptionsModal(false);
       setShowExportModal(true);
-      console.log("✅ Feature 24 completed and tested");
     } catch (error) {
       console.error("Export failed:", error);
       Alert.alert("Error", "Failed to export data.");
@@ -1067,7 +1065,6 @@ const [showApiModal, setShowApiModal] = useState(false);
                 "Import Complete",
                 `${summary.items} items, ${summary.tasks} tasks, ${summary.entries} entries imported (merge).`
               );
-              console.log("✅ Feature 27 completed and tested");
             } catch (error) {
               console.error("Merge import failed:", error);
               Alert.alert("Error", "Failed to merge import data.");
@@ -1088,7 +1085,6 @@ const [showApiModal, setShowApiModal] = useState(false);
                 "Import Complete",
                 `${summary.items} items, ${summary.tasks} tasks, ${summary.entries} entries imported (replace).`
               );
-              console.log("✅ Feature 27 completed and tested");
             } catch (error) {
               console.error("Replace import failed:", error);
               Alert.alert("Error", "Failed to replace with imported data.");
@@ -1112,7 +1108,6 @@ const [showApiModal, setShowApiModal] = useState(false);
       setLatestApiKey(created.key);
       await apiKeysQuery.refetch();
       Alert.alert("API Key Created", "Copy it now. It will not be shown again.");
-      console.log("✅ Feature 26 completed and tested");
     } catch (error: any) {
       Alert.alert("Error", error?.message || "Failed to create API key.");
     }
@@ -1418,7 +1413,6 @@ const [showApiModal, setShowApiModal] = useState(false);
                 setWorking(true);
                 await createBackupSnapshot("manual");
                 Alert.alert("Backup Created", "Local backup snapshot saved.");
-                console.log("✅ Feature 28 completed and tested");
               } catch (error) {
                 console.error("Failed creating backup snapshot:", error);
                 Alert.alert("Error", "Failed creating backup snapshot.");

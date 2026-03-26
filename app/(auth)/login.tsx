@@ -33,8 +33,6 @@ export default function LoginScreen() {
 
   const loginMutation = trpc.auth.login.useMutation({
     onSuccess: async (result) => {
-      console.log("[Auth/Login] Login mutation succeeded for:", result.user?.email);
-      console.log("Login response:", result);
       try {
         const previousUserId = await getCurrentUserId();
         if (previousUserId && previousUserId !== result.user.id) {
@@ -44,10 +42,7 @@ export default function LoginScreen() {
         }
         await saveCurrentUserId(result.user.id);
         await saveToken(result.token);
-        console.log("Token saved:", result.token);
-        console.log("[Auth/Login] Token saved successfully");
         await saveStayLoggedIn(stayLoggedIn);
-        console.log("[Auth/Login] Stay logged in preference saved:", stayLoggedIn);
         const currentSettings = await loadAppSettings();
         await saveAppSettings({
           ...currentSettings,
@@ -68,7 +63,6 @@ export default function LoginScreen() {
           deviceName: `${Platform.OS}-device`,
           platform: Platform.OS,
         });
-        console.log("[Auth/Login] Device registration succeeded:", deviceId);
       } catch (error) {
         console.warn("[Auth/Login] Device registration failed (continuing):", error);
       }
@@ -79,8 +73,6 @@ export default function LoginScreen() {
         console.warn("[Auth/Login] Cache invalidation failed (continuing):", error);
       }
 
-      console.log("[Auth/Login] Navigating to app tabs");
-      console.log("Navigating to home");
       router.replace("/(app)/(tabs)" as any);
     },
     onError: (error) => {
@@ -116,14 +108,11 @@ export default function LoginScreen() {
   });
 
   const handleLogin = async () => {
-    console.log("Login button pressed");
     if (!email.trim() || !password) {
       Alert.alert("Validation", "Email and password are required.");
       return;
     }
     const normalizedEmail = email.trim().toLowerCase();
-    console.log("Calling login API with:", { email: normalizedEmail });
-    console.log("[Auth/Login] Attempting login for:", normalizedEmail);
     try {
       await loginMutation.mutateAsync({ email: normalizedEmail, password });
     } catch (error) {

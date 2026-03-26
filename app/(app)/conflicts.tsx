@@ -63,7 +63,6 @@ export default function ConflictsScreen() {
       await removeConflict(activeConflict.id);
       await refreshConflicts();
       Alert.alert("Resolved", "Conflict resolved and saved.");
-      console.log("✅ Feature 30 completed and tested");
     } catch (error: any) {
       console.error("[Conflicts] Resolve failed:", error);
       Alert.alert("Error", error?.message || "Failed to resolve conflict.");

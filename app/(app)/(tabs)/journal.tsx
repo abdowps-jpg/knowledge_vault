@@ -78,14 +78,6 @@ export default function JournalScreen() {
     }
   }, [error]);
 
-  React.useEffect(() => {
-    console.log("[Journal] Query status:", {
-      isLoading,
-      total: entries.length,
-      hasNextPage,
-      date: today,
-    });
-  }, [entries.length, hasNextPage, isLoading, today]);
 
   const createEntry = trpc.journal.create.useMutation({
     onSuccess: () => {

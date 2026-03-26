@@ -266,15 +266,6 @@ export default function ActionsScreen() {
     }
   }, [error]);
 
-  React.useEffect(() => {
-    if (!isFocused) return;
-    console.log("[Actions] Query status:", {
-      isLoading,
-      total: tasks.length,
-      activeTab,
-      hasNextPage,
-    });
-  }, [activeTab, hasNextPage, isFocused, isLoading, tasks.length]);
 
   React.useEffect(() => {
     const taskId = typeof params.taskId === "string" ? params.taskId : undefined;

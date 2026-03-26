@@ -152,23 +152,6 @@ export default function LibraryScreen() {
     }
   }, [error]);
 
-  React.useEffect(() => {
-    console.log("[Library] Query status:", {
-      isLoading,
-      total: items.length,
-      hasNextPage,
-      filters: { typeFilter, favoritesOnly, recentOnly, categoryIdFilter, sortFilter },
-    });
-  }, [
-    categoryIdFilter,
-    favoritesOnly,
-    hasNextPage,
-    isLoading,
-    items.length,
-    recentOnly,
-    sortFilter,
-    typeFilter,
-  ]);
 
   React.useEffect(() => {
     if (categoriesError) {

@@ -295,7 +295,6 @@ export default function InboxScreen() {
     { getNextPageParam: (lastPage) => lastPage.nextCursor, enabled: isSearchMode }
   );
   const updateItemMutation = trpc.items.update.useMutation();
-  const createItemMutation = trpc.items.create.useMutation();
   const createTaskMutation = trpc.tasks.create.useMutation();
   const createJournalMutation = trpc.journal.create.useMutation();
 
@@ -344,38 +343,13 @@ export default function InboxScreen() {
 
   const handleMoveToLibrary = async (item: Item) => {
     try {
-      await updateItemMutation.mutateAsync({
-        id: item.id,
-        location: "library",
-      });
-      await updateItem(item.id, { categoryId: "library" as any, isArchived: true as any });
+      await updateItemMutation.mutateAsync({ id: item.id, location: "library" });
+      await loadInboxItems();
       await utils.items.list.invalidate();
       Alert.alert("Done", "Item moved to Library.");
     } catch (error) {
       console.error("[Inbox] Failed moving item to library:", error);
-      try {
-        const normalizedType =
-          item.type === ItemType.QUOTE || item.type === ItemType.LINK || item.type === ItemType.AUDIO
-            ? item.type
-            : ItemType.NOTE;
-        await createItemMutation.mutateAsync({
-          type: normalizedType as "note" | "quote" | "link" | "audio",
-          title: item.title?.trim() || "Untitled",
-          content: item.content?.trim() || item.title?.trim() || "",
-          url: item.type === ItemType.LINK ? ((item as any).url || undefined) : undefined,
-          location: "library",
-        });
-        await deleteItem(item.id);
-        await utils.items.list.invalidate();
-        Alert.alert("Done", "Item copied to Library and removed from Inbox.");
-      } catch {
-        try {
-          await updateItem(item.id, { categoryId: "library" as any, isArchived: true as any });
-          Alert.alert("Done", "Item moved locally. It will sync later.");
-        } catch {
-          Alert.alert("Error", "Failed to move item.");
-        }
-      }
+      Alert.alert("Error", "Failed to move item to Library.");
     }
   };
 
@@ -405,15 +379,7 @@ export default function InboxScreen() {
       Alert.alert("Done", "Item moved to Journal.");
     } catch (error) {
       console.error("[Inbox] Failed moving item to journal:", error);
-      try {
-        await updateItem(item.id, {
-          type: ItemType.JOURNAL as any,
-          entryDate: new Date() as any,
-        } as any);
-        Alert.alert("Done", "Item moved locally to Journal.");
-      } catch {
-        Alert.alert("Error", "Failed to move item to Journal.");
-      }
+      Alert.alert("Error", "Failed to move item to Journal.");
     }
   };
 

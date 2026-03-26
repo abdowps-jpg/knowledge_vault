@@ -250,7 +250,6 @@ export default function AppLayout() {
     };
 
     window.addEventListener("keydown", onKeyDown);
-    console.log("✅ Feature 31 completed and tested");
     return () => {
       window.removeEventListener("keydown", onKeyDown);
       if (goPrefixTimer) clearTimeout(goPrefixTimer);
@@ -275,7 +274,6 @@ export default function AppLayout() {
 
   React.useEffect(() => {
     if (Platform.OS !== "web") return;
-    console.log("✅ Feature 32 completed and tested");
   }, []);
 
   return (
