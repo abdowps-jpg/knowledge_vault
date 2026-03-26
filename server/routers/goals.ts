@@ -1,5 +1,5 @@
 import { randomUUID } from "crypto";
-import { and, eq, inArray, sql } from "drizzle-orm";
+import { and, eq, inArray } from "drizzle-orm";
 import { z } from "zod";
 
 import { db } from "../db";
@@ -7,54 +7,8 @@ import { goalMilestones, goals, milestoneTasks } from "../schema/goals";
 import { tasks } from "../schema/tasks";
 import { protectedProcedure, router } from "../trpc";
 
-let ensureTablePromise: Promise<void> | null = null;
-
-async function ensureGoalsTables() {
-  if (!ensureTablePromise) {
-    ensureTablePromise = Promise.resolve(
-      db.run(sql`
-        CREATE TABLE IF NOT EXISTS goals (
-          id TEXT PRIMARY KEY,
-          user_id TEXT NOT NULL,
-          title TEXT NOT NULL,
-          description TEXT,
-          is_completed INTEGER DEFAULT 0,
-          created_at INTEGER DEFAULT (strftime('%s', 'now')),
-          updated_at INTEGER DEFAULT (strftime('%s', 'now'))
-        )
-      `)
-    )
-      .then(() =>
-        db.run(sql`
-          CREATE TABLE IF NOT EXISTS goal_milestones (
-            id TEXT PRIMARY KEY,
-            goal_id TEXT NOT NULL,
-            title TEXT NOT NULL,
-            is_completed INTEGER DEFAULT 0,
-            sort_order INTEGER DEFAULT 0,
-            created_at INTEGER DEFAULT (strftime('%s', 'now')),
-            updated_at INTEGER DEFAULT (strftime('%s', 'now'))
-          )
-        `)
-      )
-      .then(() =>
-        db.run(sql`
-          CREATE TABLE IF NOT EXISTS milestone_tasks (
-            id TEXT PRIMARY KEY,
-            milestone_id TEXT NOT NULL,
-            task_id TEXT NOT NULL,
-            created_at INTEGER DEFAULT (strftime('%s', 'now'))
-          )
-        `)
-      )
-      .then(() => undefined);
-  }
-  return ensureTablePromise;
-}
-
 export const goalsRouter = router({
   list: protectedProcedure.query(async ({ ctx }) => {
-    await ensureGoalsTables();
     const goalRows = await db.select().from(goals).where(eq(goals.userId, ctx.user.id));
     if (goalRows.length === 0) return [];
 
@@ -123,7 +77,6 @@ export const goalsRouter = router({
       })
     )
     .mutation(async ({ ctx, input }) => {
-      await ensureGoalsTables();
       const now = new Date();
       const goal = {
         id: randomUUID(),
@@ -154,7 +107,6 @@ export const goalsRouter = router({
   toggleMilestone: protectedProcedure
     .input(z.object({ milestoneId: z.string() }))
     .mutation(async ({ ctx, input }) => {
-      await ensureGoalsTables();
       const rows = await db
         .select({
           milestoneId: goalMilestones.id,
@@ -182,7 +134,6 @@ export const goalsRouter = router({
   linkTask: protectedProcedure
     .input(z.object({ milestoneId: z.string(), taskId: z.string() }))
     .mutation(async ({ ctx, input }) => {
-      await ensureGoalsTables();
       const milestoneRows = await db
         .select({
           milestoneId: goalMilestones.id,
@@ -220,6 +171,31 @@ export const goalsRouter = router({
         taskId: input.taskId,
         createdAt: new Date(),
       });
+      return { success: true as const };
+    }),
+
+  delete: protectedProcedure
+    .input(z.object({ goalId: z.string() }))
+    .mutation(async ({ ctx, input }) => {
+      const rows = await db
+        .select({ id: goals.id })
+        .from(goals)
+        .where(and(eq(goals.id, input.goalId), eq(goals.userId, ctx.user.id)))
+        .limit(1);
+      if (rows.length === 0) return { success: false as const };
+
+      const milestoneRows = await db
+        .select({ id: goalMilestones.id })
+        .from(goalMilestones)
+        .where(eq(goalMilestones.goalId, input.goalId));
+      const milestoneIds = milestoneRows.map((m) => m.id);
+
+      if (milestoneIds.length > 0) {
+        await db.delete(milestoneTasks).where(inArray(milestoneTasks.milestoneId, milestoneIds));
+        await db.delete(goalMilestones).where(eq(goalMilestones.goalId, input.goalId));
+      }
+
+      await db.delete(goals).where(eq(goals.id, input.goalId));
       return { success: true as const };
     }),
 });

@@ -23,6 +23,9 @@ export default function GoalsScreen() {
   const createGoal = trpc.goals.create.useMutation({
     onSuccess: () => goalsQuery.refetch().catch(() => undefined),
   });
+  const deleteGoal = trpc.goals.delete.useMutation({
+    onSuccess: () => goalsQuery.refetch().catch(() => undefined),
+  });
   const toggleMilestone = trpc.goals.toggleMilestone.useMutation({
     onSuccess: () => goalsQuery.refetch().catch(() => undefined),
   });
@@ -39,6 +42,19 @@ export default function GoalsScreen() {
     () => tasksQuery.data?.pages.flatMap((page) => page.items ?? []) ?? [],
     [tasksQuery.data]
   );
+
+  const handleDeleteGoal = (goalId: string, goalTitle: string) => {
+    Alert.alert("Delete Goal", `Delete "${goalTitle}" and all its milestones? This cannot be undone.`, [
+      { text: "Cancel", style: "cancel" },
+      {
+        text: "Delete",
+        style: "destructive",
+        onPress: () => {
+          deleteGoal.mutate({ goalId });
+        },
+      },
+    ]);
+  };
 
   const handleCreateGoal = async () => {
     if (!title.trim()) {
@@ -143,42 +159,80 @@ export default function GoalsScreen() {
                 }}
               >
                 <Pressable onPress={() => setExpandedGoalId((prev) => (prev === goal.id ? null : goal.id))}>
-                  <Text style={{ color: colors.foreground, fontWeight: "700", fontSize: 16 }}>{goal.title}</Text>
-                  {!!goal.description ? <Text style={{ color: colors.muted, marginTop: 4 }}>{goal.description}</Text> : null}
-                  <Text style={{ color: colors.primary, marginTop: 6, fontWeight: "700" }}>Progress: {goal.progress}%</Text>
+                  <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "flex-start" }}>
+                    <View style={{ flex: 1 }}>
+                      <Text style={{ color: colors.foreground, fontWeight: "700", fontSize: 16 }}>{goal.title}</Text>
+                      {!!goal.description ? <Text style={{ color: colors.muted, marginTop: 4 }}>{goal.description}</Text> : null}
+                      <Text style={{ color: colors.primary, marginTop: 6, fontWeight: "700" }}>Progress: {goal.progress}%</Text>
+                    </View>
+                    <Pressable
+                      onPress={(e) => { e.stopPropagation(); handleDeleteGoal(goal.id, goal.title); }}
+                      style={{ padding: 6 }}
+                    >
+                      <Text style={{ color: "#ef4444", fontWeight: "700", fontSize: 16 }}>✕</Text>
+                    </Pressable>
+                  </View>
                 </Pressable>
 
                 {expandedGoalId === goal.id ? (
                   <View style={{ marginTop: 10 }}>
                     {goal.milestones.map((milestone: any) => (
                       <View key={milestone.id} style={{ marginBottom: 8, padding: 8, borderRadius: 8, borderWidth: 1, borderColor: colors.border }}>
-                        <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center" }}>
-                          <Text style={{ color: colors.foreground, fontWeight: "600", flex: 1 }}>{milestone.title}</Text>
-                          <Pressable onPress={() => toggleMilestone.mutate({ milestoneId: milestone.id })}>
-                            <Text style={{ color: colors.primary, fontWeight: "700" }}>
-                              {milestone.effectiveCompleted ? "Completed" : "Mark Done"}
-                            </Text>
-                          </Pressable>
-                        </View>
-                        <View style={{ flexDirection: "row", flexWrap: "wrap", marginTop: 8 }}>
-                          {availableTasks.slice(0, 6).map((task: any) => (
-                            <Pressable
-                              key={`${milestone.id}-${task.id}`}
-                              onPress={() => linkTask.mutate({ milestoneId: milestone.id, taskId: task.id })}
-                              style={{
-                                paddingHorizontal: 8,
-                                paddingVertical: 4,
-                                borderRadius: 999,
-                                borderWidth: 1,
-                                borderColor: colors.border,
-                                marginRight: 6,
-                                marginBottom: 6,
-                              }}
-                            >
-                              <Text style={{ color: colors.muted, fontSize: 12 }}>{task.title}</Text>
-                            </Pressable>
-                          ))}
-                        </View>
+                        <Pressable
+                          onPress={() => toggleMilestone.mutate({ milestoneId: milestone.id })}
+                          style={{ flexDirection: "row", alignItems: "center" }}
+                        >
+                          <View
+                            style={{
+                              width: 20,
+                              height: 20,
+                              borderRadius: 4,
+                              borderWidth: 2,
+                              borderColor: milestone.effectiveCompleted ? "#16a34a" : colors.border,
+                              backgroundColor: milestone.effectiveCompleted ? "#16a34a" : "transparent",
+                              marginRight: 10,
+                              alignItems: "center",
+                              justifyContent: "center",
+                            }}
+                          >
+                            {milestone.effectiveCompleted ? (
+                              <Text style={{ color: "white", fontSize: 12, fontWeight: "700" }}>✓</Text>
+                            ) : null}
+                          </View>
+                          <Text style={{
+                            color: milestone.effectiveCompleted ? colors.muted : colors.foreground,
+                            fontWeight: "600",
+                            flex: 1,
+                            textDecorationLine: milestone.effectiveCompleted ? "line-through" : "none",
+                          }}>
+                            {milestone.title}
+                          </Text>
+                        </Pressable>
+                        {availableTasks.length > 0 ? (
+                          <View style={{ flexDirection: "row", flexWrap: "wrap", marginTop: 8 }}>
+                            {availableTasks.map((task: any) => {
+                              const linked = milestone.linkedTaskIds?.includes(task.id);
+                              return (
+                                <Pressable
+                                  key={`${milestone.id}-${task.id}`}
+                                  onPress={() => { if (!linked) linkTask.mutate({ milestoneId: milestone.id, taskId: task.id }); }}
+                                  style={{
+                                    paddingHorizontal: 8,
+                                    paddingVertical: 4,
+                                    borderRadius: 999,
+                                    borderWidth: 1,
+                                    borderColor: linked ? "#16a34a" : colors.border,
+                                    backgroundColor: linked ? "#dcfce7" : "transparent",
+                                    marginRight: 6,
+                                    marginBottom: 6,
+                                  }}
+                                >
+                                  <Text style={{ color: linked ? "#16a34a" : colors.muted, fontSize: 12 }}>{task.title}</Text>
+                                </Pressable>
+                              );
+                            })}
+                          </View>
+                        ) : null}
                       </View>
                     ))}
                   </View>

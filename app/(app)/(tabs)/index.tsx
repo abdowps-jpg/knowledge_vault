@@ -92,6 +92,7 @@ interface InboxItemProps {
   onPress: (item: Item) => void;
   onLongPress: (item: Item) => void;
   onDelete: (itemId: string) => void;
+  onArchive: (item: Item) => void;
   onMoveToLibrary: (item: Item) => void;
   onMoveToJournal: (item: Item) => void;
   onMoveToActions: (item: Item) => void;
@@ -102,6 +103,7 @@ function InboxItem({
   onPress,
   onLongPress,
   onDelete,
+  onArchive,
   onMoveToLibrary,
   onMoveToJournal,
   onMoveToActions,
@@ -201,7 +203,7 @@ function InboxItem({
               />
             </View>
           ) : null}
-          <View className="flex-row items-center gap-3 mt-3">
+          <View className="flex-row items-center gap-3 mt-3" style={{ flexWrap: "wrap" }}>
             <Pressable onPress={() => onMoveToLibrary(item)}>
               <Text style={{ color: colors.primary, fontWeight: "700", fontSize: 12 }}>Move to Library</Text>
             </Pressable>
@@ -210,6 +212,9 @@ function InboxItem({
             </Pressable>
             <Pressable onPress={() => onMoveToJournal(item)}>
               <Text style={{ color: colors.primary, fontWeight: "700", fontSize: 12 }}>Move to Journal</Text>
+            </Pressable>
+            <Pressable onPress={() => onArchive(item)}>
+              <Text style={{ color: "#f59e0b", fontWeight: "700", fontSize: 12 }}>Archive</Text>
             </Pressable>
           </View>
         </View>
@@ -324,6 +329,17 @@ export default function InboxScreen() {
   const handleQuickAdd = () => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     openQuickAdd("note");
+  };
+
+  const handleArchive = async (item: Item) => {
+    try {
+      await updateItemMutation.mutateAsync({ id: item.id, location: "archive" });
+      await loadInboxItems();
+      await utils.items.list.invalidate();
+    } catch (error) {
+      console.error("[Inbox] Failed archiving item:", error);
+      Alert.alert("Error", "Failed to archive item.");
+    }
   };
 
   const handleMoveToLibrary = async (item: Item) => {
@@ -663,6 +679,7 @@ export default function InboxScreen() {
               onPress={handleItemPress}
               onLongPress={handleItemLongPress}
               onDelete={handleDelete}
+              onArchive={handleArchive}
               onMoveToLibrary={handleMoveToLibrary}
               onMoveToJournal={handleMoveToJournal}
               onMoveToActions={handleMoveToActions}

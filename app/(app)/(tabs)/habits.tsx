@@ -51,6 +51,11 @@ export default function HabitsScreen() {
       habitsQuery.refetch().catch(() => undefined);
     },
   });
+  const deleteHabit = trpc.habits.delete.useMutation({
+    onSuccess: () => {
+      habitsQuery.refetch().catch(() => undefined);
+    },
+  });
 
   React.useEffect(() => {
     AsyncStorage.getItem(HABITS_META_KEY)
@@ -105,6 +110,34 @@ export default function HabitsScreen() {
       console.error("[Habits] Failed creating habit:", error);
       Alert.alert("Error", "Failed to create habit.");
     }
+  };
+
+  const handleDeleteHabit = (habitId: string, habitName: string) => {
+    Alert.alert("Delete Habit", `Delete "${habitName}"? This cannot be undone.`, [
+      { text: "Cancel", style: "cancel" },
+      {
+        text: "Delete",
+        style: "destructive",
+        onPress: async () => {
+          try {
+            await deleteHabit.mutateAsync({ id: habitId });
+            setMetaByHabitId((prev) => {
+              const next = { ...prev };
+              delete next[habitId];
+              return next;
+            });
+            setHistoryByHabitId((prev) => {
+              const next = { ...prev };
+              delete next[habitId];
+              return next;
+            });
+          } catch (error) {
+            console.error("[Habits] Failed deleting habit:", error);
+            Alert.alert("Error", "Failed to delete habit.");
+          }
+        },
+      },
+    ]);
   };
 
   const handleToggleHabit = async (habitId: string) => {
@@ -325,19 +358,33 @@ export default function HabitsScreen() {
                   />
                 </View>
               </View>
-              <Pressable
-                onPress={() => handleToggleHabit(habit.id)}
-                disabled={toggleHabit.isPending}
-                style={{
-                  borderRadius: 999,
-                  paddingHorizontal: 14,
-                  paddingVertical: 8,
-                  backgroundColor: habit.doneToday ? "#16a34a" : colors.primary,
-                  opacity: toggleHabit.isPending ? 0.75 : 1,
-                }}
-              >
-                <Text style={{ color: "white", fontWeight: "700" }}>{habit.doneToday ? "Undo" : "Done"}</Text>
-              </Pressable>
+              <View style={{ flexDirection: "row", gap: 8 }}>
+                <Pressable
+                  onPress={() => handleToggleHabit(habit.id)}
+                  disabled={toggleHabit.isPending}
+                  style={{
+                    borderRadius: 999,
+                    paddingHorizontal: 14,
+                    paddingVertical: 8,
+                    backgroundColor: habit.doneToday ? "#16a34a" : colors.primary,
+                    opacity: toggleHabit.isPending ? 0.75 : 1,
+                  }}
+                >
+                  <Text style={{ color: "white", fontWeight: "700" }}>{habit.doneToday ? "Undo" : "Done"}</Text>
+                </Pressable>
+                <Pressable
+                  onPress={() => handleDeleteHabit(habit.id, habit.name)}
+                  style={{
+                    borderRadius: 999,
+                    paddingHorizontal: 12,
+                    paddingVertical: 8,
+                    borderWidth: 1,
+                    borderColor: "#ef4444",
+                  }}
+                >
+                  <Text style={{ color: "#ef4444", fontWeight: "700" }}>✕</Text>
+                </Pressable>
+              </View>
             </View>
             );
           })

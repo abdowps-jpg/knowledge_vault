@@ -82,4 +82,11 @@ export const habitsRouter = router({
 
       return { success: true as const, doneToday: true, streak: nextStreak };
     }),
+
+  delete: protectedProcedure
+    .input(z.object({ id: z.string() }))
+    .mutation(async ({ ctx, input }) => {
+      await db.delete(habits).where(and(eq(habits.id, input.id), eq(habits.userId, ctx.user.id)));
+      return { success: true as const };
+    }),
 });
