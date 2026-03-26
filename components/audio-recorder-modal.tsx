@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState } from "react";
 import {
   Modal,
   Text,
@@ -7,7 +7,15 @@ import {
   Alert,
   ScrollView,
   TextInput,
+  ActivityIndicator,
 } from "react-native";
+import {
+  useAudioRecorder,
+  useAudioRecorderState,
+  useAudioPlayer,
+  useAudioPlayerStatus,
+  requestRecordingPermissionsAsync,
+} from "expo-audio";
 import { ScreenContainer } from "@/components/screen-container";
 import { useColors } from "@/hooks/use-colors";
 import { MaterialIcons } from "@expo/vector-icons";
@@ -24,7 +32,7 @@ export interface AudioRecorderModalProps {
 }
 
 // ============================================================================
-// Helper Functions
+// Helpers
 // ============================================================================
 
 function formatDuration(seconds: number): string {
@@ -39,89 +47,101 @@ function formatDuration(seconds: number): string {
 
 export function AudioRecorderModal({ visible, onClose, onSave }: AudioRecorderModalProps) {
   const colors = useColors();
-  const [isRecording, setIsRecording] = useState(false);
-  const [duration, setDuration] = useState(0);
-  const [transcription, setTranscription] = useState("");
-  const [hasRecording, setHasRecording] = useState(false);
-  const [isPlaying, setIsPlaying] = useState(false);
+  const [note, setNote] = useState("");
   const [loading, setLoading] = useState(false);
+  const [recordedUri, setRecordedUri] = useState<string | null>(null);
 
-  // Timer effect
-  useEffect(() => {
-    let interval: ReturnType<typeof setInterval> | undefined;
-    if (isRecording) {
-      interval = setInterval(() => {
-        setDuration((prev) => prev + 1);
-      }, 1000);
-    }
-    return () => {
-      if (interval) clearInterval(interval);
-    };
-  }, [isRecording]);
+  const recorder = useAudioRecorder(
+    {
+      extension: ".m4a",
+      audioQuality: "high",
+      sampleRate: 44100,
+      numberOfChannels: 1,
+      bitRate: 128000,
+    } as any,
+    undefined
+  );
+  const recordingState = useAudioRecorderState(recorder, 250);
+
+  const player = useAudioPlayer(recordedUri ? { uri: recordedUri } : null);
+  const playerStatus = useAudioPlayerStatus(player);
+
+  const isRecording = recordingState?.isRecording ?? false;
+  const durationSeconds = Math.floor((recordingState?.durationMillis ?? 0) / 1000);
 
   const handleStartRecording = async () => {
     try {
+      const { granted } = await requestRecordingPermissionsAsync();
+      if (!granted) {
+        Alert.alert(
+          "Permission Required",
+          "Please allow microphone access to record audio."
+        );
+        return;
+      }
+      setRecordedUri(null);
+      setNote("");
       await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-      setIsRecording(true);
-      setDuration(0);
-      setTranscription("");
-      // In a real app, you would use expo-audio to start recording
-      // For now, this is a placeholder
+      await recorder.record();
     } catch (error) {
-      console.error("Error starting recording:", error);
-      Alert.alert("Error", "Failed to start recording");
+      console.error("[AudioRecorder] Failed to start:", error);
+      Alert.alert("Error", "Failed to start recording. Please try again.");
     }
   };
 
   const handleStopRecording = async () => {
     try {
       await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-      setIsRecording(false);
-      setHasRecording(true);
-      // Simulate transcription (in real app, would use speech-to-text API)
-      setTranscription(
-        `[Audio recorded for ${formatDuration(duration)}] This is a placeholder transcription. In a real app, this would be converted from speech to text.`
-      );
+      await recorder.stop();
+      if (recorder.uri) {
+        setRecordedUri(recorder.uri);
+      }
     } catch (error) {
-      console.error("Error stopping recording:", error);
-      Alert.alert("Error", "Failed to stop recording");
+      console.error("[AudioRecorder] Failed to stop:", error);
+      Alert.alert("Error", "Failed to stop recording.");
     }
   };
 
-  const handlePlayRecording = async () => {
-    try {
-      await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-      setIsPlaying(!isPlaying);
-      // In a real app, you would use expo-audio to play the recording
-    } catch (error) {
-      console.error("Error playing recording:", error);
+  const handlePlayPause = () => {
+    if (!player) return;
+    if (playerStatus?.playing) {
+      player.pause();
+    } else {
+      player.seekTo(0);
+      player.play();
     }
   };
 
-  const handleDiscardRecording = async () => {
-    await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-    setIsRecording(false);
-    setHasRecording(false);
-    setDuration(0);
-    setTranscription("");
-    setIsPlaying(false);
+  const handleDiscard = () => {
+    if (isRecording) {
+      recorder.stop().catch(() => undefined);
+    }
+    setRecordedUri(null);
+    setNote("");
+    onClose();
+  };
+
+  const handleReRecord = () => {
+    setRecordedUri(null);
+    setNote("");
   };
 
   const handleSave = async () => {
-    if (!transcription.trim()) {
-      Alert.alert("Error", "Please record something or add a note");
+    if (!recordedUri) {
+      Alert.alert("No Recording", "Please record something first.");
       return;
     }
-
     try {
       setLoading(true);
-      await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-      await onSave(transcription);
-      handleDiscardRecording();
-      onClose();
+      await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      const content =
+        note.trim() || `Voice Note (${formatDuration(durationSeconds)})`;
+      await onSave(content, recordedUri);
+      setRecordedUri(null);
+      setNote("");
     } catch (error) {
-      console.error("Error saving recording:", error);
-      Alert.alert("Error", "Failed to save recording");
+      console.error("[AudioRecorder] Failed to save:", error);
+      Alert.alert("Error", "Failed to save recording.");
     } finally {
       setLoading(false);
     }
@@ -132,88 +152,133 @@ export function AudioRecorderModal({ visible, onClose, onSave }: AudioRecorderMo
       visible={visible}
       animationType="slide"
       transparent={false}
-      onRequestClose={onClose}
+      onRequestClose={handleDiscard}
     >
       <ScreenContainer className="bg-background" containerClassName="bg-background">
         {/* Header */}
         <View className="px-4 py-4 border-b border-border flex-row items-center justify-between">
           <Text className="text-xl font-bold text-foreground">Voice Note</Text>
-          <Pressable onPress={onClose} style={({ pressed }) => [{ opacity: pressed ? 0.6 : 1 }]}>
+          <Pressable
+            onPress={handleDiscard}
+            style={({ pressed }) => [{ opacity: pressed ? 0.6 : 1 }]}
+          >
             <MaterialIcons name="close" size={24} color={colors.foreground} />
           </Pressable>
         </View>
 
         <ScrollView className="flex-1 px-4 py-6" showsVerticalScrollIndicator={false}>
-          {/* Recording Controls */}
-          <View className="items-center gap-6 mb-8">
-            {/* Waveform Visualization (Placeholder) */}
-            <View
-              style={{
-                width: "100%",
-                height: 100,
-                backgroundColor: colors.surface,
-                borderRadius: 12,
-                justifyContent: "center",
-                alignItems: "center",
-                borderWidth: 2,
-                borderColor: colors.border,
-              }}
-            >
-              {isRecording ? (
-                <View className="items-center gap-2">
-                  <View
-                    style={{
-                      width: 12,
-                      height: 12,
-                      borderRadius: 6,
-                      backgroundColor: colors.error,
-                      opacity: 0.7,
-                    }}
-                  />
-                  <Text className="text-sm font-semibold text-foreground">Recording...</Text>
-                </View>
-              ) : hasRecording ? (
-                <View className="items-center gap-2">
-                  <MaterialIcons name="graphic-eq" size={32} color={colors.primary} />
-                  <Text className="text-sm text-muted">{formatDuration(duration)}</Text>
-                </View>
-              ) : (
-                <View className="items-center gap-2">
-                  <MaterialIcons name="mic" size={32} color={colors.muted} />
-                  <Text className="text-sm text-muted">Ready to record</Text>
-                </View>
-              )}
-            </View>
+          {/* Visualization */}
+          <View
+            style={{
+              width: "100%",
+              height: 100,
+              backgroundColor: colors.surface,
+              borderRadius: 12,
+              justifyContent: "center",
+              alignItems: "center",
+              borderWidth: 2,
+              borderColor: isRecording ? colors.error : colors.border,
+              marginBottom: 24,
+            }}
+          >
+            {isRecording ? (
+              <View style={{ alignItems: "center", gap: 8 }}>
+                <View
+                  style={{
+                    width: 12,
+                    height: 12,
+                    borderRadius: 6,
+                    backgroundColor: colors.error,
+                  }}
+                />
+                <Text style={{ color: colors.foreground, fontSize: 14, fontWeight: "600" }}>
+                  Recording...
+                </Text>
+              </View>
+            ) : recordedUri ? (
+              <View style={{ alignItems: "center", gap: 8 }}>
+                <MaterialIcons name="graphic-eq" size={32} color={colors.primary} />
+                <Text style={{ color: colors.muted, fontSize: 14 }}>
+                  {formatDuration(durationSeconds)}
+                </Text>
+              </View>
+            ) : (
+              <View style={{ alignItems: "center", gap: 8 }}>
+                <MaterialIcons name="mic" size={32} color={colors.muted} />
+                <Text style={{ color: colors.muted, fontSize: 14 }}>Tap mic to start</Text>
+              </View>
+            )}
+          </View>
 
-            {/* Duration Display */}
-            <Text className="text-3xl font-bold text-foreground">
-              {formatDuration(duration)}
-            </Text>
+          {/* Duration */}
+          <Text
+            style={{
+              fontSize: 36,
+              fontWeight: "700",
+              color: colors.foreground,
+              textAlign: "center",
+              marginBottom: 24,
+            }}
+          >
+            {formatDuration(durationSeconds)}
+          </Text>
 
-            {/* Recording Buttons */}
-            <View className="flex-row gap-4 justify-center">
-              {!isRecording && !hasRecording && (
+          {/* Controls */}
+          <View
+            style={{
+              flexDirection: "row",
+              gap: 16,
+              justifyContent: "center",
+              marginBottom: 32,
+            }}
+          >
+            {/* Start recording */}
+            {!isRecording && !recordedUri && (
+              <Pressable
+                onPress={handleStartRecording}
+                style={({ pressed }) => [
+                  {
+                    opacity: pressed ? 0.8 : 1,
+                    backgroundColor: colors.error,
+                    width: 64,
+                    height: 64,
+                    borderRadius: 32,
+                    justifyContent: "center",
+                    alignItems: "center",
+                    elevation: 4,
+                  },
+                ]}
+              >
+                <MaterialIcons name="mic" size={32} color="white" />
+              </Pressable>
+            )}
+
+            {/* Stop recording */}
+            {isRecording && (
+              <Pressable
+                onPress={handleStopRecording}
+                style={({ pressed }) => [
+                  {
+                    opacity: pressed ? 0.8 : 1,
+                    backgroundColor: colors.primary,
+                    width: 64,
+                    height: 64,
+                    borderRadius: 32,
+                    justifyContent: "center",
+                    alignItems: "center",
+                    elevation: 4,
+                  },
+                ]}
+              >
+                <MaterialIcons name="stop" size={32} color="white" />
+              </Pressable>
+            )}
+
+            {/* Playback controls */}
+            {recordedUri && (
+              <>
                 <Pressable
-                  onPress={handleStartRecording}
-                  style={({ pressed }) => [
-                    {
-                      opacity: pressed ? 0.8 : 1,
-                      backgroundColor: colors.error,
-                      width: 64,
-                      height: 64,
-                      borderRadius: 32,
-                      justifyContent: "center",
-                      alignItems: "center",
-                    },
-                  ]}
-                >
-                  <MaterialIcons name="mic" size={32} color="white" />
-                </Pressable>
-              )}
-
-              {isRecording && (
-                <Pressable
-                  onPress={handleStopRecording}
+                  onPress={handlePlayPause}
                   style={({ pressed }) => [
                     {
                       opacity: pressed ? 0.8 : 1,
@@ -223,86 +288,52 @@ export function AudioRecorderModal({ visible, onClose, onSave }: AudioRecorderMo
                       borderRadius: 32,
                       justifyContent: "center",
                       alignItems: "center",
+                      elevation: 4,
                     },
                   ]}
                 >
-                  <MaterialIcons name="stop" size={32} color="white" />
+                  <MaterialIcons
+                    name={playerStatus?.playing ? "pause" : "play-arrow"}
+                    size={32}
+                    color="white"
+                  />
                 </Pressable>
-              )}
-
-              {hasRecording && (
-                <>
-                  <Pressable
-                    onPress={handlePlayRecording}
-                    style={({ pressed }) => [
-                      {
-                        opacity: pressed ? 0.8 : 1,
-                        backgroundColor: colors.primary,
-                        width: 64,
-                        height: 64,
-                        borderRadius: 32,
-                        justifyContent: "center",
-                        alignItems: "center",
-                      },
-                    ]}
-                  >
-                    <MaterialIcons
-                      name={isPlaying ? "pause" : "play-arrow"}
-                      size={32}
-                      color="white"
-                    />
-                  </Pressable>
-
-                  <Pressable
-                    onPress={handleDiscardRecording}
-                    style={({ pressed }) => [
-                      {
-                        opacity: pressed ? 0.8 : 1,
-                        backgroundColor: colors.error,
-                        width: 64,
-                        height: 64,
-                        borderRadius: 32,
-                        justifyContent: "center",
-                        alignItems: "center",
-                      },
-                    ]}
-                  >
-                    <MaterialIcons name="delete" size={32} color="white" />
-                  </Pressable>
-                </>
-              )}
-            </View>
+                <Pressable
+                  onPress={handleReRecord}
+                  style={({ pressed }) => [
+                    {
+                      opacity: pressed ? 0.8 : 1,
+                      backgroundColor: colors.error,
+                      width: 64,
+                      height: 64,
+                      borderRadius: 32,
+                      justifyContent: "center",
+                      alignItems: "center",
+                      elevation: 4,
+                    },
+                  ]}
+                >
+                  <MaterialIcons name="replay" size={28} color="white" />
+                </Pressable>
+              </>
+            )}
           </View>
 
-          {/* Transcription Display */}
-          {transcription && (
-            <View className="gap-3 mb-6">
-              <Text className="text-sm font-semibold text-foreground">Transcription</Text>
-              <View
-                style={{
-                  backgroundColor: colors.surface,
-                  borderColor: colors.border,
-                  borderWidth: 1,
-                  borderRadius: 8,
-                  padding: 12,
-                }}
+          {/* Note input after recording */}
+          {recordedUri && (
+            <View style={{ gap: 8, marginBottom: 20 }}>
+              <Text
+                style={{ color: colors.foreground, fontSize: 14, fontWeight: "600" }}
               >
-                <Text className="text-sm text-foreground leading-relaxed">
-                  {transcription}
-                </Text>
-              </View>
-
-              {/* Edit Transcription */}
-              <Text className="text-sm font-semibold text-foreground mt-4">
-                Edit or Add Notes
+                Add a note (optional)
               </Text>
               <TextInput
-                placeholder="Add additional notes or corrections..."
-                value={transcription}
-                onChangeText={setTranscription}
+                placeholder="Describe what this recording is about..."
+                value={note}
+                onChangeText={setNote}
                 placeholderTextColor={colors.muted}
                 multiline
-                numberOfLines={4}
+                numberOfLines={3}
                 style={{
                   backgroundColor: colors.surface,
                   borderColor: colors.border,
@@ -312,14 +343,13 @@ export function AudioRecorderModal({ visible, onClose, onSave }: AudioRecorderMo
                   color: colors.foreground,
                   fontSize: 16,
                   textAlignVertical: "top",
-                  fontFamily: "System",
                 }}
               />
             </View>
           )}
 
-          {/* Save Button */}
-          {hasRecording && (
+          {/* Save button */}
+          {recordedUri && (
             <Pressable
               onPress={handleSave}
               disabled={loading}
@@ -328,14 +358,18 @@ export function AudioRecorderModal({ visible, onClose, onSave }: AudioRecorderMo
                   opacity: pressed || loading ? 0.7 : 1,
                   backgroundColor: colors.primary,
                   borderRadius: 8,
-                  paddingVertical: 12,
+                  paddingVertical: 14,
                   alignItems: "center",
                 },
               ]}
             >
-              <Text className="text-base font-semibold text-white">
-                {loading ? "Saving..." : "Save Voice Note"}
-              </Text>
+              {loading ? (
+                <ActivityIndicator color="white" />
+              ) : (
+                <Text style={{ color: "white", fontSize: 16, fontWeight: "600" }}>
+                  Save Voice Note
+                </Text>
+              )}
             </Pressable>
           )}
         </ScrollView>

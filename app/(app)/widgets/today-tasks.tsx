@@ -40,7 +40,7 @@ export default function WidgetTodayTasksScreen() {
   return (
     <ScreenContainer className="bg-background" containerClassName="bg-background">
       <View className="px-4 py-4 border-b border-border">
-        <Text className="text-xl font-bold text-foreground">Today's Tasks Widget</Text>
+        <Text className="text-xl font-bold text-foreground">{"Today's Tasks Widget"}</Text>
         <Text className="text-sm text-muted mt-1">Compact list optimized for widget deep-link target.</Text>
       </View>
 

@@ -1,6 +1,7 @@
-import React, { useState } from "react";
+import React from "react";
 import { Pressable, Text, View } from "react-native";
 import { MaterialIcons } from "@expo/vector-icons";
+import { useAudioPlayer, useAudioPlayerStatus } from "expo-audio";
 
 interface AudioPlayerProps {
   title?: string;
@@ -16,12 +17,21 @@ function fmt(sec: number): string {
 }
 
 export function AudioPlayer({ title = "Audio Note", durationSec = 0, sourceUri }: AudioPlayerProps) {
-  const [playing, setPlaying] = useState(false);
-  const [progress, setProgress] = useState(0);
+  const player = useAudioPlayer(sourceUri ? { uri: sourceUri } : null);
+  const status = useAudioPlayerStatus(player);
+
+  const isPlaying = status?.playing ?? false;
+  const positionSec = Math.floor((status?.currentTime ?? 0));
+  const totalSec = durationSec > 0 ? durationSec : Math.floor((status?.duration ?? 0));
+  const progressPct = totalSec > 0 ? Math.min(100, (positionSec / totalSec) * 100) : 0;
 
   const toggle = () => {
-    // TODO: Integrate expo-audio playback controls.
-    setPlaying((v) => !v);
+    if (!player || !sourceUri) return;
+    if (isPlaying) {
+      player.pause();
+    } else {
+      player.play();
+    }
   };
 
   return (
@@ -32,17 +42,21 @@ export function AudioPlayer({ title = "Audio Note", durationSec = 0, sourceUri }
             {title}
           </Text>
           <Text className="text-muted text-xs mt-1">
-            {fmt(progress)} / {fmt(durationSec)} | {sourceUri ? "Local" : "Unknown"}
+            {fmt(positionSec)} / {fmt(totalSec)}
           </Text>
         </View>
-        <Pressable onPress={toggle} className="bg-primary rounded-full w-10 h-10 items-center justify-center">
-          <MaterialIcons name={playing ? "pause" : "play-arrow"} size={20} color="white" />
+        <Pressable
+          onPress={toggle}
+          disabled={!sourceUri}
+          className="bg-primary rounded-full w-10 h-10 items-center justify-center"
+          style={({ pressed }) => [{ opacity: pressed ? 0.7 : 1 }]}
+        >
+          <MaterialIcons name={isPlaying ? "pause" : "play-arrow"} size={20} color="white" />
         </Pressable>
       </View>
       <View className="h-2 bg-border rounded-full mt-3 overflow-hidden">
-        <View className="h-2 bg-primary" style={{ width: `${Math.min(100, (progress / Math.max(durationSec, 1)) * 100)}%` }} />
+        <View className="h-2 bg-primary" style={{ width: `${progressPct}%` }} />
       </View>
-      <Text className="text-xs text-muted mt-2">TODO: seek + real playback progress + buffered state.</Text>
     </View>
   );
 }

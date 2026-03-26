@@ -32,7 +32,7 @@ export default function AIFeaturesScreen() {
               <Text className="text-foreground font-semibold">{feature}</Text>
               <MaterialIcons name="lock" size={18} color="#6b7280" />
             </View>
-            <Text className="text-muted text-sm mt-2">Coming Soon. TODO: Integrate with OpenAI API or local LLM.</Text>
+            <Text className="text-muted text-sm mt-2">Coming soon in a future update.</Text>
           </View>
         ))}
       </ScrollView>

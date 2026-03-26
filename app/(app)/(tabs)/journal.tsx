@@ -124,9 +124,7 @@ export default function JournalScreen() {
         location: null,
         weather: null,
       };
-      console.log("[Journal] Creating entry:", input);
       const createdEntry = await createEntry.mutateAsync(input as any);
-      console.log("[Journal] Entry created:", createdEntry);
       await refetch();
     } catch (err) {
       console.error("Failed to create journal entry:", err);

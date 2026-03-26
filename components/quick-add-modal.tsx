@@ -9,6 +9,7 @@ import { ItemType } from "@/lib/db/schema";
 import * as ImagePicker from "expo-image-picker";
 import * as ImageManipulator from "expo-image-manipulator";
 import * as Haptics from "expo-haptics";
+import * as FileSystem from "expo-file-system/legacy";
 import { AudioRecorderModal } from "./audio-recorder-modal";
 import { trpc } from "@/lib/trpc";
 import { RichTextEditor } from "./rich-text-editor";
@@ -205,11 +206,11 @@ export function QuickAddModal() {
   ]);
 
   // Handle audio save
-  const handleSaveAudio = async (audioContent: string) => {
+  const handleSaveAudio = async (audioContent: string, audioUri?: string) => {
     try {
       setLoading(true);
       await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-      await addItem({
+      const newItem = await addItem({
         type: ItemType.AUDIO,
         title: "Voice Note",
         content: audioContent,
@@ -217,6 +218,28 @@ export function QuickAddModal() {
         isFavorite: false,
         isArchived: false,
       });
+
+      // Upload actual audio file as attachment if available
+      if (newItem?.id && audioUri) {
+        try {
+          const fileInfo = await FileSystem.getInfoAsync(audioUri);
+          if (fileInfo.exists) {
+            const base64 = await FileSystem.readAsStringAsync(audioUri, {
+              encoding: FileSystem.EncodingType.Base64,
+            });
+            const ext = audioUri.split(".").pop() || "m4a";
+            await createAttachment.mutateAsync({
+              itemId: newItem.id,
+              fileUrl: `data:audio/${ext};base64,${base64}`,
+              filename: `voice_note_${Date.now()}.${ext}`,
+              type: "audio",
+            });
+          }
+        } catch (attachErr) {
+          console.error("[QuickAdd] Failed uploading audio attachment:", attachErr);
+        }
+      }
+
       setShowAudioRecorder(false);
       resetForm();
       closeQuickAdd();
@@ -277,8 +300,6 @@ export function QuickAddModal() {
 
       const newItem = await addItem(itemData);
       await AsyncStorage.setItem(DESTINATION_KEY, destination);
-      console.log("[QuickAdd] Saved item:", newItem?.id, "destination:", destination);
-
       if (newItem?.id && selectedImageBase64 && selectedImageName) {
         await createAttachment.mutateAsync({
           itemId: newItem.id,
@@ -749,7 +770,7 @@ export function QuickAddModal() {
                 Tap to record a voice note. Transcription can be triggered after recording.
               </Text>
               <Pressable
-                onPress={() => Alert.alert("Coming Soon", "TODO: Integrate transcription API call.")}
+                onPress={() => Alert.alert("Coming Soon", "Auto-transcription will be available in a future update.")}
                 style={({ pressed }) => [
                   {
                     opacity: pressed ? 0.7 : 1,

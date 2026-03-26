@@ -803,7 +803,6 @@ export default function ActionsScreen() {
         priority: newTaskPriority,
         recurrence: newTaskRecurrence === "none" ? undefined : newTaskRecurrence,
       };
-      console.log("[Actions] Creating task:", input);
       const createResult = await offlineManager.runOrQueueMutation("tasks.create", input, () =>
         createTask.mutateAsync(input as any)
       );
@@ -813,8 +812,6 @@ export default function ActionsScreen() {
         return;
       }
       const createdTask = createResult as any;
-      console.log("[Actions] Task created:", createdTask);
-
       if (createdTask?.id && createTaskDefaultStatus !== "todo") {
         if (createTaskDefaultStatus === "done") {
           await updateTask.mutateAsync({ id: createdTask.id, isCompleted: true });
@@ -1378,11 +1375,9 @@ export default function ActionsScreen() {
   }, [isMultiSelectMode, selectedTaskIds.length]);
 
   React.useEffect(() => {
-    console.log("✅ Feature 34 completed and tested");
   }, []);
 
   React.useEffect(() => {
-    console.log("✅ Feature 35 completed and tested");
   }, []);
 
   React.useEffect(() => {
@@ -1604,9 +1599,7 @@ export default function ActionsScreen() {
           ].map((tab) => (
             <Pressable
               key={tab.value}
-              onPress={() => {
-                console.log("[Actions] Filter tab pressed:", tab.value);
-                setActiveTab(tab.value);
+              onPress={() => {                setActiveTab(tab.value);
               }}
               style={{
                 paddingHorizontal: 12,
@@ -1684,7 +1677,7 @@ export default function ActionsScreen() {
           </Pressable>
           {myDayTasks.length === 0 ? (
             <Text style={{ color: colors.muted, marginTop: 6, fontSize: 12 }}>
-              No tasks yet. Pin tasks with "My Day" from the list below.
+              {'No tasks yet. Pin tasks with "My Day" from the list below.'}
             </Text>
           ) : (
             <View style={{ marginTop: 8 }}>
@@ -2808,7 +2801,7 @@ export default function ActionsScreen() {
               />
               {newTaskDetectedDateValue ? (
                 <Text className="text-xs mb-3" style={{ color: colors.primary, fontWeight: "600" }}>
-                  Detected date: "{newTaskDetectedDateText}" to {newTaskDetectedDateValue}
+                  {`Detected date: "${newTaskDetectedDateText}" → ${newTaskDetectedDateValue}`}
                 </Text>
               ) : null}
               <TextInput

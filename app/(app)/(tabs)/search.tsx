@@ -418,7 +418,6 @@ export default function SearchScreen() {
               <Pressable
                 key={chip.value}
                 onPress={() => {
-                  console.log("[Search] Filter pressed:", chip.value);
                   setActiveFilter(chip.value);
                 }}
                 style={{
@@ -476,7 +475,7 @@ export default function SearchScreen() {
         <View style={{ flex: 1 }}>
           <View style={{ paddingHorizontal: 16, paddingTop: 12 }}>
             <Text style={{ color: colors.muted, fontSize: 12 }}>
-              Showing {filteredResults.length} result(s) for "{debouncedSearchText.trim()}"
+              {`Showing ${filteredResults.length} result(s) for "${debouncedSearchText.trim()}"`}
             </Text>
           </View>
           <FlashList

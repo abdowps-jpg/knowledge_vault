@@ -110,7 +110,7 @@ export default function AnalyticsScreen() {
 
         <View className="bg-surface border border-border rounded-xl p-4 mb-4">
           <Text className="text-foreground font-semibold mb-2">Export</Text>
-          <Text className="text-muted text-sm">TODO: PDF/CSV export and share screenshot integration.</Text>
+          <Text className="text-muted text-sm">Export to PDF/CSV coming in a future update.</Text>
         </View>
       </ScrollView>
     </ScreenContainer>

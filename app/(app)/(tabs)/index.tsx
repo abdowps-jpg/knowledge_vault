@@ -308,7 +308,6 @@ export default function InboxScreen() {
   };
 
   const handleItemPress = (item: Item) => {
-    console.log("[Inbox] Opening item details:", item.id);
     router.push(`/(app)/item/${item.id}` as any);
   };
 
@@ -335,7 +334,6 @@ export default function InboxScreen() {
       });
       await updateItem(item.id, { categoryId: "library" as any, isArchived: true as any });
       await utils.items.list.invalidate();
-      console.log("[Inbox] Moved item to library:", item.id);
       Alert.alert("Done", "Item moved to Library.");
     } catch (error) {
       console.error("[Inbox] Failed moving item to library:", error);
@@ -388,7 +386,6 @@ export default function InboxScreen() {
       await deleteItem(item.id);
       await utils.journal.list.invalidate();
       await utils.items.list.invalidate();
-      console.log("[Inbox] Moved item to journal:", item.id);
       Alert.alert("Done", "Item moved to Journal.");
     } catch (error) {
       console.error("[Inbox] Failed moving item to journal:", error);

@@ -188,7 +188,7 @@ export default function LoginScreen() {
       </TouchableOpacity>
 
       <View className="flex-row justify-center mt-4">
-        <Text className="text-muted">Don't have an account? </Text>
+        <Text className="text-muted">{"Don't have an account? "}</Text>
         <Pressable onPress={() => router.push("/(auth)/register" as any)}>
           <Text className="text-primary font-semibold">Register</Text>
         </Pressable>

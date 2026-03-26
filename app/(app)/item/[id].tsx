@@ -130,7 +130,6 @@ export default function ItemDetailScreen() {
       setContent(effectiveItem.content ?? "");
       setTagsInput((effectiveItem.tags ?? []).map((tag) => tag.name).join(", "));
       setDidHydrateForm(true);
-      console.log("[Item/Detail] Loaded item:", effectiveItem.id);
     }
   }, [didHydrateForm, effectiveItem, id, itemQuery.error, itemQuery.isFetched, router]);
 
@@ -221,8 +220,6 @@ export default function ItemDetailScreen() {
         utils.items.list.invalidate(),
         utils.tags.list.invalidate(),
       ]);
-
-      console.log("[Item/Detail] Item updated:", id);
       Alert.alert("Saved", "Item updated successfully.");
       router.replace("/(app)/(tabs)" as any);
     } catch (error) {
@@ -363,7 +360,6 @@ export default function ItemDetailScreen() {
       return;
     }
     window.print();
-    console.log("✅ Feature 25 completed and tested");
   };
 
   const handleOpenPresentation = () => {
@@ -815,7 +811,6 @@ export default function ItemDetailScreen() {
                         versionsQuery.refetch(),
                       ]);
                       Alert.alert("Restored", "Previous version restored.");
-                      console.log("✅ Feature 29 completed and tested");
                     } catch (error: any) {
                       console.error("[Item/Versions] Restore failed:", error);
                       Alert.alert("Error", error?.message || "Failed to restore version.");

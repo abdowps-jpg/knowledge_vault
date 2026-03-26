@@ -394,7 +394,7 @@ export default function RootLayout() {
           }}
         >
           <Text style={{ color: "#111827", textAlign: "center", fontWeight: "600", fontSize: 12 }}>
-            You're offline. Changes will sync when online.
+            {"You're offline. Changes will sync when online."}
           </Text>
         </View>
       ) : null}

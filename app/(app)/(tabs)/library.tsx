@@ -15,7 +15,7 @@ import { Image as ExpoImage } from "expo-image";
 
 type ItemTypeFilter = "all" | "note" | "quote" | "link" | "audio";
 type SortFilter = "newest" | "oldest" | "az" | "za";
-type SmartFolderKey = "all" | "today" | "thisWeek" | "overdue" | "highPriority" | "favorites";
+type SmartFolderKey = "all" | "today" | "thisWeek" | "overdue" | "highPriority" | "favorites" | "archived";
 type LibrarySavedView = {
   id: string;
   name: string;
@@ -107,6 +107,10 @@ export default function LibraryScreen() {
   const [newContent, setNewContent] = React.useState("");
   const [savedViews, setSavedViews] = React.useState<LibrarySavedView[]>([]);
   const [smartFolder, setSmartFolder] = React.useState<SmartFolderKey>("all");
+  const [showCategoryModal, setShowCategoryModal] = React.useState(false);
+  const [newCategoryName, setNewCategoryName] = React.useState("");
+  const [archivingItemId, setArchivingItemId] = React.useState<string | null>(null);
+  const [restoringItemId, setRestoringItemId] = React.useState<string | null>(null);
 
   const querySort =
     sortFilter === "newest"
@@ -119,7 +123,7 @@ export default function LibraryScreen() {
 
   const itemsQuery = trpc.items.list.useInfiniteQuery(
     {
-      location: "library",
+      location: smartFolder === "archived" ? "archive" : "library",
       isFavorite: favoritesOnly ? true : undefined,
       type: typeFilter === "all" ? undefined : typeFilter,
       categoryId: categoryIdFilter ?? undefined,
@@ -218,6 +222,30 @@ export default function LibraryScreen() {
     },
   });
 
+  const createCategory = trpc.categories.create.useMutation({
+    onSuccess: () => {
+      utils.categories.list.invalidate();
+      setNewCategoryName("");
+    },
+  });
+
+  const deleteCategory = trpc.categories.delete.useMutation({
+    onSuccess: () => {
+      utils.categories.list.invalidate();
+      if (categoryIdFilter) setCategoryIdFilter(null);
+    },
+  });
+
+  const archiveItem = trpc.items.update.useMutation({
+    onSuccess: () => {
+      utils.items.list.invalidate();
+    },
+    onSettled: () => {
+      setArchivingItemId(null);
+      setRestoringItemId(null);
+    },
+  });
+
   const handleDeleteItem = (itemId: string) => {
     Alert.alert("Delete Item", "Are you sure you want to delete this item?", [
       { text: "Cancel", style: "cancel" },
@@ -279,6 +307,58 @@ export default function LibraryScreen() {
     }
   };
 
+  const handleArchiveItem = async (itemId: string) => {
+    try {
+      setArchivingItemId(itemId);
+      await archiveItem.mutateAsync({ id: itemId, location: "archive" });
+    } catch (err) {
+      Alert.alert("Error", "Failed to archive item");
+    }
+  };
+
+  const handleRestoreItem = async (itemId: string) => {
+    try {
+      setRestoringItemId(itemId);
+      await archiveItem.mutateAsync({ id: itemId, location: "library" });
+    } catch (err) {
+      Alert.alert("Error", "Failed to restore item");
+    }
+  };
+
+  const handleCreateCategory = async () => {
+    const name = newCategoryName.trim();
+    if (!name) {
+      Alert.alert("Validation", "Category name is required.");
+      return;
+    }
+    try {
+      await createCategory.mutateAsync({ name });
+    } catch (err) {
+      Alert.alert("Error", "Failed to create category.");
+    }
+  };
+
+  const handleDeleteCategory = (categoryId: string, categoryName: string) => {
+    Alert.alert(
+      "Delete Category",
+      `Delete "${categoryName}"? Items in this category will remain but will be uncategorized.`,
+      [
+        { text: "Cancel", style: "cancel" },
+        {
+          text: "Delete",
+          style: "destructive",
+          onPress: async () => {
+            try {
+              await deleteCategory.mutateAsync({ id: categoryId });
+            } catch (err) {
+              Alert.alert("Error", "Failed to delete category.");
+            }
+          },
+        },
+      ]
+    );
+  };
+
   const handleCreateLibraryItem = async () => {
     if (!newTitle.trim()) {
       Alert.alert("Validation", "Title is required.");
@@ -293,7 +373,6 @@ export default function LibraryScreen() {
         location: "library",
       });
       if (created?.id) {
-        console.log("[Library] Opening new item details:", created.id);
         router.push(`/(app)/item/${created.id}` as any);
       }
     } catch (error) {
@@ -503,6 +582,7 @@ export default function LibraryScreen() {
             { key: "overdue", label: "Overdue" },
             { key: "highPriority", label: "High Priority" },
             { key: "favorites", label: "Favorites" },
+            { key: "archived", label: "🗄 Archived" },
           ].map((folder) => (
             <Pressable
               key={folder.key}
@@ -523,6 +603,44 @@ export default function LibraryScreen() {
               </Text>
             </Pressable>
           ))}
+        </View>
+      </View>
+
+      {/* Categories */}
+      <View style={{ paddingHorizontal: 16, paddingVertical: 8, borderBottomWidth: 1, borderBottomColor: colors.border }}>
+        <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
+          <Text style={{ color: colors.muted, fontSize: 12, fontWeight: "600" }}>Categories</Text>
+          <Pressable onPress={() => setShowCategoryModal(true)}>
+            <Text style={{ color: colors.primary, fontSize: 12, fontWeight: "700" }}>Manage</Text>
+          </Pressable>
+        </View>
+        <View style={{ flexDirection: "row", flexWrap: "wrap" }}>
+          {(categories as any[]).length === 0 ? (
+            <Pressable onPress={() => setShowCategoryModal(true)}>
+              <Text style={{ color: colors.muted, fontSize: 12 }}>No categories yet. Tap Manage to add one.</Text>
+            </Pressable>
+          ) : (
+            (categories as any[]).map((cat) => (
+              <Pressable
+                key={cat.id}
+                onPress={() => setCategoryIdFilter((prev) => (prev === cat.id ? null : cat.id))}
+                style={{
+                  marginRight: 8,
+                  marginBottom: 8,
+                  paddingHorizontal: 10,
+                  paddingVertical: 6,
+                  borderRadius: 999,
+                  borderWidth: 1,
+                  borderColor: colors.border,
+                  backgroundColor: categoryIdFilter === cat.id ? colors.primary : colors.surface,
+                }}
+              >
+                <Text style={{ color: categoryIdFilter === cat.id ? "white" : colors.foreground, fontSize: 12, fontWeight: "600" }}>
+                  {cat.name}
+                </Text>
+              </Pressable>
+            ))
+          )}
         </View>
       </View>
       <View style={{ paddingHorizontal: 16, paddingVertical: 8, borderBottomWidth: 1, borderBottomColor: colors.border }}>
@@ -618,20 +736,53 @@ export default function LibraryScreen() {
                       color={colors.warning}
                     />
                   </TouchableOpacity>
-                  <TouchableOpacity
-                    onPress={(event: any) => {
-                      event?.stopPropagation?.();
-                      handleMoveToInbox(item.id);
-                    }}
-                    disabled={moveItem.isPending && movingItemId === item.id}
-                    className="p-1 mr-2"
-                  >
-                    {moveItem.isPending && movingItemId === item.id ? (
-                      <ActivityIndicator size="small" color={colors.primary} />
-                    ) : (
-                      <MaterialIcons name="inbox" size={20} color={colors.primary} />
-                    )}
-                  </TouchableOpacity>
+                  {smartFolder === "archived" ? (
+                    <TouchableOpacity
+                      onPress={(event: any) => {
+                        event?.stopPropagation?.();
+                        handleRestoreItem(item.id);
+                      }}
+                      disabled={archiveItem.isPending && restoringItemId === item.id}
+                      className="p-1 mr-2"
+                    >
+                      {archiveItem.isPending && restoringItemId === item.id ? (
+                        <ActivityIndicator size="small" color={colors.primary} />
+                      ) : (
+                        <MaterialIcons name="unarchive" size={20} color={colors.primary} />
+                      )}
+                    </TouchableOpacity>
+                  ) : (
+                    <>
+                      <TouchableOpacity
+                        onPress={(event: any) => {
+                          event?.stopPropagation?.();
+                          handleMoveToInbox(item.id);
+                        }}
+                        disabled={moveItem.isPending && movingItemId === item.id}
+                        className="p-1 mr-2"
+                      >
+                        {moveItem.isPending && movingItemId === item.id ? (
+                          <ActivityIndicator size="small" color={colors.primary} />
+                        ) : (
+                          <MaterialIcons name="inbox" size={20} color={colors.primary} />
+                        )}
+                      </TouchableOpacity>
+                      <TouchableOpacity
+                        onPress={(event: any) => {
+                          event?.stopPropagation?.();
+                          handleArchiveItem(item.id);
+                        }}
+                        disabled={archiveItem.isPending && archivingItemId === item.id}
+                        className="p-1 mr-2"
+                      >
+                        {archiveItem.isPending && archivingItemId === item.id ? (
+                          <ActivityIndicator size="small" color={colors.muted} />
+                        ) : (
+                          <MaterialIcons name="archive" size={20} color={colors.muted} />
+                        )}
+                      </TouchableOpacity>
+                    </>
+                  )}
                   <TouchableOpacity
                     onPress={(event: any) => {
                       event?.stopPropagation?.();
@@ -729,23 +880,121 @@ export default function LibraryScreen() {
         </View>
       </Modal>
 
-      <Pressable
-        onPress={() => setShowCreateModal(true)}
-        style={{
-          position: "absolute",
-          right: 18,
-          bottom: 22,
-          width: 56,
-          height: 56,
-          borderRadius: 28,
-          alignItems: "center",
-          justifyContent: "center",
-          backgroundColor: colors.primary,
-          elevation: 8,
-        }}
+      {/* Category Management Modal */}
+      <Modal
+        visible={showCategoryModal}
+        transparent
+        animationType="slide"
+        onRequestClose={() => setShowCategoryModal(false)}
       >
-        <MaterialIcons name="add" size={28} color="white" />
-      </Pressable>
+        <View style={{ flex: 1, backgroundColor: "rgba(0,0,0,0.5)", justifyContent: "flex-end" }}>
+          <View style={{ backgroundColor: colors.surface, borderTopLeftRadius: 24, borderTopRightRadius: 24, padding: 24, maxHeight: "70%" }}>
+            <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: 16 }}>
+              <Text style={{ fontSize: 18, fontWeight: "700", color: colors.foreground }}>Manage Categories</Text>
+              <Pressable onPress={() => setShowCategoryModal(false)}>
+                <MaterialIcons name="close" size={22} color={colors.foreground} />
+              </Pressable>
+            </View>
+
+            {/* Create new category */}
+            <View style={{ flexDirection: "row", gap: 8, marginBottom: 16 }}>
+              <TextInput
+                value={newCategoryName}
+                onChangeText={setNewCategoryName}
+                placeholder="New category name..."
+                placeholderTextColor={colors.muted}
+                style={{
+                  flex: 1,
+                  backgroundColor: colors.background,
+                  borderColor: colors.border,
+                  borderWidth: 1,
+                  borderRadius: 8,
+                  paddingHorizontal: 12,
+                  paddingVertical: 10,
+                  color: colors.foreground,
+                }}
+              />
+              <Pressable
+                onPress={handleCreateCategory}
+                disabled={createCategory.isPending}
+                style={({ pressed }) => [
+                  {
+                    opacity: pressed || createCategory.isPending ? 0.7 : 1,
+                    backgroundColor: colors.primary,
+                    borderRadius: 8,
+                    paddingHorizontal: 16,
+                    justifyContent: "center",
+                    alignItems: "center",
+                  },
+                ]}
+              >
+                {createCategory.isPending ? (
+                  <ActivityIndicator color="white" size="small" />
+                ) : (
+                  <MaterialIcons name="add" size={22} color="white" />
+                )}
+              </Pressable>
+            </View>
+
+            {/* Category list */}
+            {(categories as any[]).length === 0 ? (
+              <Text style={{ color: colors.muted, textAlign: "center", marginTop: 12 }}>
+                No categories yet. Create one above.
+              </Text>
+            ) : (
+              <FlashList
+                data={categories as any[]}
+                estimatedItemSize={50}
+                keyExtractor={(cat: any) => cat.id}
+                renderItem={({ item: cat }: { item: any }) => (
+                  <View
+                    style={{
+                      flexDirection: "row",
+                      alignItems: "center",
+                      justifyContent: "space-between",
+                      paddingVertical: 10,
+                      borderBottomWidth: 1,
+                      borderBottomColor: colors.border,
+                    }}
+                  >
+                    <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+                      <MaterialIcons name="folder" size={18} color={colors.primary} />
+                      <Text style={{ color: colors.foreground, fontSize: 15 }}>{cat.name}</Text>
+                    </View>
+                    <Pressable
+                      onPress={() => handleDeleteCategory(cat.id, cat.name)}
+                      disabled={deleteCategory.isPending}
+                      style={({ pressed }) => [{ opacity: pressed ? 0.6 : 1, padding: 6 }]}
+                    >
+                      <MaterialIcons name="delete-outline" size={20} color={colors.error} />
+                    </Pressable>
+                  </View>
+                )}
+              />
+            )}
+          </View>
+        </View>
+      </Modal>
+
+      {smartFolder !== "archived" && (
+        <Pressable
+          onPress={() => setShowCreateModal(true)}
+          style={{
+            position: "absolute",
+            right: 18,
+            bottom: 22,
+            width: 56,
+            height: 56,
+            borderRadius: 28,
+            alignItems: "center",
+            justifyContent: "center",
+            backgroundColor: colors.primary,
+            elevation: 8,
+          }}
+        >
+          <MaterialIcons name="add" size={28} color="white" />
+        </Pressable>
+      )}
     </ScreenContainer>
   );
 }
