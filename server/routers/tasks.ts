@@ -60,7 +60,6 @@ export const tasksRouter = router({
           items: pageItems,
           nextCursor: hasMore ? cursor + input.limit : undefined,
         };
-        console.log('[Tasks/List] user:', ctx.user.id, 'count:', payload.items.length);
         return payload;
       } catch (error) {
         console.error('Error fetching tasks:', error);
@@ -87,7 +86,6 @@ export const tasksRouter = router({
     )
     .mutation(async ({ input, ctx }) => {
       try {
-        console.log('[Tasks/Create] input:', input, 'user:', ctx.user.id);
         const newTask = {
           id: randomUUID(),
           userId: ctx.user.id,
@@ -107,7 +105,6 @@ export const tasksRouter = router({
         };
 
         await db.insert(tasks).values(newTask);
-        console.log('[Tasks/Create] created id:', newTask.id);
         return newTask;
       } catch (error) {
         console.error('Error creating task:', error);

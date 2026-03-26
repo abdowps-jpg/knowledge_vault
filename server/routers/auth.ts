@@ -192,20 +192,15 @@ export const authRouter = router({
     )
     .mutation(async ({ input }) => {
       const email = input.email.trim().toLowerCase();
-      console.log('Login attempt for:', email);
-      console.log('[Auth/Login] Login attempt:', { email });
       try {
         const existing = await db.select().from(users).where(eq(users.email, email)).limit(1);
         const user = existing[0];
-        console.log('User found:', !!user);
 
         if (!user) {
-          console.warn('[Auth/Login] User not found:', { email });
           throw new TRPCError({ code: 'NOT_FOUND', message: 'Email is not registered. Please create an account.' });
         }
 
         if (!user.isActive) {
-          console.warn('[Auth/Login] Inactive account:', { userId: user.id, email: user.email });
           throw new TRPCError({ code: 'FORBIDDEN', message: 'Account is inactive' });
         }
 
@@ -217,9 +212,7 @@ export const authRouter = router({
         }
 
         const passwordMatches = await comparePassword(input.password, user.password);
-        console.log('Password match:', passwordMatches);
         if (!passwordMatches) {
-          console.warn('[Auth/Login] Password mismatch:', { userId: user.id, email: user.email });
           throw new TRPCError({ code: 'UNAUTHORIZED', message: 'Invalid email or password' });
         }
 
@@ -228,8 +221,6 @@ export const authRouter = router({
           email: user.email,
           username: user.username,
         });
-
-        console.log('[Auth/Login] Login success:', { userId: user.id, email: user.email });
         return {
           token,
           user: {
@@ -385,6 +376,48 @@ export const authRouter = router({
         user: updatedUser,
         token,
       };
+    }),
+
+  changePassword: protectedProcedure
+    .input(
+      z.object({
+        currentPassword: z.string().min(1),
+        newPassword: z.string().min(6),
+      })
+    )
+    .mutation(async ({ ctx, input }) => {
+      const userRows = await db.select().from(users).where(eq(users.id, ctx.user.id)).limit(1);
+      const user = userRows[0];
+      if (!user) throw new TRPCError({ code: 'NOT_FOUND', message: 'User not found' });
+
+      const valid = await comparePassword(input.currentPassword, user.password);
+      if (!valid) throw new TRPCError({ code: 'UNAUTHORIZED', message: 'Current password is incorrect' });
+
+      const hashed = await hashPassword(input.newPassword);
+      await db.update(users).set({ password: hashed, updatedAt: new Date() }).where(eq(users.id, ctx.user.id));
+      return { success: true as const };
+    }),
+
+  deleteAccount: protectedProcedure
+    .input(z.object({ password: z.string().min(1) }))
+    .mutation(async ({ ctx, input }) => {
+      const userRows = await db.select().from(users).where(eq(users.id, ctx.user.id)).limit(1);
+      const user = userRows[0];
+      if (!user) throw new TRPCError({ code: 'NOT_FOUND', message: 'User not found' });
+
+      const valid = await comparePassword(input.password, user.password);
+      if (!valid) throw new TRPCError({ code: 'UNAUTHORIZED', message: 'Incorrect password' });
+
+      // Delete all user data in dependency order
+      const { items: itemsTable, tasks: tasksTable, journal: journalTable, categories, tags } = await import('../schema');
+      await db.delete(journalTable).where(eq(journalTable.userId, ctx.user.id));
+      await db.delete(tasksTable).where(eq(tasksTable.userId, ctx.user.id));
+      await db.delete(itemsTable).where(eq(itemsTable.userId, ctx.user.id));
+      await db.delete(categories).where(eq(categories.userId, ctx.user.id));
+      await db.delete(tags).where(eq(tags.userId, ctx.user.id));
+      await db.delete(users).where(eq(users.id, ctx.user.id));
+
+      return { success: true as const };
     }),
 
   updateProfile: protectedProcedure

@@ -518,6 +518,8 @@ export default function SettingsScreen() {
   const updateProfileMutation = trpc.auth.updateProfile.useMutation();
   const requestEmailChangeMutation = trpc.auth.requestEmailChange.useMutation();
   const confirmEmailChangeMutation = trpc.auth.confirmEmailChange.useMutation();
+  const changePasswordMutation = trpc.auth.changePassword.useMutation();
+  const deleteAccountMutation = trpc.auth.deleteAccount.useMutation();
   const generateApiKeyMutation = trpc.api.generateKey.useMutation();
   const revokeApiKeyMutation = trpc.api.revokeKey.useMutation();
   const createWebhookMutation = trpc.api.createWebhook.useMutation();
@@ -541,6 +543,12 @@ export default function SettingsScreen() {
   });
   const [showAccountEditModal, setShowAccountEditModal] = useState(false);
   const [showEmailVerificationModal, setShowEmailVerificationModal] = useState(false);
+  const [showChangePasswordModal, setShowChangePasswordModal] = useState(false);
+  const [showDeleteAccountModal, setShowDeleteAccountModal] = useState(false);
+  const [currentPassword, setCurrentPassword] = useState("");
+  const [newPassword, setNewPassword] = useState("");
+  const [confirmNewPassword, setConfirmNewPassword] = useState("");
+  const [deleteAccountPassword, setDeleteAccountPassword] = useState("");
   const [editUsername, setEditUsername] = useState("");
   const [editEmail, setEditEmail] = useState("");
   const [emailVerificationCode, setEmailVerificationCode] = useState("");
@@ -1199,6 +1207,55 @@ const [showApiModal, setShowApiModal] = useState(false);
     ]);
   };
 
+  const handleChangePassword = async () => {
+    if (!currentPassword || !newPassword) {
+      Alert.alert("Validation", "All fields are required.");
+      return;
+    }
+    if (newPassword.length < 6) {
+      Alert.alert("Validation", "New password must be at least 6 characters.");
+      return;
+    }
+    if (newPassword !== confirmNewPassword) {
+      Alert.alert("Validation", "New passwords do not match.");
+      return;
+    }
+    try {
+      setWorking(true);
+      await changePasswordMutation.mutateAsync({ currentPassword, newPassword });
+      setShowChangePasswordModal(false);
+      setCurrentPassword("");
+      setNewPassword("");
+      setConfirmNewPassword("");
+      Alert.alert("Success", "Password changed successfully.");
+    } catch (error: any) {
+      Alert.alert("Error", error?.message || "Failed to change password.");
+    } finally {
+      setWorking(false);
+    }
+  };
+
+  const handleDeleteAccount = async () => {
+    if (!deleteAccountPassword) {
+      Alert.alert("Validation", "Please enter your password to confirm.");
+      return;
+    }
+    try {
+      setWorking(true);
+      await deleteAccountMutation.mutateAsync({ password: deleteAccountPassword });
+      await clearAllData();
+      await clearSyncQueue();
+      await clearToken();
+      queryClient.clear();
+      router.replace("/(auth)/login" as any);
+    } catch (error: any) {
+      Alert.alert("Error", error?.message || "Failed to delete account.");
+    } finally {
+      setWorking(false);
+      setDeleteAccountPassword("");
+    }
+  };
+
   const handleManualSync = async () => {
     try {
       setSyncingNow(true);
@@ -1273,6 +1330,26 @@ const [showApiModal, setShowApiModal] = useState(false);
             onPress={openAccountEditModal}
           />
           <Row icon="logout" label="Logout" onPress={handleLogout} />
+          <Row
+            icon="lock"
+            label="Change Password"
+            description="Update your account password"
+            onPress={() => {
+              setCurrentPassword("");
+              setNewPassword("");
+              setConfirmNewPassword("");
+              setShowChangePasswordModal(true);
+            }}
+          />
+          <Row
+            icon="delete-forever"
+            label="Delete Account"
+            description="Permanently delete your account and all data"
+            onPress={() => {
+              setDeleteAccountPassword("");
+              setShowDeleteAccountModal(true);
+            }}
+          />
         </Section>
 
         <Section title="Notifications">
@@ -1970,6 +2047,114 @@ const [showApiModal, setShowApiModal] = useState(false);
               <Pressable onPress={handleConfirmEmailChange} style={{ flex: 1 }}>
                 <View className="bg-primary rounded-lg py-3 items-center">
                   <Text className="text-white font-semibold">Verify</Text>
+                </View>
+              </Pressable>
+            </View>
+          </View>
+        </View>
+      </Modal>
+
+      {/* Change Password Modal */}
+      <Modal visible={showChangePasswordModal} transparent animationType="slide" onRequestClose={() => setShowChangePasswordModal(false)}>
+        <View className="flex-1 bg-black/50 justify-end">
+          <View className="rounded-t-3xl p-6" style={{ backgroundColor: colors.surface }}>
+            <View className="flex-row items-center justify-between mb-4">
+              <Text className="text-lg font-bold text-foreground">Change Password</Text>
+              <Pressable onPress={() => setShowChangePasswordModal(false)}>
+                <MaterialIcons name="close" size={22} color={colors.foreground} />
+              </Pressable>
+            </View>
+            {[
+              { label: "Current Password", value: currentPassword, onChange: setCurrentPassword },
+              { label: "New Password", value: newPassword, onChange: setNewPassword },
+              { label: "Confirm New Password", value: confirmNewPassword, onChange: setConfirmNewPassword },
+            ].map((field) => (
+              <TextInput
+                key={field.label}
+                value={field.value}
+                onChangeText={field.onChange}
+                secureTextEntry
+                placeholder={field.label}
+                placeholderTextColor={colors.muted}
+                style={{
+                  borderWidth: 1,
+                  borderColor: colors.border,
+                  borderRadius: 10,
+                  paddingHorizontal: 12,
+                  paddingVertical: 10,
+                  color: colors.foreground,
+                  backgroundColor: colors.background,
+                  marginBottom: 10,
+                }}
+              />
+            ))}
+            <View className="flex-row gap-3 mt-2">
+              <Pressable onPress={() => setShowChangePasswordModal(false)} style={{ flex: 1 }}>
+                <View className="bg-border rounded-lg py-3 items-center">
+                  <Text className="text-foreground font-semibold">Cancel</Text>
+                </View>
+              </Pressable>
+              <Pressable onPress={handleChangePassword} disabled={changePasswordMutation.isPending} style={{ flex: 1 }}>
+                <View className="bg-primary rounded-lg py-3 items-center">
+                  {changePasswordMutation.isPending ? (
+                    <ActivityIndicator color="white" />
+                  ) : (
+                    <Text className="text-white font-semibold">Change Password</Text>
+                  )}
+                </View>
+              </Pressable>
+            </View>
+          </View>
+        </View>
+      </Modal>
+
+      {/* Delete Account Modal */}
+      <Modal visible={showDeleteAccountModal} transparent animationType="slide" onRequestClose={() => setShowDeleteAccountModal(false)}>
+        <View className="flex-1 bg-black/50 justify-end">
+          <View className="rounded-t-3xl p-6" style={{ backgroundColor: colors.surface }}>
+            <View className="flex-row items-center justify-between mb-4">
+              <Text style={{ fontSize: 18, fontWeight: "700", color: "#ef4444" }}>Delete Account</Text>
+              <Pressable onPress={() => setShowDeleteAccountModal(false)}>
+                <MaterialIcons name="close" size={22} color={colors.foreground} />
+              </Pressable>
+            </View>
+            <Text className="text-muted text-sm mb-4">
+              This will permanently delete your account and all your data. This action cannot be undone.
+            </Text>
+            <TextInput
+              value={deleteAccountPassword}
+              onChangeText={setDeleteAccountPassword}
+              secureTextEntry
+              placeholder="Enter your password to confirm"
+              placeholderTextColor={colors.muted}
+              style={{
+                borderWidth: 1,
+                borderColor: "#ef4444",
+                borderRadius: 10,
+                paddingHorizontal: 12,
+                paddingVertical: 10,
+                color: colors.foreground,
+                backgroundColor: colors.background,
+                marginBottom: 16,
+              }}
+            />
+            <View className="flex-row gap-3">
+              <Pressable onPress={() => setShowDeleteAccountModal(false)} style={{ flex: 1 }}>
+                <View className="bg-border rounded-lg py-3 items-center">
+                  <Text className="text-foreground font-semibold">Cancel</Text>
+                </View>
+              </Pressable>
+              <Pressable
+                onPress={handleDeleteAccount}
+                disabled={deleteAccountMutation.isPending}
+                style={{ flex: 1 }}
+              >
+                <View style={{ backgroundColor: "#ef4444", borderRadius: 8, paddingVertical: 12, alignItems: "center" }}>
+                  {deleteAccountMutation.isPending ? (
+                    <ActivityIndicator color="white" />
+                  ) : (
+                    <Text style={{ color: "white", fontWeight: "700" }}>Delete Account</Text>
+                  )}
                 </View>
               </Pressable>
             </View>

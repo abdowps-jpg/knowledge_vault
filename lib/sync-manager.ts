@@ -38,7 +38,8 @@ export async function syncUp(): Promise<{ synced: number; failed: number }> {
     if (q.entity === "journal") journal.push(q.payload);
   }
 
-  const response = await client.sync.batchSync.mutate({ items, tasks, journal });
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const response = await client.sync.batchSync.mutate({ items: items as any, tasks: tasks as any, journal: journal as any });
   let synced = 0;
   let failed = 0;
   for (const result of response.results) {

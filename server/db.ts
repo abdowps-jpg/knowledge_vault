@@ -3,6 +3,8 @@ import Database from 'better-sqlite3';
 import * as schema from './schema';
 
 const sqlite = new Database('./local.db');
+sqlite.pragma('foreign_keys = ON');
+sqlite.pragma('journal_mode = WAL');
 export const db = drizzle(sqlite, { schema });
 
 type OAuthUserRecord = {

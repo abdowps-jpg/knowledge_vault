@@ -48,7 +48,6 @@ export const journalRouter = router({
           items: pageItems,
           nextCursor: hasMore ? cursor + input.limit : undefined,
         };
-        console.log('[Journal/List] user:', ctx.user.id, 'count:', payload.items.length, 'range:', input.startDate, input.endDate);
         return payload;
       } catch (error) {
         console.error('Error fetching journal entries:', error);
@@ -70,7 +69,6 @@ export const journalRouter = router({
     )
     .mutation(async ({ input, ctx }) => {
       try {
-        console.log('[Journal/Create] input:', input, 'user:', ctx.user.id);
         const newEntry = {
           id: randomUUID(),
           userId: ctx.user.id,
@@ -84,7 +82,6 @@ export const journalRouter = router({
         };
 
         await db.insert(journal).values(newEntry);
-        console.log('[Journal/Create] created id:', newEntry.id);
         return newEntry;
       } catch (error) {
         console.error('Error creating journal entry:', error);

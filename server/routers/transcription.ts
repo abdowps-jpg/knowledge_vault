@@ -11,14 +11,15 @@ export const transcriptionRouter = router({
       })
     )
     .mutation(async ({ input }) => {
-      // TODO: Integrate real transcription provider (AssemblyAI / Whisper).
       const source = input.audioUrl ? "url" : input.audioBase64 ? "base64" : "none";
+      // Transcription provider not yet configured.
+      // To enable: set OPENAI_API_KEY env var and integrate Whisper API here.
       return {
-        text: "",
+        text: null as string | null,
         language: input.language ?? "en",
         confidence: 0,
         source,
-        status: "pending_integration" as const,
+        status: "not_configured" as const,
       };
     }),
 });
