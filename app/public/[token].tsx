@@ -33,7 +33,7 @@ export default function PublicItemScreen() {
         </View>
       ) : query.error ? (
         <View style={{ padding: 16 }}>
-          <Text style={{ color: "#DC2626", fontWeight: "700", marginBottom: 10 }}>{query.error.message}</Text>
+          <Text style={{ color: colors.error, fontWeight: "700", marginBottom: 10 }}>{query.error.message}</Text>
           {isPasswordRequired ? (
             <View>
               <TextInput

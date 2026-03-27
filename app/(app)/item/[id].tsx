@@ -601,7 +601,7 @@ export default function ItemDetailScreen() {
                       }
                     }}
                   >
-                    <Text style={{ color: "#DC2626", fontWeight: "700" }}>Revoke</Text>
+                    <Text style={{ color: colors.error, fontWeight: "700" }}>Revoke</Text>
                   </Pressable>
                 </View>
               ))}
@@ -684,7 +684,7 @@ export default function ItemDetailScreen() {
                         }
                       }}
                     >
-                      <Text style={{ color: "#DC2626", fontWeight: "700", marginTop: 6 }}>Revoke Public Link</Text>
+                      <Text style={{ color: colors.error, fontWeight: "700", marginTop: 6 }}>Revoke Public Link</Text>
                     </Pressable>
                   ) : null}
                 </View>
@@ -876,7 +876,7 @@ export default function ItemDetailScreen() {
           disabled={deleteItem.isPending}
           style={{
             marginTop: 8,
-            backgroundColor: "#DC2626",
+            backgroundColor: colors.error,
             borderRadius: 10,
             paddingVertical: 14,
             alignItems: "center",
@@ -907,27 +907,27 @@ export default function ItemDetailScreen() {
           >
             {presentationSlides[presentationIndex]}
           </Text>
-          <Text style={{ color: "#d1d5db", marginTop: 16 }}>
+          <Text style={{ color: "rgba(255,255,255,0.6)", marginTop: 16 }}>
             Slide {presentationIndex + 1} / {presentationSlides.length}
           </Text>
           <View style={{ flexDirection: "row", marginTop: 20, gap: 10 }}>
             <Pressable
               onPress={() => setPresentationIndex((prev) => Math.max(prev - 1, 0))}
-              style={{ borderWidth: 1, borderColor: "#9ca3af", borderRadius: 8, paddingHorizontal: 14, paddingVertical: 10 }}
+              style={{ borderWidth: 1, borderColor: "rgba(255,255,255,0.4)", borderRadius: 8, paddingHorizontal: 14, paddingVertical: 10 }}
             >
               <Text style={{ color: "white", fontWeight: "700" }}>Prev</Text>
             </Pressable>
             <Pressable
               onPress={() => setPresentationIndex((prev) => Math.min(prev + 1, presentationSlides.length - 1))}
-              style={{ borderWidth: 1, borderColor: "#9ca3af", borderRadius: 8, paddingHorizontal: 14, paddingVertical: 10 }}
+              style={{ borderWidth: 1, borderColor: "rgba(255,255,255,0.4)", borderRadius: 8, paddingHorizontal: 14, paddingVertical: 10 }}
             >
               <Text style={{ color: "white", fontWeight: "700" }}>Next</Text>
             </Pressable>
             <Pressable
               onPress={() => setShowPresentationMode(false)}
-              style={{ borderWidth: 1, borderColor: "#ef4444", borderRadius: 8, paddingHorizontal: 14, paddingVertical: 10 }}
+              style={{ borderWidth: 1, borderColor: colors.error, borderRadius: 8, paddingHorizontal: 14, paddingVertical: 10 }}
             >
-              <Text style={{ color: "#fecaca", fontWeight: "700" }}>Close</Text>
+              <Text style={{ color: colors.error, fontWeight: "700" }}>Close</Text>
             </Pressable>
           </View>
         </View>

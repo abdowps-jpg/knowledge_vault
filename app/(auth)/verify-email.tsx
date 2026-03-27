@@ -2,9 +2,11 @@ import React, { useMemo, useState } from "react";
 import { ActivityIndicator, Alert, Pressable, Text, TextInput, TouchableOpacity, View } from "react-native";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { trpc } from "@/lib/trpc";
+import { useColors } from "@/hooks/use-colors";
 
 export default function VerifyEmailScreen() {
   const router = useRouter();
+  const colors = useColors();
   const params = useLocalSearchParams<{ email?: string }>();
   const initialEmail = useMemo(() => (typeof params.email === "string" ? params.email : ""), [params.email]);
 
@@ -82,7 +84,7 @@ export default function VerifyEmailScreen() {
         keyboardType="email-address"
         placeholder="Email"
         className="bg-surface border border-border rounded-xl px-4 py-3 text-foreground mb-3"
-        placeholderTextColor="#9ca3af"
+        placeholderTextColor={colors.muted}
       />
 
       <TextInput
@@ -92,14 +94,14 @@ export default function VerifyEmailScreen() {
         maxLength={6}
         placeholder="6-digit code"
         className="bg-surface border border-border rounded-xl px-4 py-3 text-foreground mb-5"
-        placeholderTextColor="#9ca3af"
+        placeholderTextColor={colors.muted}
       />
 
       <TouchableOpacity
         onPress={handleVerify}
         disabled={isWorking}
         style={{
-          backgroundColor: "#0a7ea4",
+          backgroundColor: colors.primary,
           borderRadius: 12,
           padding: 16,
           alignItems: "center",
@@ -115,14 +117,14 @@ export default function VerifyEmailScreen() {
 
       <Pressable onPress={handleResend} disabled={isWorking} className="items-center mt-4">
         {resendMutation.isPending ? (
-          <ActivityIndicator color="#0a7ea4" />
+          <ActivityIndicator color={colors.primary} />
         ) : (
           <Text className="text-primary font-semibold">Resend code</Text>
         )}
       </Pressable>
 
       {errorMessage ? (
-        <Text style={{ color: "#dc2626", marginTop: 10, textAlign: "center" }}>{errorMessage}</Text>
+        <Text style={{ color: colors.error, marginTop: 10, textAlign: "center" }}>{errorMessage}</Text>
       ) : null}
 
       <View className="flex-row justify-center mt-6">

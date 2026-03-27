@@ -11,6 +11,7 @@ import {
 } from "react-native";
 import { useRouter } from "expo-router";
 import { trpc } from "@/lib/trpc";
+import { useColors } from "@/hooks/use-colors";
 import { VoiceInputButton } from "@/components/voice-input-button";
 import {
   getCurrentUserId,
@@ -25,6 +26,7 @@ import { loadAppSettings, saveAppSettings } from "@/lib/settings-storage";
 
 export default function LoginScreen() {
   const router = useRouter();
+  const colors = useColors();
   const utils = trpc.useUtils();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -134,7 +136,7 @@ export default function LoginScreen() {
         keyboardType="email-address"
         placeholder="Email"
         className="bg-surface border border-border rounded-xl px-4 py-3 text-foreground mb-3"
-        placeholderTextColor="#9ca3af"
+        placeholderTextColor={colors.muted}
       />
       <VoiceInputButton
         language="en-US"
@@ -147,7 +149,7 @@ export default function LoginScreen() {
         secureTextEntry
         placeholder="Password"
         className="bg-surface border border-border rounded-xl px-4 py-3 text-foreground mb-4"
-        placeholderTextColor="#9ca3af"
+        placeholderTextColor={colors.muted}
       />
 
       <Pressable
@@ -162,7 +164,7 @@ export default function LoginScreen() {
         onPress={handleLogin}
         disabled={isLoading}
         style={{
-          backgroundColor: "#0a7ea4",
+          backgroundColor: colors.primary,
           borderRadius: 12,
           padding: 16,
           alignItems: "center",

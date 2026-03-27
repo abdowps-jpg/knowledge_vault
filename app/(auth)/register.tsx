@@ -10,6 +10,7 @@ import {
 } from "react-native";
 import { useRouter } from "expo-router";
 import { trpc } from "@/lib/trpc";
+import { useColors } from "@/hooks/use-colors";
 import { VoiceInputButton } from "@/components/voice-input-button";
 import { clearToken, saveStayLoggedIn } from "@/lib/auth-storage";
 import { clearAllData } from "@/lib/db/storage";
@@ -21,6 +22,7 @@ function isValidEmail(email: string): boolean {
 
 export default function RegisterScreen() {
   const router = useRouter();
+  const colors = useColors();
   const [username, setUsername] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -102,7 +104,7 @@ export default function RegisterScreen() {
         onChangeText={setUsername}
         placeholder="Username"
         className="bg-surface border border-border rounded-xl px-4 py-3 text-foreground mb-3"
-        placeholderTextColor="#9ca3af"
+        placeholderTextColor={colors.muted}
       />
       <VoiceInputButton
         language="en-US"
@@ -116,7 +118,7 @@ export default function RegisterScreen() {
         keyboardType="email-address"
         placeholder="Email"
         className="bg-surface border border-border rounded-xl px-4 py-3 text-foreground mb-3"
-        placeholderTextColor="#9ca3af"
+        placeholderTextColor={colors.muted}
       />
       <VoiceInputButton
         language="en-US"
@@ -129,7 +131,7 @@ export default function RegisterScreen() {
         secureTextEntry
         placeholder="Password (8+ chars)"
         className="bg-surface border border-border rounded-xl px-4 py-3 text-foreground mb-3"
-        placeholderTextColor="#9ca3af"
+        placeholderTextColor={colors.muted}
       />
       <TextInput
         value={confirmPassword}
@@ -137,14 +139,14 @@ export default function RegisterScreen() {
         secureTextEntry
         placeholder="Confirm Password"
         className="bg-surface border border-border rounded-xl px-4 py-3 text-foreground mb-5"
-        placeholderTextColor="#9ca3af"
+        placeholderTextColor={colors.muted}
       />
 
       <TouchableOpacity
         onPress={handleRegister}
         disabled={isLoading}
         style={{
-          backgroundColor: "#0a7ea4",
+          backgroundColor: colors.primary,
           borderRadius: 12,
           padding: 16,
           alignItems: "center",
@@ -159,7 +161,7 @@ export default function RegisterScreen() {
       </TouchableOpacity>
 
       {errorMessage ? (
-        <Text style={{ color: "#dc2626", marginTop: 10, textAlign: "center" }}>{errorMessage}</Text>
+        <Text style={{ color: colors.error, marginTop: 10, textAlign: "center" }}>{errorMessage}</Text>
       ) : null}
 
       <View className="flex-row justify-center mt-4">
