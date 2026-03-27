@@ -1,5 +1,6 @@
 import { createHash, randomBytes, randomUUID } from 'crypto';
-import { and, desc, eq } from 'drizzle-orm';
+import { and, count, desc, eq } from 'drizzle-orm';
+import { TRPCError } from '@trpc/server';
 import { z } from 'zod';
 import { db } from '../db';
 import { apiKeys, webhookSubscriptions } from '../schema/api_keys';
@@ -33,6 +34,14 @@ export const apiRouter = router({
       })
     )
     .mutation(async ({ input, ctx }) => {
+      const [countRow] = await db
+        .select({ total: count() })
+        .from(apiKeys)
+        .where(and(eq(apiKeys.userId, ctx.user.id), eq(apiKeys.isActive, true)));
+      if ((countRow?.total ?? 0) >= 10) {
+        throw new TRPCError({ code: 'BAD_REQUEST', message: 'Maximum of 10 active API keys allowed.' });
+      }
+
       const rawKey = `kv_${randomBytes(24).toString('hex')}`;
       const keyHash = hashApiKey(rawKey);
       const keyPreview = `${rawKey.slice(0, 6)}...${rawKey.slice(-4)}`;
@@ -82,6 +91,14 @@ export const apiRouter = router({
       })
     )
     .mutation(async ({ input, ctx }) => {
+      const [wCountRow] = await db
+        .select({ total: count() })
+        .from(webhookSubscriptions)
+        .where(and(eq(webhookSubscriptions.userId, ctx.user.id), eq(webhookSubscriptions.isActive, true)));
+      if ((wCountRow?.total ?? 0) >= 20) {
+        throw new TRPCError({ code: 'BAD_REQUEST', message: 'Maximum of 20 active webhooks allowed.' });
+      }
+
       const newWebhook = {
         id: randomUUID(),
         userId: ctx.user.id,
