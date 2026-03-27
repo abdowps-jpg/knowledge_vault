@@ -1,5 +1,5 @@
 import { createHash, randomInt, randomUUID } from 'crypto';
-import { and, eq } from 'drizzle-orm';
+import { and, eq, inArray } from 'drizzle-orm';
 import { TRPCError } from '@trpc/server';
 import { z } from 'zod';
 import { db } from '../db';
@@ -408,14 +408,92 @@ export const authRouter = router({
       const valid = await comparePassword(input.password, user.password);
       if (!valid) throw new TRPCError({ code: 'UNAUTHORIZED', message: 'Incorrect password' });
 
-      // Delete all user data in dependency order
-      const { items: itemsTable, tasks: tasksTable, journal: journalTable, categories, tags } = await import('../schema');
-      await db.delete(journalTable).where(eq(journalTable.userId, ctx.user.id));
-      await db.delete(tasksTable).where(eq(tasksTable.userId, ctx.user.id));
-      await db.delete(itemsTable).where(eq(itemsTable.userId, ctx.user.id));
-      await db.delete(categories).where(eq(categories.userId, ctx.user.id));
-      await db.delete(tags).where(eq(tags.userId, ctx.user.id));
-      await db.delete(users).where(eq(users.id, ctx.user.id));
+      const {
+        items: itemsTable,
+        tasks: tasksTable,
+        journal: journalTable,
+        categories,
+        tags,
+        habits,
+        goals,
+        goalMilestones,
+        milestoneTasks,
+        devices,
+        subtasks,
+        taskTimeEntries,
+        itemComments,
+        itemVersions,
+        itemShares,
+        publicLinks,
+        attachments,
+        itemTags,
+        itemCategories,
+        userNotifications,
+        apiKeys,
+        webhookSubscriptions,
+      } = await import('../schema');
+
+      const uid = ctx.user.id;
+
+      // Gather IDs for indirect lookups
+      const [userItems, userTasks, userJournals, userGoals] = await Promise.all([
+        db.select({ id: itemsTable.id }).from(itemsTable).where(eq(itemsTable.userId, uid)),
+        db.select({ id: tasksTable.id }).from(tasksTable).where(eq(tasksTable.userId, uid)),
+        db.select({ id: journalTable.id }).from(journalTable).where(eq(journalTable.userId, uid)),
+        db.select({ id: goals.id }).from(goals).where(eq(goals.userId, uid)),
+      ]);
+
+      const itemIds = userItems.map((r) => r.id);
+      const taskIds = userTasks.map((r) => r.id);
+      const journalIds = userJournals.map((r) => r.id);
+      const goalIds = userGoals.map((r) => r.id);
+
+      // Get milestone IDs for milestoneTasks deletion
+      const milestoneRows =
+        goalIds.length > 0
+          ? await db.select({ id: goalMilestones.id }).from(goalMilestones).where(inArray(goalMilestones.goalId, goalIds))
+          : [];
+      const milestoneIds = milestoneRows.map((r) => r.id);
+
+      // Delete junction/leaf tables first
+      if (milestoneIds.length > 0) {
+        await db.delete(milestoneTasks).where(inArray(milestoneTasks.milestoneId, milestoneIds));
+      }
+      if (goalIds.length > 0) {
+        await db.delete(goalMilestones).where(inArray(goalMilestones.goalId, goalIds));
+      }
+      if (itemIds.length > 0) {
+        await db.delete(itemTags).where(inArray(itemTags.itemId, itemIds));
+        await db.delete(itemCategories).where(inArray(itemCategories.itemId, itemIds));
+        await db.delete(attachments).where(inArray(attachments.itemId, itemIds));
+      }
+      if (journalIds.length > 0) {
+        await db.delete(attachments).where(inArray(attachments.journalId, journalIds));
+      }
+      if (taskIds.length > 0) {
+        await db.delete(subtasks).where(inArray(subtasks.taskId, taskIds));
+        await db.delete(taskTimeEntries).where(inArray(taskTimeEntries.taskId, taskIds));
+      }
+
+      // Delete tables with direct userId
+      await db.delete(itemComments).where(eq(itemComments.userId, uid));
+      await db.delete(itemVersions).where(eq(itemVersions.userId, uid));
+      await db.delete(itemShares).where(eq(itemShares.ownerUserId, uid));
+      await db.delete(publicLinks).where(eq(publicLinks.ownerUserId, uid));
+      await db.delete(habits).where(eq(habits.userId, uid));
+      await db.delete(devices).where(eq(devices.userId, uid));
+      await db.delete(userNotifications).where(eq(userNotifications.userId, uid));
+      await db.delete(apiKeys).where(eq(apiKeys.userId, uid));
+      await db.delete(webhookSubscriptions).where(eq(webhookSubscriptions.userId, uid));
+      await db.delete(goals).where(eq(goals.userId, uid));
+
+      // Delete main data tables
+      await db.delete(journalTable).where(eq(journalTable.userId, uid));
+      await db.delete(tasksTable).where(eq(tasksTable.userId, uid));
+      await db.delete(itemsTable).where(eq(itemsTable.userId, uid));
+      await db.delete(categories).where(eq(categories.userId, uid));
+      await db.delete(tags).where(eq(tags.userId, uid));
+      await db.delete(users).where(eq(users.id, uid));
 
       return { success: true as const };
     }),
