@@ -70,9 +70,17 @@ export const tagsRouter = router({
     )
     .mutation(async ({ input, ctx }) => {
       try {
+        // Verify ownership before deleting associations.
+        const owned = await db
+          .select()
+          .from(tags)
+          .where(and(eq(tags.id, input.id), eq(tags.userId, ctx.user.id)))
+          .limit(1);
+        if (owned.length === 0) return { success: false };
+
         await db.transaction(async (tx) => {
           await tx.delete(itemTags).where(eq(itemTags.tagId, input.id));
-          await tx.delete(tags).where(and(eq(tags.id, input.id), eq(tags.userId, ctx.user.id)));
+          await tx.delete(tags).where(eq(tags.id, input.id));
         });
         return { success: true };
       } catch (error) {
@@ -119,11 +127,15 @@ export const tagsRouter = router({
           return { success: true };
         }
 
-        await db.insert(itemTags).values({
-          id: randomUUID(),
-          itemId: input.itemId,
-          tagId: input.tagId,
-        });
+        try {
+          await db.insert(itemTags).values({
+            id: randomUUID(),
+            itemId: input.itemId,
+            tagId: input.tagId,
+          });
+        } catch {
+          // Concurrent duplicate insert — treat as success.
+        }
 
         return { success: true };
       } catch (error) {
