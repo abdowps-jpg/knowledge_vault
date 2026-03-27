@@ -285,7 +285,7 @@ export default function SearchScreen() {
   }, [filteredResults]);
   const listRows = React.useMemo(() => {
     const rows: SearchListRow[] = [];
-    const sections: Array<{ key: ResultType; label: string; icon: "description" | "check-circle" | "menu-book"; data: SearchResult[] }> = [
+    const sections: { key: ResultType; label: string; icon: "description" | "check-circle" | "menu-book"; data: SearchResult[] }[] = [
       { key: "notes", label: "Notes", icon: "description", data: groupedResults.notes },
       { key: "tasks", label: "Tasks", icon: "check-circle", data: groupedResults.tasks },
       { key: "journal", label: "Journal", icon: "menu-book", data: groupedResults.journal },

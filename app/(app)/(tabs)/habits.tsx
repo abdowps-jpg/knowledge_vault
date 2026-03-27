@@ -159,7 +159,7 @@ export default function HabitsScreen() {
     }
   };
 
-  const habits = habitsQuery.data ?? [];
+  const habits = React.useMemo(() => habitsQuery.data ?? [], [habitsQuery.data]);
   const weekStart = React.useMemo(() => getWeekStart(new Date()), []);
   const weekStartYmd = React.useMemo(() => dateToYmd(weekStart), [weekStart]);
   const filteredHabits = React.useMemo(() => {

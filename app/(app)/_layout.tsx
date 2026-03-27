@@ -67,7 +67,7 @@ export default function AppLayout() {
     [goTo]
   );
 
-  const commandOptions = React.useMemo<Array<{ label: string; route: string; keywords: string }>>(
+  const commandOptions = React.useMemo<{ label: string; route: string; keywords: string }[]>(
     () => [
         { label: "Go to Inbox", route: "/(app)/(tabs)", keywords: "home inbox notes capture" },
         { label: "Go to Library", route: "/(app)/(tabs)/library", keywords: "library knowledge vault" },
@@ -106,7 +106,7 @@ export default function AppLayout() {
     if (!query) {
       const recent = recentCommandLabels
         .map((label) => commandOptionsByLabel.get(label))
-        .filter(Boolean) as Array<{ label: string; route: string; keywords: string }>;
+        .filter(Boolean) as { label: string; route: string; keywords: string }[];
       const seen = new Set(recent.map((option) => option.label));
       const rest = commandOptions.filter((option) => !seen.has(option.label));
       return [...recent, ...rest];

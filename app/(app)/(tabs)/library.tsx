@@ -294,7 +294,7 @@ export default function LibraryScreen() {
     try {
       setArchivingItemId(itemId);
       await archiveItem.mutateAsync({ id: itemId, location: "archive" });
-    } catch (err) {
+    } catch {
       Alert.alert("Error", "Failed to archive item");
     }
   };
@@ -303,7 +303,7 @@ export default function LibraryScreen() {
     try {
       setRestoringItemId(itemId);
       await archiveItem.mutateAsync({ id: itemId, location: "library" });
-    } catch (err) {
+    } catch {
       Alert.alert("Error", "Failed to restore item");
     }
   };
@@ -316,7 +316,7 @@ export default function LibraryScreen() {
     }
     try {
       await createCategory.mutateAsync({ name });
-    } catch (err) {
+    } catch {
       Alert.alert("Error", "Failed to create category.");
     }
   };
@@ -333,7 +333,7 @@ export default function LibraryScreen() {
           onPress: async () => {
             try {
               await deleteCategory.mutateAsync({ id: categoryId });
-            } catch (err) {
+            } catch {
               Alert.alert("Error", "Failed to delete category.");
             }
           },
@@ -422,7 +422,7 @@ export default function LibraryScreen() {
   };
 
   const activeChips = React.useMemo(() => {
-    const chips: Array<{ key: string; label: string }> = [];
+    const chips: { key: string; label: string }[] = [];
 
     if (favoritesOnly) chips.push({ key: "favorites", label: "Favorites Only" });
     if (recentOnly) chips.push({ key: "recent", label: "Recent (7 days)" });

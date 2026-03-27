@@ -287,7 +287,7 @@ export default function ActionsScreen() {
     AsyncStorage.getItem(ACTIONS_VIEWS_KEY)
       .then((value) => {
         if (!value) return;
-        const parsed = JSON.parse(value) as Array<Partial<ActionsSavedView>>;
+        const parsed = JSON.parse(value) as Partial<ActionsSavedView>[];
         if (!Array.isArray(parsed)) return;
         const normalized = parsed
           .map((view) => {
@@ -1032,7 +1032,6 @@ export default function ActionsScreen() {
     try {
       for (const task of targets) {
         // Reuse existing business logic to support recurring tasks correctly.
-        // eslint-disable-next-line no-await-in-loop
         await handleToggleTask(task.id);
       }
       Alert.alert("Done", `Completed ${targets.length} task(s) from My Day.`);
@@ -1051,7 +1050,6 @@ export default function ActionsScreen() {
     try {
       setBulkActionLoading(true);
       for (const task of completed) {
-        // eslint-disable-next-line no-await-in-loop
         await deleteTask.mutateAsync({ id: task.id });
       }
       Alert.alert("Done", `Removed ${completed.length} completed task(s).`);
@@ -2153,7 +2151,7 @@ export default function ActionsScreen() {
             { key: "todo", label: "To Do" },
             { key: "inprogress", label: "In Progress" },
             { key: "done", label: "Done" },
-          ] as Array<{ key: TaskBoardStatus; label: string }>).map((column) => (
+          ] as { key: TaskBoardStatus; label: string }[]).map((column) => (
             <View
               key={column.key}
               {...(Platform.OS === "web"

@@ -37,7 +37,7 @@ export default function ConflictsScreen() {
       return;
     }
     setMergeResult(activeConflict.localContent || activeConflict.serverContent || "");
-  }, [activeConflict?.id]);
+  }, [activeConflict]);
 
   const resolveConflict = async (mode: "local" | "server" | "merge") => {
     if (!activeConflict) return;

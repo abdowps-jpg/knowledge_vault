@@ -833,6 +833,7 @@ const [showApiModal, setShowApiModal] = useState(false);
         setLastBackupAt(snapshots[0]?.createdAt ?? null);
       }
     })();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   useEffect(() => {
