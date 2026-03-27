@@ -75,7 +75,7 @@ export const attachmentsRouter = router({
         const result = await db
           .select()
           .from(attachments)
-          .where(and(eq(attachments.itemId, input.itemId), eq(attachments.type, 'image')))
+          .where(eq(attachments.itemId, input.itemId))
           .orderBy(desc(attachments.createdAt))
           .limit(limit)
           .offset(cursor);

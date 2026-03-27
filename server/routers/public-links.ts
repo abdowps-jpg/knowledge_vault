@@ -1,5 +1,5 @@
 import { createHash, randomUUID } from 'crypto';
-import { and, eq } from 'drizzle-orm';
+import { and, eq, isNull } from 'drizzle-orm';
 import { TRPCError } from '@trpc/server';
 import { z } from 'zod';
 import { db } from '../db';
@@ -127,7 +127,11 @@ export const publicLinksRouter = router({
         }
       }
 
-      const itemRows = await db.select().from(items).where(eq(items.id, link.itemId)).limit(1);
+      const itemRows = await db
+        .select()
+        .from(items)
+        .where(and(eq(items.id, link.itemId), isNull(items.deletedAt)))
+        .limit(1);
       const item = itemRows[0];
       if (!item) {
         throw new TRPCError({ code: 'NOT_FOUND', message: 'Item not found' });

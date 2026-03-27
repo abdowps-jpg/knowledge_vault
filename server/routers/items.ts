@@ -1,7 +1,7 @@
 import { z } from 'zod';
 import { protectedProcedure, router } from '../trpc';
 import { items } from '../schema';
-import { eq, and, desc, asc, sql, gte, inArray } from 'drizzle-orm';
+import { eq, and, desc, asc, sql, gte, inArray, isNull } from 'drizzle-orm';
 import { db } from '../db';
 import { randomUUID } from 'crypto';
 import { itemTags, tags } from '../schema/tags';
@@ -26,7 +26,7 @@ export const itemsRouter = router({
     .query(async ({ input, ctx }) => {
       try {
         const cursor = input.cursor ?? 0;
-        const conditions = [eq(items.userId, ctx.user.id)];
+        const conditions = [eq(items.userId, ctx.user.id), isNull(items.deletedAt)];
         
         if (input.location) {
           conditions.push(eq(items.location, input.location));
