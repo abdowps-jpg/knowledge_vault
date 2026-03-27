@@ -1180,14 +1180,14 @@ export default function ActionsScreen() {
           Alert.alert("Queued", "Task update will sync when you're back online.");
           return;
         }
-      const typedResult = result as any;
-      if (typedResult?.blocked) {
-        Alert.alert("Task blocked", "You can't complete this task until its dependency is completed.");
-        return;
-      }
-      if (typedResult?.isCompleted) {
-        await cancelTaskDueNotification(id);
-      } else if (task?.dueDate) {
+        const typedResult = result as any;
+        if (typedResult?.blocked) {
+          Alert.alert("Task blocked", "You can't complete this task until its dependency is completed.");
+          return;
+        }
+        if (typedResult?.isCompleted) {
+          await cancelTaskDueNotification(id);
+        } else if (task?.dueDate) {
           await scheduleTaskDueNotification({
             taskId: id,
             title: task.title || "Task",
@@ -2275,7 +2275,7 @@ export default function ActionsScreen() {
             {
               key: "doNow",
               title: "Urgent + Important",
-              color: "#ef4444",
+              color: colors.error,
               items: matrixQuadrants.doNow,
             },
             {
@@ -2287,16 +2287,16 @@ export default function ActionsScreen() {
             {
               key: "delegate",
               title: "Urgent, Not Important",
-              color: "#ea580c",
+              color: colors.warning,
               items: matrixQuadrants.delegate,
             },
             {
               key: "eliminate",
               title: "Not Urgent + Not Important",
-              color: "#6b7280",
+              color: colors.muted,
               items: matrixQuadrants.eliminate,
             },
-          ] as const).map((quadrant) => (
+          ] as { key: string; title: string; color: string; items: typeof matrixQuadrants.doNow }[]).map((quadrant) => (
             <View
               key={quadrant.key}
               style={{
