@@ -196,8 +196,10 @@ export const statsRouter = router({
         tagNameById.set(t.id, t.name);
       }
 
+      const userItemIds = new Set(allItems.map((item) => item.id));
       const tagCounts = new Map<string, number>();
       for (const link of allItemTags) {
+        if (!userItemIds.has(link.itemId)) continue;
         const name = tagNameById.get(link.tagId);
         if (!name) continue;
         tagCounts.set(name, (tagCounts.get(name) || 0) + 1);

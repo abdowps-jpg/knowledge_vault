@@ -51,24 +51,56 @@ export const analyticsRouter = router({
 
   getStreaks: protectedProcedure.query(async ({ ctx }) => {
     const allJournal = await db.select().from(journal).where(eq(journal.userId, ctx.user.id));
-    const entries = new Set(
-      allJournal.map((j) => {
-        const d = new Date(j.entryDate as any);
-        return `${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`;
-      })
-    );
 
+    // Build a set of unique YYYY-MM-DD strings from entryDate
+    const entrySet = new Set<string>();
+    for (const j of allJournal) {
+      const raw = j.entryDate as unknown as string;
+      if (raw && typeof raw === "string" && /^\d{4}-\d{2}-\d{2}$/.test(raw)) {
+        entrySet.add(raw);
+      } else {
+        const d = new Date(raw as any);
+        if (!Number.isNaN(d.getTime())) {
+          entrySet.add(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`);
+        }
+      }
+    }
+
+    function ymd(d: Date): string {
+      return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+    }
+
+    // Current streak: count back from today
     let currentJournalStreak = 0;
     const cursor = new Date();
     cursor.setHours(0, 0, 0, 0);
-    while (entries.has(`${cursor.getFullYear()}-${cursor.getMonth()}-${cursor.getDate()}`)) {
+    while (entrySet.has(ymd(cursor))) {
       currentJournalStreak += 1;
       cursor.setDate(cursor.getDate() - 1);
     }
 
+    // Longest streak: iterate sorted dates
+    let longestJournalStreak = 0;
+    if (entrySet.size > 0) {
+      const sorted = Array.from(entrySet).sort();
+      let run = 1;
+      for (let i = 1; i < sorted.length; i++) {
+        const prev = new Date(sorted[i - 1]);
+        const curr = new Date(sorted[i]);
+        const diffMs = curr.getTime() - prev.getTime();
+        if (diffMs === 86400000) {
+          run += 1;
+        } else {
+          longestJournalStreak = Math.max(longestJournalStreak, run);
+          run = 1;
+        }
+      }
+      longestJournalStreak = Math.max(longestJournalStreak, run);
+    }
+
     return {
       currentJournalStreak,
-      longestJournalStreak: currentJournalStreak,
+      longestJournalStreak,
       taskCompletionStreak: 0,
     };
   }),
@@ -82,6 +114,7 @@ export const analyticsRouter = router({
       db.select().from(categories).where(eq(categories.userId, ctx.user.id)),
     ]);
 
+    const userItemIds = new Set(allItems.map((item) => item.id));
     const byType = new Map<string, number>();
     const byCategory = new Map<string, number>();
     const byPriority = new Map<string, number>();
@@ -99,6 +132,7 @@ export const analyticsRouter = router({
       byCategory.set(category.name, 0);
     }
     for (const rel of allItemTags) {
+      if (!userItemIds.has(rel.itemId)) continue;
       const name = tagById.get(rel.tagId);
       if (name) tagUsage.set(name, (tagUsage.get(name) ?? 0) + 1);
     }

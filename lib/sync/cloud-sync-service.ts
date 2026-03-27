@@ -63,7 +63,6 @@ export class CloudSyncService {
       // Load sync settings
       await this.loadSyncSettings();
 
-      console.log("Cloud sync initialized");
     } catch (error) {
       console.error("Error initializing cloud sync:", error);
     }
@@ -138,7 +137,6 @@ export class CloudSyncService {
    */
   async performSync(): Promise<boolean> {
     if (this.syncStatus.isSyncing) {
-      console.log("Sync already in progress");
       return false;
     }
 
@@ -152,7 +150,6 @@ export class CloudSyncService {
       // 4. Resolve conflicts
       // 5. Update local database
 
-      console.log("Starting sync with backend...");
 
       // Simulate sync delay
       await new Promise((resolve) => setTimeout(resolve, 1000));
@@ -168,7 +165,6 @@ export class CloudSyncService {
       this.syncStatus.pendingChanges = 0;
       this.syncStatus.syncError = undefined;
 
-      console.log("Sync completed successfully");
       return true;
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : String(error);

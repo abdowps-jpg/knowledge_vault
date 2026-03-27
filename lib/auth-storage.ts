@@ -27,15 +27,11 @@ export function subscribeAuthToken(listener: AuthTokenListener): () => void {
 
 export async function saveToken(token: string): Promise<void> {
   try {
-    console.log("Saving auth token");
     if (Platform.OS === "web") {
       await AsyncStorage.setItem(TOKEN_KEY, token);
-      console.log("Saving token to SecureStore");
-      console.log("Using AsyncStorage fallback on web");
       notifyTokenListeners(token);
       return;
     }
-    console.log("Saving token to SecureStore");
     await SecureStore.setItemAsync(TOKEN_KEY, token);
     notifyTokenListeners(token);
   } catch (error) {
@@ -69,7 +65,6 @@ export async function getToken(): Promise<string | null> {
         }
       }
     }
-    console.log("Token retrieved:", !!token);
     return token;
   } catch (error) {
     console.error("Failed retrieving token:", error);
@@ -89,7 +84,6 @@ export async function clearToken(): Promise<void> {
       await SecureStore.deleteItemAsync(LEGACY_TOKEN_KEY);
       await AsyncStorage.removeItem(CURRENT_USER_ID_KEY);
     }
-    console.log("Token cleared");
     notifyTokenListeners(null);
   } catch (error) {
     console.error("Failed clearing token:", error);
@@ -101,9 +95,7 @@ export async function clearToken(): Promise<void> {
 export async function isAuthenticated(): Promise<boolean> {
   try {
     const token = await getToken();
-    const isAuthed = !!token;
-    console.log("isAuthenticated:", isAuthed);
-    return isAuthed;
+    return !!token;
   } catch (error) {
     console.error("Failed auth check:", error);
     Alert.alert("Auth Error", "Failed to check authentication state.");

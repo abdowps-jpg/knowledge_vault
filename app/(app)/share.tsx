@@ -46,7 +46,6 @@ export default function ShareScreen() {
         location,
       });
 
-      console.log("[Share] Item created from shared payload:", created?.id);
       router.replace({ pathname: "/(app)/item/[id]", params: { id: created.id } });
     } catch (error) {
       console.error("[Share] Failed creating shared item:", error);

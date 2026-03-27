@@ -25,7 +25,6 @@ export default function WidgetQuickAddScreen() {
         description: description.trim() || undefined,
         priority: "medium",
       });
-      console.log("[Widgets/QuickAdd] Task created:", task?.id);
       router.replace("/(app)/(tabs)/actions");
     } catch (error) {
       console.error("[Widgets/QuickAdd] Failed creating task:", error);
