@@ -143,7 +143,7 @@ export default function ConflictsScreen() {
             <TextInput
               placeholder="Manual merge result..."
               className="bg-background border border-border rounded-lg px-3 py-3 text-foreground mt-3"
-              placeholderTextColor="#9ca3af"
+              placeholderTextColor={colors.muted}
               multiline
               value={mergeResult}
               onChangeText={setMergeResult}

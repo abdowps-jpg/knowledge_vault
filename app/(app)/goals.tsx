@@ -169,7 +169,7 @@ export default function GoalsScreen() {
                       onPress={(e) => { e.stopPropagation(); handleDeleteGoal(goal.id, goal.title); }}
                       style={{ padding: 6 }}
                     >
-                      <Text style={{ color: "#ef4444", fontWeight: "700", fontSize: 16 }}>✕</Text>
+                      <Text style={{ color: colors.error, fontWeight: "700", fontSize: 16 }}>✕</Text>
                     </Pressable>
                   </View>
                 </Pressable>
@@ -188,8 +188,8 @@ export default function GoalsScreen() {
                               height: 20,
                               borderRadius: 4,
                               borderWidth: 2,
-                              borderColor: milestone.effectiveCompleted ? "#16a34a" : colors.border,
-                              backgroundColor: milestone.effectiveCompleted ? "#16a34a" : "transparent",
+                              borderColor: milestone.effectiveCompleted ? colors.success : colors.border,
+                              backgroundColor: milestone.effectiveCompleted ? colors.success : "transparent",
                               marginRight: 10,
                               alignItems: "center",
                               justifyContent: "center",
@@ -221,13 +221,13 @@ export default function GoalsScreen() {
                                     paddingVertical: 4,
                                     borderRadius: 999,
                                     borderWidth: 1,
-                                    borderColor: linked ? "#16a34a" : colors.border,
+                                    borderColor: linked ? colors.success : colors.border,
                                     backgroundColor: linked ? "#dcfce7" : "transparent",
                                     marginRight: 6,
                                     marginBottom: 6,
                                   }}
                                 >
-                                  <Text style={{ color: linked ? "#16a34a" : colors.muted, fontSize: 12 }}>{task.title}</Text>
+                                  <Text style={{ color: linked ? colors.success : colors.muted, fontSize: 12 }}>{task.title}</Text>
                                 </Pressable>
                               );
                             })}

@@ -32,7 +32,7 @@ export default function AIFeaturesScreen() {
           <View key={feature} className="bg-surface border border-border rounded-xl p-4 mb-3">
             <View className="flex-row items-center justify-between">
               <Text className="text-foreground font-semibold">{feature}</Text>
-              <MaterialIcons name="lock" size={18} color="#6b7280" />
+              <MaterialIcons name="lock" size={18} color={colors.muted} />
             </View>
             <Text className="text-muted text-sm mt-2">Coming soon in a future update.</Text>
           </View>

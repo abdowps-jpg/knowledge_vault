@@ -214,7 +214,7 @@ function InboxItem({
               <Text style={{ color: colors.primary, fontWeight: "700", fontSize: 12 }}>Move to Journal</Text>
             </Pressable>
             <Pressable onPress={() => onArchive(item)}>
-              <Text style={{ color: "#f59e0b", fontWeight: "700", fontSize: 12 }}>Archive</Text>
+              <Text style={{ color: colors.warning, fontWeight: "700", fontSize: 12 }}>Archive</Text>
             </Pressable>
           </View>
         </View>
