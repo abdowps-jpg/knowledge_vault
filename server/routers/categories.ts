@@ -95,11 +95,17 @@ export const categoriesRouter = router({
     )
     .mutation(async ({ input, ctx }) => {
       try {
+        // Verify ownership before deleting associations.
+        const owned = await db
+          .select({ id: categories.id })
+          .from(categories)
+          .where(and(eq(categories.id, input.id), eq(categories.userId, ctx.user.id)))
+          .limit(1);
+        if (owned.length === 0) return { success: false };
+
         await db.transaction(async (tx) => {
           await tx.delete(itemCategories).where(eq(itemCategories.categoryId, input.id));
-          await tx
-            .delete(categories)
-            .where(and(eq(categories.id, input.id), eq(categories.userId, ctx.user.id)));
+          await tx.delete(categories).where(eq(categories.id, input.id));
         });
         return { success: true };
       } catch (error) {
