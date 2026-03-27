@@ -1761,7 +1761,7 @@ const [showApiModal, setShowApiModal] = useState(false);
                         await apiKeysQuery.refetch();
                       }}
                     >
-                      <Text style={{ color: "#DC2626", fontWeight: "700" }}>Revoke</Text>
+                      <Text style={{ color: colors.error, fontWeight: "700" }}>Revoke</Text>
                     </Pressable>
                   ) : (
                     <Text style={{ color: colors.muted, fontSize: 12 }}>Revoked</Text>
@@ -1845,7 +1845,7 @@ const [showApiModal, setShowApiModal] = useState(false);
                       await webhooksQuery.refetch();
                     }}
                   >
-                    <Text style={{ color: "#DC2626", fontWeight: "700", marginTop: 4 }}>Delete</Text>
+                    <Text style={{ color: colors.error, fontWeight: "700", marginTop: 4 }}>Delete</Text>
                   </Pressable>
                 </View>
               ))}
@@ -2114,7 +2114,7 @@ const [showApiModal, setShowApiModal] = useState(false);
         <View className="flex-1 bg-black/50 justify-end">
           <View className="rounded-t-3xl p-6" style={{ backgroundColor: colors.surface }}>
             <View className="flex-row items-center justify-between mb-4">
-              <Text style={{ fontSize: 18, fontWeight: "700", color: "#ef4444" }}>Delete Account</Text>
+              <Text style={{ fontSize: 18, fontWeight: "700", color: colors.error }}>Delete Account</Text>
               <Pressable onPress={() => setShowDeleteAccountModal(false)}>
                 <MaterialIcons name="close" size={22} color={colors.foreground} />
               </Pressable>
@@ -2130,7 +2130,7 @@ const [showApiModal, setShowApiModal] = useState(false);
               placeholderTextColor={colors.muted}
               style={{
                 borderWidth: 1,
-                borderColor: "#ef4444",
+                borderColor: colors.error,
                 borderRadius: 10,
                 paddingHorizontal: 12,
                 paddingVertical: 10,
@@ -2150,7 +2150,7 @@ const [showApiModal, setShowApiModal] = useState(false);
                 disabled={deleteAccountMutation.isPending}
                 style={{ flex: 1 }}
               >
-                <View style={{ backgroundColor: "#ef4444", borderRadius: 8, paddingVertical: 12, alignItems: "center" }}>
+                <View style={{ backgroundColor: colors.error, borderRadius: 8, paddingVertical: 12, alignItems: "center" }}>
                   {deleteAccountMutation.isPending ? (
                     <ActivityIndicator color="white" />
                   ) : (

@@ -353,7 +353,7 @@ export default function HabitsScreen() {
                     style={{
                       height: 6,
                       width: `${weeklyProgress}%`,
-                      backgroundColor: weeklyProgress >= 100 ? "#16a34a" : colors.primary,
+                      backgroundColor: weeklyProgress >= 100 ? colors.success : colors.primary,
                     }}
                   />
                 </View>
@@ -366,7 +366,7 @@ export default function HabitsScreen() {
                     borderRadius: 999,
                     paddingHorizontal: 14,
                     paddingVertical: 8,
-                    backgroundColor: habit.doneToday ? "#16a34a" : colors.primary,
+                    backgroundColor: habit.doneToday ? colors.success : colors.primary,
                     opacity: toggleHabit.isPending ? 0.75 : 1,
                   }}
                 >
@@ -379,10 +379,10 @@ export default function HabitsScreen() {
                     paddingHorizontal: 12,
                     paddingVertical: 8,
                     borderWidth: 1,
-                    borderColor: "#ef4444",
+                    borderColor: colors.error,
                   }}
                 >
-                  <Text style={{ color: "#ef4444", fontWeight: "700" }}>✕</Text>
+                  <Text style={{ color: colors.error, fontWeight: "700" }}>✕</Text>
                 </Pressable>
               </View>
             </View>
