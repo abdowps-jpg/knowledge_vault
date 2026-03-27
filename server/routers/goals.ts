@@ -165,12 +165,16 @@ export const goalsRouter = router({
         return { success: true as const };
       }
 
-      await db.insert(milestoneTasks).values({
-        id: randomUUID(),
-        milestoneId: input.milestoneId,
-        taskId: input.taskId,
-        createdAt: new Date(),
-      });
+      try {
+        await db.insert(milestoneTasks).values({
+          id: randomUUID(),
+          milestoneId: input.milestoneId,
+          taskId: input.taskId,
+          createdAt: new Date(),
+        });
+      } catch {
+        // Concurrent request already inserted the same link — treat as success.
+      }
       return { success: true as const };
     }),
 

@@ -436,10 +436,6 @@ export default function InboxScreen() {
     }
   };
 
-  const filteredItems = useMemo(() => {
-    return items;
-  }, [items]);
-
   const allSearchResults = useMemo(() => {
     const itemRows =
       itemsSearchQuery.data?.pages.flatMap((page) => page.items ?? []).map((item: any) => ({
@@ -627,7 +623,7 @@ export default function InboxScreen() {
           <MaterialIcons name="hourglass-empty" size={48} color={colors.muted} />
           <Text className="text-muted mt-4">Loading...</Text>
         </View>
-      ) : filteredItems.length === 0 ? (
+      ) : items.length === 0 ? (
         <View className="flex-1 items-center justify-center gap-3">
           <MaterialIcons name="inbox" size={64} color={colors.muted} />
           <Text className="text-lg font-semibold text-foreground">Inbox Empty</Text>
@@ -637,7 +633,7 @@ export default function InboxScreen() {
         </View>
       ) : (
         <FlatList
-          data={filteredItems}
+          data={items}
           keyExtractor={(item) => item.id}
           renderItem={({ item }) => (
             <InboxItem

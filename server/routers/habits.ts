@@ -59,14 +59,19 @@ export const habitsRouter = router({
       const alreadyDoneToday = current.lastCompletedDate === today || current.doneToday;
 
       if (alreadyDoneToday) {
+        // Undo today: revert lastCompletedDate so list no longer shows doneToday, and
+        // decrement streak since today's completion is being removed.
+        const revertedStreak = Math.max(0, current.streak - 1);
         await db
           .update(habits)
           .set({
             doneToday: false,
+            lastCompletedDate: revertedStreak > 0 ? yesterday : null,
+            streak: revertedStreak,
             updatedAt: new Date(),
           })
           .where(eq(habits.id, current.id));
-        return { success: true as const, doneToday: false, streak: current.streak };
+        return { success: true as const, doneToday: false, streak: revertedStreak };
       }
 
       const nextStreak = current.lastCompletedDate === yesterday ? current.streak + 1 : 1;
