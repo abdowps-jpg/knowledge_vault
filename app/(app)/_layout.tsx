@@ -3,6 +3,7 @@ import { Stack, usePathname, useRouter } from "expo-router";
 import { Modal, Platform, Pressable, ScrollView, Text, TextInput, View } from "react-native";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import Fuse from "fuse.js";
+import { useColors } from "@/hooks/use-colors";
 
 type ShortcutDefinition = {
   keys: string;
@@ -15,6 +16,7 @@ const RECENT_COMMANDS_KEY = "command_palette_recent_v1";
 export default function AppLayout() {
   const router = useRouter();
   const pathname = usePathname();
+  const colors = useColors();
   const [showShortcutsHelp, setShowShortcutsHelp] = React.useState(false);
   const [showCommandPalette, setShowCommandPalette] = React.useState(false);
   const [commandQuery, setCommandQuery] = React.useState("");
@@ -300,10 +302,10 @@ export default function AppLayout() {
         >
           <Pressable
             onPress={(event) => event.stopPropagation()}
-            style={{ maxHeight: "80%", borderRadius: 14, padding: 16, backgroundColor: "#fff" }}
+            style={{ maxHeight: "80%", borderRadius: 14, padding: 16, backgroundColor: colors.surface }}
           >
-            <Text style={{ fontSize: 18, fontWeight: "700", marginBottom: 10 }}>Keyboard Shortcuts</Text>
-            <Text style={{ fontSize: 12, color: "#6b7280", marginBottom: 10 }}>Current route: {pathname}</Text>
+            <Text style={{ fontSize: 18, fontWeight: "700", marginBottom: 10, color: colors.foreground }}>Keyboard Shortcuts</Text>
+            <Text style={{ fontSize: 12, color: colors.muted, marginBottom: 10 }}>Current route: {pathname}</Text>
             <ScrollView>
               {shortcutDefinitions.map((shortcut) => (
                 <View
@@ -313,17 +315,17 @@ export default function AppLayout() {
                     justifyContent: "space-between",
                     paddingVertical: 8,
                     borderBottomWidth: 1,
-                    borderBottomColor: "#e5e7eb",
+                    borderBottomColor: colors.border,
                   }}
                 >
-                  <Text style={{ color: "#111827", fontWeight: "600", marginRight: 8 }}>{shortcut.keys}</Text>
-                  <Text style={{ color: "#374151", flex: 1, textAlign: "right" }}>{shortcut.description}</Text>
+                  <Text style={{ color: colors.foreground, fontWeight: "600", marginRight: 8 }}>{shortcut.keys}</Text>
+                  <Text style={{ color: colors.muted, flex: 1, textAlign: "right" }}>{shortcut.description}</Text>
                 </View>
               ))}
             </ScrollView>
             <Pressable
               onPress={() => setShowShortcutsHelp(false)}
-              style={{ marginTop: 12, borderRadius: 10, paddingVertical: 10, backgroundColor: "#111827" }}
+              style={{ marginTop: 12, borderRadius: 10, paddingVertical: 10, backgroundColor: colors.primary }}
             >
               <Text style={{ textAlign: "center", color: "white", fontWeight: "700" }}>Close</Text>
             </Pressable>
@@ -336,30 +338,32 @@ export default function AppLayout() {
           onPress={() => setShowCommandPalette(false)}
           style={{ flex: 1, backgroundColor: "rgba(0,0,0,0.45)", justifyContent: "flex-start", paddingTop: 70, paddingHorizontal: 20 }}
         >
-          <Pressable onPress={(event) => event.stopPropagation()} style={{ borderRadius: 14, padding: 12, backgroundColor: "#fff" }}>
+          <Pressable onPress={(event) => event.stopPropagation()} style={{ borderRadius: 14, padding: 12, backgroundColor: colors.surface }}>
             <TextInput
               autoFocus
               placeholder="Type a command..."
+              placeholderTextColor={colors.muted}
               value={commandQuery}
               onChangeText={setCommandQuery}
               style={{
                 borderWidth: 1,
-                borderColor: "#d1d5db",
+                borderColor: colors.border,
                 borderRadius: 10,
                 paddingHorizontal: 12,
                 paddingVertical: 10,
                 fontSize: 14,
-                color: "#111827",
+                color: colors.foreground,
+                backgroundColor: colors.background,
               }}
             />
             <ScrollView style={{ maxHeight: 360, marginTop: 10 }}>
               {!commandQuery.trim() && recentCommandLabels.length ? (
                 <View style={{ marginBottom: 8 }}>
-                  <Text style={{ color: "#6b7280", fontSize: 12, fontWeight: "700", marginBottom: 6 }}>Recent</Text>
+                  <Text style={{ color: colors.muted, fontSize: 12, fontWeight: "700", marginBottom: 6 }}>Recent</Text>
                   <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 6 }}>
                     {recentCommandLabels.map((label) => (
-                      <View key={label} style={{ backgroundColor: "#eef2ff", borderRadius: 999, paddingHorizontal: 8, paddingVertical: 4 }}>
-                        <Text style={{ color: "#4338ca", fontSize: 11, fontWeight: "600" }}>{label}</Text>
+                      <View key={label} style={{ backgroundColor: colors.primary + "22", borderRadius: 999, paddingHorizontal: 8, paddingVertical: 4 }}>
+                        <Text style={{ color: colors.primary, fontSize: 11, fontWeight: "600" }}>{label}</Text>
                       </View>
                     ))}
                   </View>
@@ -375,15 +379,15 @@ export default function AppLayout() {
                     paddingHorizontal: 8,
                     borderRadius: 8,
                     marginBottom: 2,
-                    backgroundColor: "#f9fafb",
+                    backgroundColor: colors.background,
                   })}
                 >
-                  <Text style={{ color: "#111827", fontWeight: "600" }}>{option.label}</Text>
-                  <Text style={{ color: "#6b7280", fontSize: 12 }}>{option.route}</Text>
+                  <Text style={{ color: colors.foreground, fontWeight: "600" }}>{option.label}</Text>
+                  <Text style={{ color: colors.muted, fontSize: 12 }}>{option.route}</Text>
                 </Pressable>
               ))}
               {!filteredCommandOptions.length ? (
-                <Text style={{ color: "#6b7280", textAlign: "center", paddingVertical: 16 }}>No commands found.</Text>
+                <Text style={{ color: colors.muted, textAlign: "center", paddingVertical: 16 }}>No commands found.</Text>
               ) : null}
             </ScrollView>
           </Pressable>

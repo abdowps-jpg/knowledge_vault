@@ -96,7 +96,7 @@ export default function OAuthCallback() {
             code = urlObj.searchParams.get("code");
             state = urlObj.searchParams.get("state");
             sessionToken = urlObj.searchParams.get("sessionToken");
-          } catch (e) {
+          } catch {
             const match = url.match(/[?&](code|state|sessionToken)=([^&]+)/g);
             if (match) {
               match.forEach((param) => {

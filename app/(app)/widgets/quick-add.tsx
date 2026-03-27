@@ -20,7 +20,7 @@ export default function WidgetQuickAddScreen() {
       return;
     }
     try {
-      const task = await createTask.mutateAsync({
+      await createTask.mutateAsync({
         title: title.trim(),
         description: description.trim() || undefined,
         priority: "medium",
