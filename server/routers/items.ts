@@ -1,7 +1,7 @@
 import { z } from 'zod';
 import { protectedProcedure, router } from '../trpc';
 import { items } from '../schema';
-import { eq, and, desc, asc, sql, gte, inArray, isNull } from 'drizzle-orm';
+import { eq, and, desc, asc, sql, gte, inArray, isNull, lt } from 'drizzle-orm';
 import { db } from '../db';
 import { randomUUID } from 'crypto';
 import { itemTags, tags } from '../schema/tags';
@@ -247,6 +247,8 @@ export const itemsRouter = router({
       });
       ensureItemAccess(access, 'edit');
 
+      const MAX_VERSIONS_PER_ITEM = 50;
+
       const currentRows = await db.select().from(items).where(eq(items.id, id)).limit(1);
       const current = currentRows[0];
       if (current) {
@@ -258,6 +260,21 @@ export const itemsRouter = router({
           content: current.content,
           createdAt: new Date(),
         });
+
+        // Keep only the most recent MAX_VERSIONS_PER_ITEM versions per item.
+        const oldest = await db
+          .select({ id: itemVersions.id, createdAt: itemVersions.createdAt })
+          .from(itemVersions)
+          .where(eq(itemVersions.itemId, current.id))
+          .orderBy(desc(itemVersions.createdAt))
+          .offset(MAX_VERSIONS_PER_ITEM)
+          .limit(1);
+        const cutoff = oldest[0]?.createdAt ?? null;
+        if (cutoff !== null) {
+          await db
+            .delete(itemVersions)
+            .where(and(eq(itemVersions.itemId, current.id), lt(itemVersions.createdAt, cutoff)));
+        }
       }
 
       await db
