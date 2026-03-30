@@ -1,5 +1,5 @@
 import { randomUUID } from "crypto";
-import { and, eq, inArray, sql } from "drizzle-orm";
+import { and, count, eq, inArray, sql } from "drizzle-orm";
 import { z } from "zod";
 
 import { db } from "../db";
@@ -77,6 +77,9 @@ export const subtasksRouter = router({
         .select({ id: subtasks.id })
         .from(subtasks)
         .where(and(eq(subtasks.userId, ctx.user.id), eq(subtasks.taskId, input.taskId)));
+      if (existing.length >= 50) {
+        return { success: false as const };
+      }
       const record = {
         id: randomUUID(),
         userId: ctx.user.id,

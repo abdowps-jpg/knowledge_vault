@@ -200,7 +200,7 @@ export default function JournalScreen() {
       ) : entries.length === 0 ? (
         <View className="flex-1 items-center justify-center mt-8">
           <MaterialIcons name="menu-book" size={64} color={colors.muted} />
-          <Text className="text-muted text-center mt-4">No entries for today</Text>
+          <Text className="text-muted text-center mt-4">No journal entries yet</Text>
         </View>
       ) : (
         <FlashList

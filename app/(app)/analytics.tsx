@@ -126,9 +126,9 @@ export default function AnalyticsScreen() {
         {/* Summary cards */}
         <View style={{ flexDirection: "row", gap: 10, marginBottom: 16 }}>
           {[
-            { label: "Total Items", value: totalItems, icon: "note" as const, color: "#3b82f6" },
-            { label: "Tasks Done", value: totalTasksDone, icon: "check-circle" as const, color: "#22c55e" },
-            { label: "Journal Streak", value: streaks.data?.currentJournalStreak ?? 0, icon: "local-fire-department" as const, color: "#f59e0b" },
+            { label: "Total Items", value: totalItems, icon: "note" as const, color: colors.primary },
+            { label: "Tasks Done", value: totalTasksDone, icon: "check-circle" as const, color: colors.success },
+            { label: "Journal Streak", value: streaks.data?.currentJournalStreak ?? 0, icon: "local-fire-department" as const, color: colors.warning },
           ].map((stat) => (
             <View
               key={stat.label}

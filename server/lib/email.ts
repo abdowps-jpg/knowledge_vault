@@ -31,6 +31,46 @@ async function sendViaResend(input: SendVerificationEmailInput): Promise<boolean
   return true;
 }
 
+export async function sendPasswordResetEmail(input: SendVerificationEmailInput): Promise<void> {
+  const apiKey = process.env.RESEND_API_KEY;
+  const from = process.env.EMAIL_FROM;
+  let sent = false;
+
+  if (apiKey && from) {
+    const response = await fetch('https://api.resend.com/emails', {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        from,
+        to: [input.to],
+        subject: 'Reset your Knowledge Vault password',
+        html: `<p>Your password reset code is: <strong>${input.code}</strong></p><p>This code expires in 15 minutes. If you did not request this, you can safely ignore this email.</p>`,
+      }),
+    });
+
+    if (response.ok) {
+      sent = true;
+      console.log('[Email] Password reset email sent:', { to: input.to });
+    } else {
+      const message = await response.text().catch(() => response.statusText);
+      console.error('[Email] Resend failed:', response.status, message);
+    }
+  }
+
+  if (!sent) {
+    if (process.env.NODE_ENV === 'production') {
+      throw new Error('Email provider is not configured');
+    }
+    console.log('[Email][DEV] Password reset code fallback:', {
+      to: input.to,
+      code: input.code,
+    });
+  }
+}
+
 export async function sendVerificationEmail(input: SendVerificationEmailInput): Promise<void> {
   const sent = await sendViaResend(input);
   if (sent) {

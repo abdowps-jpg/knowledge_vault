@@ -1,5 +1,5 @@
 import { createHash, randomUUID } from 'crypto';
-import { and, eq, isNull } from 'drizzle-orm';
+import { and, count, eq, isNull } from 'drizzle-orm';
 import { TRPCError } from '@trpc/server';
 import { z } from 'zod';
 import { db } from '../db';
@@ -35,6 +35,14 @@ export const publicLinksRouter = router({
         .limit(1);
       if (ownerRows.length === 0) {
         throw new TRPCError({ code: 'FORBIDDEN', message: 'Only item owner can create public links' });
+      }
+
+      const [countRow] = await db
+        .select({ total: count() })
+        .from(publicLinks)
+        .where(and(eq(publicLinks.ownerUserId, ctx.user.id), eq(publicLinks.isRevoked, false)));
+      if ((countRow?.total ?? 0) >= 50) {
+        throw new TRPCError({ code: 'BAD_REQUEST', message: 'Maximum of 50 active public links allowed.' });
       }
 
       const normalizedPassword = normalizePassword(input.password);

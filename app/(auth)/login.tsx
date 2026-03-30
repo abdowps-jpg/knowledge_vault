@@ -178,6 +178,10 @@ export default function LoginScreen() {
         )}
       </TouchableOpacity>
 
+      <Pressable onPress={() => router.push("/(auth)/forgot-password" as any)} className="mt-3 items-center">
+        <Text className="text-primary font-semibold">Forgot Password?</Text>
+      </Pressable>
+
       <View className="flex-row justify-center mt-4">
         <Text className="text-muted">{"Don't have an account? "}</Text>
         <Pressable onPress={() => router.push("/(auth)/register" as any)}>

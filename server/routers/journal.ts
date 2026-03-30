@@ -1,5 +1,5 @@
 import { randomUUID } from 'crypto';
-import { and, desc, eq, gte, lte } from 'drizzle-orm';
+import { and, desc, eq, gte, isNull, lte } from 'drizzle-orm';
 import { TRPCError } from '@trpc/server';
 import { z } from 'zod';
 import { db } from '../db';
@@ -22,7 +22,7 @@ export const journalRouter = router({
     .query(async ({ input, ctx }) => {
       try {
         const cursor = input.cursor ?? 0;
-        const conditions = [eq(journal.userId, ctx.user.id)];
+        const conditions = [eq(journal.userId, ctx.user.id), isNull(journal.deletedAt)];
 
         if (input.startDate) {
           conditions.push(gte(journal.entryDate, input.startDate));
@@ -156,7 +156,7 @@ export const journalRouter = router({
         const result = await db
           .select()
           .from(journal)
-          .where(and(eq(journal.entryDate, input.entryDate), eq(journal.userId, ctx.user.id)))
+          .where(and(eq(journal.entryDate, input.entryDate), eq(journal.userId, ctx.user.id), isNull(journal.deletedAt)))
           .orderBy(desc(journal.entryDate));
 
         return result || [];

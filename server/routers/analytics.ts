@@ -1,4 +1,4 @@
-import { eq } from "drizzle-orm";
+import { eq, inArray } from "drizzle-orm";
 import { db } from "../db";
 import { items, journal, tasks, tags, itemTags, categories } from "../schema";
 import { protectedProcedure, router } from "../trpc";
@@ -106,15 +106,18 @@ export const analyticsRouter = router({
   }),
 
   getDistribution: protectedProcedure.query(async ({ ctx }) => {
-    const [allItems, allTasks, allTags, allItemTags, allCategories] = await Promise.all([
+    const [allItems, allTasks, allTags, allCategories] = await Promise.all([
       db.select().from(items).where(eq(items.userId, ctx.user.id)),
       db.select().from(tasks).where(eq(tasks.userId, ctx.user.id)),
       db.select().from(tags).where(eq(tags.userId, ctx.user.id)),
-      db.select().from(itemTags),
       db.select().from(categories).where(eq(categories.userId, ctx.user.id)),
     ]);
 
     const userItemIds = new Set(allItems.map((item) => item.id));
+    const itemIdArray = allItems.map((item) => item.id);
+    const allItemTags = itemIdArray.length > 0
+      ? await db.select().from(itemTags).where(inArray(itemTags.itemId, itemIdArray))
+      : [];
     const byType = new Map<string, number>();
     const byCategory = new Map<string, number>();
     const byPriority = new Map<string, number>();

@@ -1,5 +1,5 @@
 import { randomUUID } from 'crypto';
-import { and, asc, desc, eq, gte } from 'drizzle-orm';
+import { and, asc, desc, eq, gte, isNull } from 'drizzle-orm';
 import { TRPCError } from '@trpc/server';
 import { z } from 'zod';
 import { db } from '../db';
@@ -35,7 +35,7 @@ export const tasksRouter = router({
     .query(async ({ input, ctx }) => {
       try {
         const cursor = input.cursor ?? 0;
-        const conditions = [eq(tasks.userId, ctx.user.id)];
+        const conditions = [eq(tasks.userId, ctx.user.id), isNull(tasks.deletedAt)];
 
         if (typeof input.isCompleted === 'boolean') {
           conditions.push(eq(tasks.isCompleted, input.isCompleted));
@@ -86,6 +86,17 @@ export const tasksRouter = router({
     )
     .mutation(async ({ input, ctx }) => {
       try {
+        if (input.blockedByTaskId) {
+          const blockerRows = await db
+            .select({ id: tasks.id })
+            .from(tasks)
+            .where(and(eq(tasks.id, input.blockedByTaskId), eq(tasks.userId, ctx.user.id), isNull(tasks.deletedAt)))
+            .limit(1);
+          if (blockerRows.length === 0) {
+            throw new TRPCError({ code: 'BAD_REQUEST', message: 'Blocking task not found' });
+          }
+        }
+
         const newTask = {
           id: randomUUID(),
           userId: ctx.user.id,
@@ -137,7 +148,7 @@ export const tasksRouter = router({
         const existingTaskRows = await db
           .select()
           .from(tasks)
-          .where(and(eq(tasks.id, id), eq(tasks.userId, ctx.user.id)))
+          .where(and(eq(tasks.id, id), eq(tasks.userId, ctx.user.id), isNull(tasks.deletedAt)))
           .limit(1);
         const existingTask = existingTaskRows[0];
         if (!existingTask) {
@@ -205,7 +216,7 @@ export const tasksRouter = router({
         const existing = await db
           .select()
           .from(tasks)
-          .where(and(eq(tasks.id, input.id), eq(tasks.userId, ctx.user.id)))
+          .where(and(eq(tasks.id, input.id), eq(tasks.userId, ctx.user.id), isNull(tasks.deletedAt)))
           .limit(1);
 
         if (!existing || existing.length === 0) {
@@ -252,7 +263,7 @@ export const tasksRouter = router({
         const existing = await db
           .select()
           .from(tasks)
-          .where(and(eq(tasks.id, input.id), eq(tasks.userId, ctx.user.id)))
+          .where(and(eq(tasks.id, input.id), eq(tasks.userId, ctx.user.id), isNull(tasks.deletedAt)))
           .limit(1);
 
         if (!existing || existing.length === 0) {

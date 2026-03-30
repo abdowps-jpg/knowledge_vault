@@ -21,6 +21,8 @@ async function createTestUser() {
           username,
           password: hashedPassword,
           isActive: true,
+          emailVerified: true,
+          emailVerifiedAt: new Date(),
           updatedAt: new Date(),
         })
         .where(eq(users.email, email));
@@ -33,6 +35,8 @@ async function createTestUser() {
         username,
         password: hashedPassword,
         isActive: true,
+        emailVerified: true,
+        emailVerifiedAt: new Date(),
       });
 
       console.log("Created new test user.");

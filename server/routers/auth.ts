@@ -6,7 +6,7 @@ import { db } from '../db';
 import { getSessionCookieOptions } from '../_core/cookies';
 import { comparePassword, generateToken, hashPassword, verifyToken as verifyJwtToken } from '../lib/auth';
 import { buildTaskInboxAddressForUser } from '../lib/email-task-address';
-import { sendVerificationEmail } from '../lib/email';
+import { sendPasswordResetEmail, sendVerificationEmail } from '../lib/email';
 import { users } from '../schema/users';
 import { protectedProcedure, publicProcedure, router } from '../trpc';
 import { COOKIE_NAME } from '../../shared/const.js';
@@ -376,6 +376,81 @@ export const authRouter = router({
         user: updatedUser,
         token,
       };
+    }),
+
+  forgotPassword: publicProcedure
+    .input(
+      z.object({
+        email: z.email(),
+      })
+    )
+    .mutation(async ({ input }) => {
+      const email = input.email.trim().toLowerCase();
+      const existing = await db.select().from(users).where(eq(users.email, email)).limit(1);
+      const user = existing[0];
+
+      if (user && user.emailVerified && user.isActive) {
+        const resetCode = generateVerificationCode();
+        const resetCodeHash = hashVerificationCode(resetCode);
+        const resetCodeExpiry = new Date(Date.now() + 15 * 60 * 1000);
+
+        await db
+          .update(users)
+          .set({
+            emailVerificationCode: resetCodeHash,
+            emailVerificationExpiresAt: resetCodeExpiry,
+            updatedAt: new Date(),
+          })
+          .where(eq(users.id, user.id));
+
+        await sendPasswordResetEmail({ to: email, code: resetCode });
+      }
+
+      // Generic response prevents email enumeration.
+      return { success: true as const };
+    }),
+
+  resetPassword: publicProcedure
+    .input(
+      z.object({
+        email: z.email(),
+        code: z
+          .string()
+          .trim()
+          .regex(/^\d{6}$/),
+        newPassword: z.string().min(6),
+      })
+    )
+    .mutation(async ({ input }) => {
+      const email = input.email.trim().toLowerCase();
+      const existing = await db.select().from(users).where(eq(users.email, email)).limit(1);
+      const user = existing[0];
+
+      const submittedHash = hashVerificationCode(input.code);
+      const isValid =
+        !!user &&
+        user.emailVerified &&
+        !!user.emailVerificationCode &&
+        !!user.emailVerificationExpiresAt &&
+        user.emailVerificationExpiresAt.getTime() >= Date.now() &&
+        submittedHash === user.emailVerificationCode;
+
+      if (!isValid) {
+        throw new TRPCError({ code: 'BAD_REQUEST', message: 'Invalid or expired reset code' });
+      }
+
+      const hashed = await hashPassword(input.newPassword);
+      await db
+        .update(users)
+        .set({
+          password: hashed,
+          emailVerificationCode: null,
+          emailVerificationExpiresAt: null,
+          updatedAt: new Date(),
+        })
+        .where(eq(users.id, user.id));
+
+      return { success: true as const };
     }),
 
   changePassword: protectedProcedure

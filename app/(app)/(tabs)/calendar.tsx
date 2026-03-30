@@ -98,8 +98,8 @@ export default function CalendarScreen() {
         (marks[due]?.dots ?? []).map((dot: any) => [dot.key, dot])
       );
       if (entry.kind === "task") dots.set("task", { key: "task", color: colors.primary });
-      if (entry.kind === "note") dots.set("note", { key: "note", color: "#0EA5E9" });
-      if (entry.kind === "journal") dots.set("journal", { key: "journal", color: "#8B5CF6" });
+      if (entry.kind === "note") dots.set("note", { key: "note", color: colors.success });
+      if (entry.kind === "journal") dots.set("journal", { key: "journal", color: colors.warning });
       marks[due] = {
         ...(marks[due] || {}),
         dots: Array.from(dots.values()),
@@ -113,7 +113,7 @@ export default function CalendarScreen() {
       };
     }
     return marks;
-  }, [allEntries, colors.primary, selectedDate]);
+  }, [allEntries, colors.primary, colors.success, colors.warning, selectedDate]);
 
   const visibleEntries = React.useMemo(() => {
     const byDay = allEntries.filter((entry) => entry.dateKey === selectedDate);
@@ -245,7 +245,7 @@ export default function CalendarScreen() {
                     fontSize: 11,
                     fontWeight: "700",
                     color:
-                      entry.kind === "task" ? colors.primary : entry.kind === "note" ? "#0EA5E9" : "#8B5CF6",
+                      entry.kind === "task" ? colors.primary : entry.kind === "note" ? colors.success : colors.warning,
                   }}
                 >
                   {entry.kind.toUpperCase()}
