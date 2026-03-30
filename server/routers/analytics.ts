@@ -1,4 +1,4 @@
-import { eq, inArray } from "drizzle-orm";
+import { and, eq, inArray, isNull } from "drizzle-orm";
 import { db } from "../db";
 import { items, journal, tasks, tags, itemTags, categories } from "../schema";
 import { protectedProcedure, router } from "../trpc";
@@ -30,9 +30,9 @@ function bucket(records: Array<Date>, mode: "day" | "week" | "month") {
 export const analyticsRouter = router({
   getProductivity: protectedProcedure.query(async ({ ctx }) => {
     const [allItems, allTasks, allJournal] = await Promise.all([
-      db.select().from(items).where(eq(items.userId, ctx.user.id)),
-      db.select().from(tasks).where(eq(tasks.userId, ctx.user.id)),
-      db.select().from(journal).where(eq(journal.userId, ctx.user.id)),
+      db.select().from(items).where(and(eq(items.userId, ctx.user.id), isNull(items.deletedAt))),
+      db.select().from(tasks).where(and(eq(tasks.userId, ctx.user.id), isNull(tasks.deletedAt))),
+      db.select().from(journal).where(and(eq(journal.userId, ctx.user.id), isNull(journal.deletedAt))),
     ]);
 
     const itemDates = allItems.map((r) => new Date(r.createdAt as any));
@@ -50,7 +50,7 @@ export const analyticsRouter = router({
   }),
 
   getStreaks: protectedProcedure.query(async ({ ctx }) => {
-    const allJournal = await db.select().from(journal).where(eq(journal.userId, ctx.user.id));
+    const allJournal = await db.select().from(journal).where(and(eq(journal.userId, ctx.user.id), isNull(journal.deletedAt)));
 
     // Build a set of unique YYYY-MM-DD strings from entryDate
     const entrySet = new Set<string>();
@@ -107,8 +107,8 @@ export const analyticsRouter = router({
 
   getDistribution: protectedProcedure.query(async ({ ctx }) => {
     const [allItems, allTasks, allTags, allCategories] = await Promise.all([
-      db.select().from(items).where(eq(items.userId, ctx.user.id)),
-      db.select().from(tasks).where(eq(tasks.userId, ctx.user.id)),
+      db.select().from(items).where(and(eq(items.userId, ctx.user.id), isNull(items.deletedAt))),
+      db.select().from(tasks).where(and(eq(tasks.userId, ctx.user.id), isNull(tasks.deletedAt))),
       db.select().from(tags).where(eq(tags.userId, ctx.user.id)),
       db.select().from(categories).where(eq(categories.userId, ctx.user.id)),
     ]);
@@ -150,8 +150,8 @@ export const analyticsRouter = router({
 
   getTimeSeries: protectedProcedure.query(async ({ ctx }) => {
     const [allItems, allTasks] = await Promise.all([
-      db.select().from(items).where(eq(items.userId, ctx.user.id)),
-      db.select().from(tasks).where(eq(tasks.userId, ctx.user.id)),
+      db.select().from(items).where(and(eq(items.userId, ctx.user.id), isNull(items.deletedAt))),
+      db.select().from(tasks).where(and(eq(tasks.userId, ctx.user.id), isNull(tasks.deletedAt))),
     ]);
     return {
       contentCreation: bucket(allItems.map((r) => new Date(r.createdAt as any)), "day"),

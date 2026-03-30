@@ -1,4 +1,4 @@
-import { and, eq } from 'drizzle-orm';
+import { and, eq, inArray, isNull } from 'drizzle-orm';
 import { protectedProcedure, router } from '../trpc';
 import { db } from '../db';
 import { items, tasks, journal, tags, itemTags } from '../schema';
@@ -35,9 +35,9 @@ export const statsRouter = router({
   getSummary: protectedProcedure.query(async ({ ctx }) => {
     try {
       const [allItems, allTasks, allJournal] = await Promise.all([
-        db.select().from(items).where(eq(items.userId, ctx.user.id)),
-        db.select().from(tasks).where(eq(tasks.userId, ctx.user.id)),
-        db.select().from(journal).where(eq(journal.userId, ctx.user.id)),
+        db.select().from(items).where(and(eq(items.userId, ctx.user.id), isNull(items.deletedAt))),
+        db.select().from(tasks).where(and(eq(tasks.userId, ctx.user.id), isNull(tasks.deletedAt))),
+        db.select().from(journal).where(and(eq(journal.userId, ctx.user.id), isNull(journal.deletedAt))),
       ]);
 
       const now = new Date();
@@ -93,9 +93,9 @@ export const statsRouter = router({
   getChartData: protectedProcedure.query(async ({ ctx }) => {
     try {
       const [allItems, allTasks, allJournal] = await Promise.all([
-        db.select().from(items).where(eq(items.userId, ctx.user.id)),
-        db.select().from(tasks).where(eq(tasks.userId, ctx.user.id)),
-        db.select().from(journal).where(eq(journal.userId, ctx.user.id)),
+        db.select().from(items).where(and(eq(items.userId, ctx.user.id), isNull(items.deletedAt))),
+        db.select().from(tasks).where(and(eq(tasks.userId, ctx.user.id), isNull(tasks.deletedAt))),
+        db.select().from(journal).where(and(eq(journal.userId, ctx.user.id), isNull(journal.deletedAt))),
       ]);
 
       const now = new Date();
@@ -183,12 +183,11 @@ export const statsRouter = router({
 
   getInsights: protectedProcedure.query(async ({ ctx }) => {
     try {
-      const [allItems, allTasks, allJournal, allTags, allItemTags] = await Promise.all([
-        db.select().from(items).where(eq(items.userId, ctx.user.id)),
-        db.select().from(tasks).where(eq(tasks.userId, ctx.user.id)),
-        db.select().from(journal).where(eq(journal.userId, ctx.user.id)),
+      const [allItems, allTasks, allJournal, allTags] = await Promise.all([
+        db.select().from(items).where(and(eq(items.userId, ctx.user.id), isNull(items.deletedAt))),
+        db.select().from(tasks).where(and(eq(tasks.userId, ctx.user.id), isNull(tasks.deletedAt))),
+        db.select().from(journal).where(and(eq(journal.userId, ctx.user.id), isNull(journal.deletedAt))),
         db.select().from(tags).where(eq(tags.userId, ctx.user.id)),
-        db.select().from(itemTags),
       ]);
 
       const tagNameById = new Map<string, string>();
@@ -197,9 +196,12 @@ export const statsRouter = router({
       }
 
       const userItemIds = new Set(allItems.map((item) => item.id));
+      const itemIdArray = allItems.map((item) => item.id);
+      const allItemTags = itemIdArray.length > 0
+        ? await db.select().from(itemTags).where(inArray(itemTags.itemId, itemIdArray))
+        : [];
       const tagCounts = new Map<string, number>();
       for (const link of allItemTags) {
-        if (!userItemIds.has(link.itemId)) continue;
         const name = tagNameById.get(link.tagId);
         if (!name) continue;
         tagCounts.set(name, (tagCounts.get(name) || 0) + 1);

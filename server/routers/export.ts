@@ -1,15 +1,15 @@
 import { db } from '../db';
 import { categories, items, journal, tags, tasks } from '../schema';
-import { eq } from 'drizzle-orm';
+import { and, eq, isNull } from 'drizzle-orm';
 import { protectedProcedure, router } from '../trpc';
 
 export const exportRouter = router({
   exportAll: protectedProcedure.query(async ({ ctx }) => {
     try {
       const [allItems, allTasks, allJournalEntries, allTags, allCategories] = await Promise.all([
-        db.select().from(items).where(eq(items.userId, ctx.user.id)),
-        db.select().from(tasks).where(eq(tasks.userId, ctx.user.id)),
-        db.select().from(journal).where(eq(journal.userId, ctx.user.id)),
+        db.select().from(items).where(and(eq(items.userId, ctx.user.id), isNull(items.deletedAt))),
+        db.select().from(tasks).where(and(eq(tasks.userId, ctx.user.id), isNull(tasks.deletedAt))),
+        db.select().from(journal).where(and(eq(journal.userId, ctx.user.id), isNull(journal.deletedAt))),
         db.select().from(tags).where(eq(tags.userId, ctx.user.id)),
         db.select().from(categories).where(eq(categories.userId, ctx.user.id)),
       ]);

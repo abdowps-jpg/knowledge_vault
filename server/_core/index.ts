@@ -6,7 +6,7 @@ import { db } from '../db';
 import { users } from '../schema/users';
 import { tasks } from '../schema/tasks';
 import { randomUUID } from 'crypto';
-import { eq } from 'drizzle-orm';
+import { eq, isNull } from 'drizzle-orm';
 import { resolveUserIdFromTaskInboxAddress } from '../lib/email-task-address';
 import { itemsRouter } from '../routers/items';
 import { tasksRouter } from '../routers/tasks';
@@ -150,7 +150,7 @@ app.use('/api', async (req, res, next) => {
 
 app.get('/api/items', async (req, res) => {
   const userId = String((req as any).apiUserId ?? '');
-  const rows = await db.select().from(items).where(eq(items.userId, userId));
+  const rows = await db.select().from(items).where(and(eq(items.userId, userId), isNull(items.deletedAt)));
   return res.json({ success: true, items: rows });
 });
 
@@ -221,7 +221,7 @@ app.delete('/api/items/:id', async (req, res) => {
 
 app.get('/api/tasks', async (req, res) => {
   const userId = String((req as any).apiUserId ?? '');
-  const rows = await db.select().from(tasks).where(eq(tasks.userId, userId));
+  const rows = await db.select().from(tasks).where(and(eq(tasks.userId, userId), isNull(tasks.deletedAt)));
   return res.json({ success: true, tasks: rows });
 });
 
@@ -298,7 +298,7 @@ app.delete('/api/tasks/:id', async (req, res) => {
 
 app.get('/api/journal', async (req, res) => {
   const userId = String((req as any).apiUserId ?? '');
-  const rows = await db.select().from(journal).where(eq(journal.userId, userId));
+  const rows = await db.select().from(journal).where(and(eq(journal.userId, userId), isNull(journal.deletedAt)));
   return res.json({ success: true, journal: rows });
 });
 

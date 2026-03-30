@@ -1,5 +1,5 @@
 import { randomUUID } from 'crypto';
-import { and, eq, inArray } from 'drizzle-orm';
+import { and, count, eq, inArray, isNull } from 'drizzle-orm';
 import { TRPCError } from '@trpc/server';
 import { z } from 'zod';
 import { db } from '../db';
@@ -48,6 +48,14 @@ export const itemSharesRouter = router({
         .limit(1);
       if (ownerRows.length === 0) {
         throw new TRPCError({ code: 'FORBIDDEN', message: 'Only item owner can share this item' });
+      }
+
+      const [countRow] = await db
+        .select({ total: count() })
+        .from(itemShares)
+        .where(eq(itemShares.itemId, input.itemId));
+      if ((countRow?.total ?? 0) >= 20) {
+        throw new TRPCError({ code: 'BAD_REQUEST', message: 'Maximum of 20 shares per item allowed.' });
       }
 
       const existing = await db
@@ -108,7 +116,7 @@ export const itemSharesRouter = router({
     if (rows.length === 0) return [];
 
     const sharedItemIds = rows.map((row) => row.itemId);
-    const sharedItems = await db.select().from(items).where(inArray(items.id, sharedItemIds));
+    const sharedItems = await db.select().from(items).where(and(inArray(items.id, sharedItemIds), isNull(items.deletedAt)));
 
     const itemById = new Map(sharedItems.map((item) => [item.id, item]));
     return rows
