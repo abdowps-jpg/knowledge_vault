@@ -77,7 +77,7 @@ interface RowProps {
   right?: React.ReactNode;
 }
 
-function Row({ icon, label, description, value, onPress, right }: RowProps) {
+const Row = React.memo(function Row({ icon, label, description, value, onPress, right }: RowProps) {
   const colors = useColors();
   const isPressable = typeof onPress === "function";
   return (
@@ -108,7 +108,7 @@ function Row({ icon, label, description, value, onPress, right }: RowProps) {
       {right || (value ? <Text className="text-sm text-muted">{value}</Text> : null)}
     </Pressable>
   );
-}
+});
 
 function formatBytes(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`;
@@ -1622,7 +1622,6 @@ const [showApiModal, setShowApiModal] = useState(false);
           <Row icon="bar-chart" label="Statistics" onPress={() => router.push("/stats")} />
           <Row icon="insights" label="Advanced Analytics" onPress={() => router.push("/analytics" as any)} />
           <Row icon="devices" label="Device Management" onPress={() => router.push("/devices" as any)} />
-          <Row icon="psychology" label="AI Features" onPress={() => router.push("/ai-features" as any)} />
           <Row icon="merge-type" label="Resolve Conflicts" onPress={() => router.push("/conflicts" as any)} />
           <Row
             icon="policy"

@@ -1,4 +1,4 @@
-import express from 'express';
+import express, { type Request, type Response, type NextFunction } from 'express';
 import { createExpressMiddleware } from '@trpc/server/adapters/express';
 import { createTRPCContext, router, publicProcedure } from '../trpc';
 import { verifyToken } from '../lib/auth';
@@ -34,10 +34,36 @@ import { apiKeys, webhookSubscriptions } from '../schema/api_keys';
 import { and } from 'drizzle-orm';
 import { items } from '../schema/items';
 import { journal } from '../schema/journal';
+import { z } from 'zod';
+
+interface ApiRequest extends Request {
+  apiUserId?: string;
+}
+
+const RATE_LIMIT_WINDOW_MS = 60_000;
+const RATE_LIMIT_MAX = 100;
+const rateLimitMap = new Map<string, { count: number; resetAt: number }>();
+
+function rateLimit(req: ApiRequest, res: Response, next: NextFunction) {
+  const key = req.apiUserId ?? req.ip ?? 'unknown';
+  const now = Date.now();
+  const entry = rateLimitMap.get(key);
+  if (!entry || now > entry.resetAt) {
+    rateLimitMap.set(key, { count: 1, resetAt: now + RATE_LIMIT_WINDOW_MS });
+    return next();
+  }
+  entry.count++;
+  if (entry.count > RATE_LIMIT_MAX) {
+    res.setHeader('Retry-After', String(Math.ceil((entry.resetAt - now) / 1000)));
+    return res.status(429).json({ success: false, error: 'rate_limit_exceeded' });
+  }
+  return next();
+}
 
 const app = express();
 const port = process.env.PORT || 3000;
 const host = process.env.HOST || '0.0.0.0';
+const allowedOrigins = process.env.ALLOWED_ORIGINS?.split(',').map(o => o.trim()) ?? null;
 
 // إنشاء main router
 const appRouter = router({
@@ -77,14 +103,46 @@ app.use(express.urlencoded({ extended: true }));
 
 // CORS middleware
 app.use((req, res, next) => {
-  res.header('Access-Control-Allow-Origin', '*');
-  res.header('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
+  const origin = req.headers.origin ?? '';
+  if (!allowedOrigins || allowedOrigins.includes(origin)) {
+    res.header('Access-Control-Allow-Origin', origin || '*');
+  }
+  res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
   res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization, x-trpc-source, x-api-key');
   if (req.method === 'OPTIONS') {
     return res.sendStatus(200);
   }
   next();
 });
+
+const WEBHOOK_MAX_RETRIES = 3;
+const WEBHOOK_RETRY_DELAYS = [1000, 5000, 15000];
+
+async function deliverWebhook(hook: { id: string; url: string; secret: string | null }, body: string, attempt = 0): Promise<void> {
+  try {
+    const response = await fetch(hook.url, {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        'x-kv-webhook-id': hook.id,
+        'x-kv-webhook-secret': hook.secret ?? '',
+      },
+      body,
+      signal: AbortSignal.timeout(10_000),
+    });
+    if (!response.ok && attempt < WEBHOOK_MAX_RETRIES) {
+      const delay = WEBHOOK_RETRY_DELAYS[attempt] ?? 15000;
+      setTimeout(() => deliverWebhook(hook, body, attempt + 1), delay);
+    }
+  } catch (error) {
+    if (attempt < WEBHOOK_MAX_RETRIES) {
+      const delay = WEBHOOK_RETRY_DELAYS[attempt] ?? 15000;
+      setTimeout(() => deliverWebhook(hook, body, attempt + 1), delay);
+    } else {
+      console.error('[Webhook] delivery failed after retries:', hook.url, error);
+    }
+  }
+}
 
 async function triggerWebhooks(args: { userId: string; event: string; payload: Record<string, unknown> }) {
   try {
@@ -100,34 +158,21 @@ async function triggerWebhooks(args: { userId: string; event: string; payload: R
       );
     if (hooks.length === 0) return;
 
-    await Promise.all(
-      hooks.map(async (hook) => {
-        try {
-          const body = JSON.stringify({
-            event: args.event,
-            timestamp: new Date().toISOString(),
-            data: args.payload,
-          });
-          await fetch(hook.url, {
-            method: 'POST',
-            headers: {
-              'content-type': 'application/json',
-              'x-kv-webhook-id': hook.id,
-              'x-kv-webhook-secret': hook.secret ?? '',
-            },
-            body,
-          });
-        } catch (error) {
-          console.error('[Webhook] delivery failed:', hook.url, error);
-        }
-      })
-    );
+    const body = JSON.stringify({
+      event: args.event,
+      timestamp: new Date().toISOString(),
+      data: args.payload,
+    });
+
+    for (const hook of hooks) {
+      deliverWebhook(hook, body);
+    }
   } catch (error) {
     console.error('[Webhook] trigger failed:', error);
   }
 }
 
-app.use('/api', async (req, res, next) => {
+app.use('/api', async (req: ApiRequest, res, next) => {
   try {
     const rawKey = String(req.headers['x-api-key'] ?? '').trim();
     if (!rawKey) return res.status(401).json({ success: false, error: 'missing_api_key' });
@@ -140,7 +185,7 @@ app.use('/api', async (req, res, next) => {
     const key = keyRows[0];
     if (!key) return res.status(401).json({ success: false, error: 'invalid_api_key' });
     await db.update(apiKeys).set({ lastUsedAt: new Date() }).where(eq(apiKeys.id, key.id));
-    (req as any).apiUserId = key.userId;
+    req.apiUserId = key.userId;
     next();
   } catch (error) {
     console.error('[REST API] API key validation failed:', error);
@@ -148,29 +193,74 @@ app.use('/api', async (req, res, next) => {
   }
 });
 
-app.get('/api/items', async (req, res) => {
-  const userId = String((req as any).apiUserId ?? '');
+app.use('/api', rateLimit);
+
+const createItemSchema = z.object({
+  title: z.string().min(1).max(500),
+  type: z.enum(['note', 'quote', 'link', 'audio']).default('note'),
+  content: z.string().nullish(),
+  url: z.string().url().nullish(),
+  location: z.enum(['inbox', 'library', 'archive']).default('inbox'),
+});
+
+const updateItemSchema = z.object({
+  title: z.string().min(1).max(500).optional(),
+  content: z.string().optional(),
+  url: z.string().url().optional(),
+});
+
+const createTaskSchema = z.object({
+  title: z.string().min(1).max(500),
+  description: z.string().nullish(),
+  dueDate: z.string().nullish(),
+  priority: z.enum(['low', 'medium', 'high']).default('medium'),
+});
+
+const updateTaskSchema = z.object({
+  title: z.string().min(1).max(500).optional(),
+  description: z.string().optional(),
+  dueDate: z.string().optional(),
+  isCompleted: z.boolean().optional(),
+});
+
+const createJournalSchema = z.object({
+  content: z.string().min(1),
+  entryDate: z.string().min(1),
+  title: z.string().nullish(),
+  mood: z.string().nullish(),
+  location: z.string().nullish(),
+  weather: z.string().nullish(),
+});
+
+const updateJournalSchema = z.object({
+  title: z.string().optional(),
+  content: z.string().optional(),
+  mood: z.string().optional(),
+  location: z.string().optional(),
+  weather: z.string().optional(),
+});
+
+app.get('/api/items', async (req: ApiRequest, res) => {
+  const userId = req.apiUserId!;
   const rows = await db.select().from(items).where(and(eq(items.userId, userId), isNull(items.deletedAt)));
   return res.json({ success: true, items: rows });
 });
 
-app.post('/api/items', async (req, res) => {
+app.post('/api/items', async (req: ApiRequest, res) => {
   try {
-    const userId = String((req as any).apiUserId ?? '');
-    const title = String(req.body?.title ?? '').trim();
-    const type = String(req.body?.type ?? 'note');
-    if (!title) return res.status(400).json({ success: false, error: 'title_required' });
+    const userId = req.apiUserId!;
+    const parsed = createItemSchema.safeParse(req.body);
+    if (!parsed.success) return res.status(400).json({ success: false, error: 'validation_failed', details: parsed.error.flatten() });
 
+    const { title, type, content, url, location } = parsed.data;
     const newItem = {
       id: randomUUID(),
       userId,
-      type: ['note', 'quote', 'link', 'audio'].includes(type) ? (type as any) : 'note',
+      type,
       title,
-      content: req.body?.content ? String(req.body.content) : null,
-      url: req.body?.url ? String(req.body.url) : null,
-      location: ['inbox', 'library', 'archive'].includes(String(req.body?.location ?? 'inbox'))
-        ? (String(req.body?.location ?? 'inbox') as any)
-        : 'inbox',
+      content: content ?? null,
+      url: url ?? null,
+      location,
       isFavorite: false,
       createdAt: new Date(),
       updatedAt: new Date(),
@@ -185,18 +275,16 @@ app.post('/api/items', async (req, res) => {
   }
 });
 
-app.put('/api/items/:id', async (req, res) => {
+app.put('/api/items/:id', async (req: ApiRequest, res) => {
   try {
-    const userId = String((req as any).apiUserId ?? '');
-    const id = String(req.params.id ?? '');
+    const userId = req.apiUserId!;
+    const id = req.params.id;
+    const parsed = updateItemSchema.safeParse(req.body);
+    if (!parsed.success) return res.status(400).json({ success: false, error: 'validation_failed', details: parsed.error.flatten() });
+
     await db
       .update(items)
-      .set({
-        title: typeof req.body?.title === 'string' ? req.body.title : undefined,
-        content: typeof req.body?.content === 'string' ? req.body.content : undefined,
-        url: typeof req.body?.url === 'string' ? req.body.url : undefined,
-        updatedAt: new Date(),
-      })
+      .set({ ...parsed.data, updatedAt: new Date() })
       .where(and(eq(items.id, id), eq(items.userId, userId)));
     await triggerWebhooks({ userId, event: 'items.updated', payload: { id } });
     return res.json({ success: true });
@@ -206,10 +294,10 @@ app.put('/api/items/:id', async (req, res) => {
   }
 });
 
-app.delete('/api/items/:id', async (req, res) => {
+app.delete('/api/items/:id', async (req: ApiRequest, res) => {
   try {
-    const userId = String((req as any).apiUserId ?? '');
-    const id = String(req.params.id ?? '');
+    const userId = req.apiUserId!;
+    const id = req.params.id;
     await db.delete(items).where(and(eq(items.id, id), eq(items.userId, userId)));
     await triggerWebhooks({ userId, event: 'items.deleted', payload: { id } });
     return res.json({ success: true });
@@ -219,32 +307,32 @@ app.delete('/api/items/:id', async (req, res) => {
   }
 });
 
-app.get('/api/tasks', async (req, res) => {
-  const userId = String((req as any).apiUserId ?? '');
+app.get('/api/tasks', async (req: ApiRequest, res) => {
+  const userId = req.apiUserId!;
   const rows = await db.select().from(tasks).where(and(eq(tasks.userId, userId), isNull(tasks.deletedAt)));
   return res.json({ success: true, tasks: rows });
 });
 
-app.post('/api/tasks', async (req, res) => {
+app.post('/api/tasks', async (req: ApiRequest, res) => {
   try {
-    const userId = String((req as any).apiUserId ?? '');
-    const title = String(req.body?.title ?? '').trim();
-    if (!title) return res.status(400).json({ success: false, error: 'title_required' });
+    const userId = req.apiUserId!;
+    const parsed = createTaskSchema.safeParse(req.body);
+    if (!parsed.success) return res.status(400).json({ success: false, error: 'validation_failed', details: parsed.error.flatten() });
+
+    const { title, description, dueDate, priority } = parsed.data;
     const newTask = {
       id: randomUUID(),
       userId,
       title,
-      description: req.body?.description ? String(req.body.description) : null,
-      dueDate: req.body?.dueDate ? String(req.body.dueDate) : null,
+      description: description ?? null,
+      dueDate: dueDate ?? null,
       blockedByTaskId: null,
       locationLat: null,
       locationLng: null,
       locationRadiusMeters: null,
       isUrgent: false,
       isImportant: false,
-      priority: ['low', 'medium', 'high'].includes(String(req.body?.priority ?? 'medium'))
-        ? (String(req.body?.priority ?? 'medium') as any)
-        : 'medium',
+      priority,
       isCompleted: false,
       completedAt: null,
       recurrence: null,
@@ -261,19 +349,16 @@ app.post('/api/tasks', async (req, res) => {
   }
 });
 
-app.put('/api/tasks/:id', async (req, res) => {
+app.put('/api/tasks/:id', async (req: ApiRequest, res) => {
   try {
-    const userId = String((req as any).apiUserId ?? '');
-    const id = String(req.params.id ?? '');
+    const userId = req.apiUserId!;
+    const id = req.params.id;
+    const parsed = updateTaskSchema.safeParse(req.body);
+    if (!parsed.success) return res.status(400).json({ success: false, error: 'validation_failed', details: parsed.error.flatten() });
+
     await db
       .update(tasks)
-      .set({
-        title: typeof req.body?.title === 'string' ? req.body.title : undefined,
-        description: typeof req.body?.description === 'string' ? req.body.description : undefined,
-        dueDate: typeof req.body?.dueDate === 'string' ? req.body.dueDate : undefined,
-        isCompleted: typeof req.body?.isCompleted === 'boolean' ? req.body.isCompleted : undefined,
-        updatedAt: new Date(),
-      })
+      .set({ ...parsed.data, updatedAt: new Date() })
       .where(and(eq(tasks.id, id), eq(tasks.userId, userId)));
     await triggerWebhooks({ userId, event: 'tasks.updated', payload: { id } });
     return res.json({ success: true });
@@ -283,10 +368,10 @@ app.put('/api/tasks/:id', async (req, res) => {
   }
 });
 
-app.delete('/api/tasks/:id', async (req, res) => {
+app.delete('/api/tasks/:id', async (req: ApiRequest, res) => {
   try {
-    const userId = String((req as any).apiUserId ?? '');
-    const id = String(req.params.id ?? '');
+    const userId = req.apiUserId!;
+    const id = req.params.id;
     await db.delete(tasks).where(and(eq(tasks.id, id), eq(tasks.userId, userId)));
     await triggerWebhooks({ userId, event: 'tasks.deleted', payload: { id } });
     return res.json({ success: true });
@@ -296,27 +381,28 @@ app.delete('/api/tasks/:id', async (req, res) => {
   }
 });
 
-app.get('/api/journal', async (req, res) => {
-  const userId = String((req as any).apiUserId ?? '');
+app.get('/api/journal', async (req: ApiRequest, res) => {
+  const userId = req.apiUserId!;
   const rows = await db.select().from(journal).where(and(eq(journal.userId, userId), isNull(journal.deletedAt)));
   return res.json({ success: true, journal: rows });
 });
 
-app.post('/api/journal', async (req, res) => {
+app.post('/api/journal', async (req: ApiRequest, res) => {
   try {
-    const userId = String((req as any).apiUserId ?? '');
-    const content = String(req.body?.content ?? '').trim();
-    const entryDate = String(req.body?.entryDate ?? '').trim();
-    if (!content || !entryDate) return res.status(400).json({ success: false, error: 'content_and_entryDate_required' });
+    const userId = req.apiUserId!;
+    const parsed = createJournalSchema.safeParse(req.body);
+    if (!parsed.success) return res.status(400).json({ success: false, error: 'validation_failed', details: parsed.error.flatten() });
+
+    const { content, entryDate, title, mood, location, weather } = parsed.data;
     const newEntry = {
       id: randomUUID(),
       userId,
       entryDate,
-      title: req.body?.title ? String(req.body.title) : null,
+      title: title ?? null,
       content,
-      mood: req.body?.mood ? String(req.body.mood) : null,
-      location: req.body?.location ? String(req.body.location) : null,
-      weather: req.body?.weather ? String(req.body.weather) : null,
+      mood: mood ?? null,
+      location: location ?? null,
+      weather: weather ?? null,
       isLocked: false,
       createdAt: new Date(),
       updatedAt: new Date(),
@@ -330,20 +416,16 @@ app.post('/api/journal', async (req, res) => {
   }
 });
 
-app.put('/api/journal/:id', async (req, res) => {
+app.put('/api/journal/:id', async (req: ApiRequest, res) => {
   try {
-    const userId = String((req as any).apiUserId ?? '');
-    const id = String(req.params.id ?? '');
+    const userId = req.apiUserId!;
+    const id = req.params.id;
+    const parsed = updateJournalSchema.safeParse(req.body);
+    if (!parsed.success) return res.status(400).json({ success: false, error: 'validation_failed', details: parsed.error.flatten() });
+
     await db
       .update(journal)
-      .set({
-        title: typeof req.body?.title === 'string' ? req.body.title : undefined,
-        content: typeof req.body?.content === 'string' ? req.body.content : undefined,
-        mood: typeof req.body?.mood === 'string' ? req.body.mood : undefined,
-        location: typeof req.body?.location === 'string' ? req.body.location : undefined,
-        weather: typeof req.body?.weather === 'string' ? req.body.weather : undefined,
-        updatedAt: new Date(),
-      })
+      .set({ ...parsed.data, updatedAt: new Date() })
       .where(and(eq(journal.id, id), eq(journal.userId, userId)));
     return res.json({ success: true });
   } catch (error) {
@@ -352,10 +434,10 @@ app.put('/api/journal/:id', async (req, res) => {
   }
 });
 
-app.delete('/api/journal/:id', async (req, res) => {
+app.delete('/api/journal/:id', async (req: ApiRequest, res) => {
   try {
-    const userId = String((req as any).apiUserId ?? '');
-    const id = String(req.params.id ?? '');
+    const userId = req.apiUserId!;
+    const id = req.params.id;
     await db.delete(journal).where(and(eq(journal.id, id), eq(journal.userId, userId)));
     return res.json({ success: true });
   } catch (error) {

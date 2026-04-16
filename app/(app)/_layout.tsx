@@ -287,7 +287,6 @@ export default function AppLayout() {
         <Stack.Screen name="analytics" />
         <Stack.Screen name="devices" />
         <Stack.Screen name="conflicts" />
-        <Stack.Screen name="ai-features" />
         <Stack.Screen name="share" />
         <Stack.Screen name="goals" />
         <Stack.Screen name="reviews" />

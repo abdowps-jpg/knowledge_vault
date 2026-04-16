@@ -23,7 +23,6 @@ const MAPPING = {
   "pencil.circle": "edit",
   "check-circle": "check-circle",
   "book": "library-books",
-  "inbox": "inbox",
   "tray.fill": "inbox",
   "books.vertical.fill": "library-books",
   "checkmark.circle": "check-circle",

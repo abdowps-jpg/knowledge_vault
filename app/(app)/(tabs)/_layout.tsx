@@ -36,12 +36,6 @@ export default function TabLayout() {
         }}
       />
       <Tabs.Screen
-        name="inbox"
-        options={{
-          href: null,
-        }}
-      />
-      <Tabs.Screen
         name="search"
         options={{
           href: null,

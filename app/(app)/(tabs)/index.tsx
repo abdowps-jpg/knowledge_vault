@@ -98,7 +98,7 @@ interface InboxItemProps {
   onMoveToActions: (item: Item) => void;
 }
 
-function InboxItem({
+const InboxItem = React.memo(function InboxItem({
   item,
   onPress,
   onLongPress,
@@ -260,7 +260,7 @@ function InboxItem({
       </Modal>
     </Pressable>
   );
-}
+});
 
 // ============================================================================
 // Inbox Screen
