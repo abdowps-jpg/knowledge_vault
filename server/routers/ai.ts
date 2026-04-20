@@ -248,6 +248,96 @@ export const aiRouter = router({
       return { summary };
     }),
 
+  relatedItems: protectedProcedure
+    .input(z.object({ itemId: z.string(), limit: z.number().int().min(1).max(10).default(5) }))
+    .mutation(async ({ input, ctx }) => {
+      enforceLlmQuota(ctx.user.id);
+      const source = await loadItemForUser(input.itemId, ctx.user.id);
+
+      const pool = await db
+        .select()
+        .from(items)
+        .where(and(eq(items.userId, ctx.user.id), isNull(items.deletedAt)))
+        .orderBy(desc(items.updatedAt))
+        .limit(200);
+
+      const candidates = pool.filter((it) => it.id !== source.id);
+      if (candidates.length === 0) {
+        return { related: [] as { id: string; title: string; reason: string }[] };
+      }
+
+      const sourceText = extractContentText(source.title, source.content, source.url);
+      const catalog = candidates
+        .map((c) => {
+          const title = (c.title ?? '').slice(0, 120).replace(/\s+/g, ' ');
+          const snippet = (c.content ?? '').slice(0, 140).replace(/\s+/g, ' ');
+          return `${c.id}\t${title}\t${snippet}`;
+        })
+        .join('\n');
+
+      const result = await invokeLLM({
+        messages: [
+          {
+            role: 'system',
+            content:
+              'You find the most relevant knowledge items related to a source item. ' +
+              'Prefer conceptual relatedness (same topic, same problem, followups) over surface word overlap. ' +
+              'Catalog lines are tab-separated: <id>\\t<title>\\t<snippet>. ' +
+              'Return only ids present in the catalog. If nothing is genuinely related, return an empty array.',
+          },
+          {
+            role: 'user',
+            content: `Source item:\n${sourceText}\n\nCatalog (tab-separated):\n${catalog}\n\nReturn at most ${input.limit} related items with a one-line reason.`,
+          },
+        ],
+        outputSchema: {
+          name: 'related_items',
+          schema: {
+            type: 'object',
+            additionalProperties: false,
+            properties: {
+              related: {
+                type: 'array',
+                maxItems: 10,
+                items: {
+                  type: 'object',
+                  additionalProperties: false,
+                  properties: {
+                    id: { type: 'string', minLength: 1, maxLength: 100 },
+                    reason: { type: 'string', minLength: 1, maxLength: 200 },
+                  },
+                  required: ['id', 'reason'],
+                },
+              },
+            },
+            required: ['related'],
+          },
+          strict: true,
+        },
+      });
+
+      const raw = result.choices?.[0]?.message?.content ?? '';
+      const body = typeof raw === 'string' ? raw : raw.map((p) => ('text' in p ? p.text : '')).join('');
+      let parsed: { related?: { id?: unknown; reason?: unknown }[] } = {};
+      try {
+        parsed = JSON.parse(body);
+      } catch {
+        parsed = { related: [] };
+      }
+      const byId = new Map(candidates.map((c) => [c.id, c]));
+      const out: { id: string; title: string; reason: string }[] = [];
+      for (const r of parsed.related ?? []) {
+        const id = typeof r.id === 'string' ? r.id : null;
+        const reason = typeof r.reason === 'string' ? r.reason.slice(0, 200) : '';
+        if (!id) continue;
+        const item = byId.get(id);
+        if (!item) continue;
+        out.push({ id: item.id, title: item.title, reason });
+        if (out.length >= input.limit) break;
+      }
+      return { related: out };
+    }),
+
   dailyDigest: protectedProcedure.mutation(async ({ ctx }) => {
     enforceLlmQuota(ctx.user.id);
 

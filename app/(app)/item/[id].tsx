@@ -107,8 +107,10 @@ export default function ItemDetailScreen() {
   const restoreVersion = trpc.itemVersions.restore.useMutation();
   const suggestTags = trpc.ai.suggestTags.useMutation();
   const summarizeItem = trpc.ai.summarize.useMutation();
+  const relatedItems = trpc.ai.relatedItems.useMutation();
   const [aiSummary, setAiSummary] = React.useState<string>("");
   const [aiTagSuggestions, setAiTagSuggestions] = React.useState<string[]>([]);
+  const [aiRelated, setAiRelated] = React.useState<{ id: string; title: string; reason: string }[]>([]);
   const isServerBackedItem = Boolean(itemQuery.data);
   const effectiveItem = React.useMemo(() => {
     if (itemQuery.data) return itemQuery.data;
@@ -647,6 +649,30 @@ export default function ItemDetailScreen() {
                   {summarizeItem.isPending ? "Thinking…" : "Summarize"}
                 </Text>
               </Pressable>
+              <Pressable
+                onPress={async () => {
+                  try {
+                    const res = await relatedItems.mutateAsync({ itemId: id, limit: 5 });
+                    setAiRelated(res.related);
+                  } catch (e: any) {
+                    Alert.alert("AI", e?.message ?? "Failed to find related items");
+                  }
+                }}
+                disabled={relatedItems.isPending}
+                style={{
+                  backgroundColor: colors.surface,
+                  borderWidth: 1,
+                  borderColor: colors.primary,
+                  paddingHorizontal: 12,
+                  paddingVertical: 8,
+                  borderRadius: 8,
+                  opacity: relatedItems.isPending ? 0.6 : 1,
+                }}
+              >
+                <Text style={{ color: colors.primary, fontWeight: "600", fontSize: 13 }}>
+                  {relatedItems.isPending ? "Thinking…" : "Find related"}
+                </Text>
+              </Pressable>
             </View>
             {aiTagSuggestions.length > 0 ? (
               <View style={{ marginTop: 10 }}>
@@ -699,6 +725,37 @@ export default function ItemDetailScreen() {
                 <Text style={{ color: colors.foreground, fontSize: 13, lineHeight: 18 }}>
                   {aiSummary}
                 </Text>
+              </View>
+            ) : null}
+            {aiRelated.length > 0 ? (
+              <View style={{ marginTop: 10 }}>
+                <Text style={{ color: colors.muted, fontSize: 11, marginBottom: 6 }}>
+                  Related items
+                </Text>
+                {aiRelated.map((r) => (
+                  <Pressable
+                    key={r.id}
+                    onPress={() => router.push(`/(app)/item/${r.id}` as any)}
+                    style={{
+                      paddingVertical: 8,
+                      paddingHorizontal: 10,
+                      marginBottom: 6,
+                      borderRadius: 8,
+                      borderWidth: 1,
+                      borderColor: colors.border,
+                      backgroundColor: colors.background,
+                    }}
+                  >
+                    <Text style={{ color: colors.foreground, fontWeight: "600", fontSize: 13 }} numberOfLines={1}>
+                      {r.title}
+                    </Text>
+                    {r.reason ? (
+                      <Text style={{ color: colors.muted, fontSize: 11, marginTop: 2 }} numberOfLines={2}>
+                        {r.reason}
+                      </Text>
+                    ) : null}
+                  </Pressable>
+                ))}
               </View>
             ) : null}
           </View>
