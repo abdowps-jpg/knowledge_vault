@@ -235,8 +235,42 @@ export const itemsRouter = router({
           location: input.location ?? ('inbox' as const),
           isFavorite: false,
         };
-        
+
         await db.insert(items).values(newItem);
+
+        // Background metadata enrichment for links: fire-and-forget. Only fills
+        // blanks; never overwrites user-provided title/content.
+        const urlForEnrich = (input.url || '').trim();
+        if (input.type === 'link' && /^https?:\/\//i.test(urlForEnrich)) {
+          const titleLooksBlank =
+            !input.title ||
+            input.title.trim().length === 0 ||
+            input.title.trim() === urlForEnrich;
+          const contentLooksBlank = !input.content || input.content.trim().length === 0;
+
+          if (enforceLinkMetaQuota(ctx.user.id) && (titleLooksBlank || contentLooksBlank)) {
+            fetchLinkMetadata(urlForEnrich)
+              .then(async (metadata) => {
+                if (!metadata) return;
+                const patch: { title?: string; content?: string; updatedAt: Date } = {
+                  updatedAt: new Date(),
+                };
+                if (titleLooksBlank && metadata.title) {
+                  patch.title = metadata.title.slice(0, 500);
+                }
+                if (contentLooksBlank && metadata.description) {
+                  patch.content = metadata.description;
+                }
+                if (patch.title || patch.content) {
+                  await db.update(items).set(patch).where(eq(items.id, newItem.id));
+                }
+              })
+              .catch((err) => {
+                console.error('[items.create] background link enrichment failed:', err);
+              });
+          }
+        }
+
         return newItem;
       } catch (error) {
         console.error('Error creating item:', error);
