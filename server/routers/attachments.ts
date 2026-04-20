@@ -3,10 +3,26 @@ import { and, desc, eq } from 'drizzle-orm';
 import { TRPCError } from '@trpc/server';
 import { z } from 'zod';
 import { db } from '../db';
+import { transcribeAudio } from '../_core/voiceTranscription';
 import { attachments } from '../schema/attachments';
 import { items } from '../schema/items';
 import { journal } from '../schema/journal';
 import { protectedProcedure, router } from '../trpc';
+
+const TRANSCRIBE_WINDOW_MS = 60 * 60_000;
+const TRANSCRIBE_MAX_PER_WINDOW = 30;
+const transcribeUsage = new Map<string, { count: number; resetAt: number }>();
+
+function enforceTranscribeQuota(userId: string) {
+  const now = Date.now();
+  const entry = transcribeUsage.get(userId);
+  if (!entry || now > entry.resetAt) {
+    transcribeUsage.set(userId, { count: 1, resetAt: now + TRANSCRIBE_WINDOW_MS });
+    return true;
+  }
+  entry.count += 1;
+  return entry.count <= TRANSCRIBE_MAX_PER_WINDOW;
+}
 
 export const attachmentsRouter = router({
   // Save attachment metadata (MVP: base64 stored in fileUrl)
@@ -224,5 +240,78 @@ export const attachmentsRouter = router({
         console.error('[attachments.extractText] OCR failed:', error);
         throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR', message: 'Failed to extract text from image' });
       }
+    }),
+
+  transcribe: protectedProcedure
+    .input(
+      z.object({
+        attachmentId: z.string().min(1),
+        language: z.string().min(2).max(5).optional(),
+      })
+    )
+    .mutation(async ({ input, ctx }) => {
+      if (!enforceTranscribeQuota(ctx.user.id)) {
+        throw new TRPCError({
+          code: 'TOO_MANY_REQUESTS',
+          message: 'Transcription quota exceeded. Try again later.',
+        });
+      }
+
+      const rows = await db.select().from(attachments).where(eq(attachments.id, input.attachmentId)).limit(1);
+      if (rows.length === 0) {
+        throw new TRPCError({ code: 'NOT_FOUND', message: 'Attachment not found' });
+      }
+      const target = rows[0];
+      if (target.type !== 'audio') {
+        throw new TRPCError({ code: 'BAD_REQUEST', message: 'Transcription only works on audio attachments' });
+      }
+      if (!target.itemId) {
+        throw new TRPCError({ code: 'BAD_REQUEST', message: 'Orphaned attachment' });
+      }
+
+      const ownerItem = await db
+        .select()
+        .from(items)
+        .where(and(eq(items.id, target.itemId), eq(items.userId, ctx.user.id)))
+        .limit(1);
+      if (ownerItem.length === 0) {
+        throw new TRPCError({ code: 'FORBIDDEN', message: 'Not authorized to transcribe this attachment' });
+      }
+
+      if (target.transcription && target.transcription.trim().length > 0) {
+        return {
+          success: true,
+          text: target.transcription,
+          attachmentId: target.id,
+          cached: true as const,
+        };
+      }
+
+      if (!target.fileUrl || !/^https?:\/\//i.test(target.fileUrl)) {
+        throw new TRPCError({
+          code: 'BAD_REQUEST',
+          message: 'Audio must be accessible via a remote URL for transcription.',
+        });
+      }
+
+      const result = await transcribeAudio({ audioUrl: target.fileUrl, language: input.language });
+      if ('error' in result) {
+        console.error('[attachments.transcribe] failed:', result);
+        throw new TRPCError({
+          code: result.code === 'FILE_TOO_LARGE' ? 'PAYLOAD_TOO_LARGE' : 'INTERNAL_SERVER_ERROR',
+          message: result.error,
+        });
+      }
+
+      const text = (result.text ?? '').trim().slice(0, 20000);
+      await db.update(attachments).set({ transcription: text }).where(eq(attachments.id, target.id));
+
+      return {
+        success: true,
+        text,
+        attachmentId: target.id,
+        cached: false as const,
+        language: result.language,
+      };
     }),
 });

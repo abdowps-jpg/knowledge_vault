@@ -2,6 +2,7 @@ import React from "react";
 import { ActivityIndicator, Alert, Modal, Platform, Pressable, ScrollView, Text, TextInput, View } from "react-native";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { Image as ExpoImage } from "expo-image";
+import { MaterialIcons } from "@expo/vector-icons";
 
 import { ScreenContainer } from "@/components/screen-container";
 import { RichTextEditor } from "@/components/rich-text-editor";
@@ -49,6 +50,31 @@ export default function ItemDetailScreen() {
     { enabled: Boolean(id) }
   );
   const extractText = trpc.attachments.extractText.useMutation();
+  const transcribeAttachment = trpc.attachments.transcribe.useMutation();
+  const [transcribingId, setTranscribingId] = React.useState<string | null>(null);
+  const [transcriptionByAttachment, setTranscriptionByAttachment] = React.useState<Record<string, string>>({});
+
+  const handleTranscribe = async (attachmentId: string) => {
+    try {
+      setTranscribingId(attachmentId);
+      const result = await transcribeAttachment.mutateAsync({ attachmentId });
+      if (!result.text) {
+        Alert.alert("No Speech", "Could not detect speech in this audio.");
+        return;
+      }
+      setTranscriptionByAttachment((prev) => ({ ...prev, [attachmentId]: result.text }));
+      setContent((prev) => {
+        const trimmedPrev = prev.trim();
+        const section = `\n\n[Audio Transcript]\n${result.text}`.trim();
+        return trimmedPrev ? `${trimmedPrev}\n\n${section}` : section;
+      });
+    } catch (err: any) {
+      console.error("[Item/Detail] Transcription failed:", err);
+      Alert.alert("Error", err?.message || "Failed to transcribe audio.");
+    } finally {
+      setTranscribingId(null);
+    }
+  };
   const listTags = trpc.tags.list.useQuery({ limit: 200 });
   const createTag = trpc.tags.create.useMutation();
   const addTagToItem = trpc.tags.addToItem.useMutation();
@@ -441,51 +467,125 @@ export default function ItemDetailScreen() {
           <View className="py-2">
             <ActivityIndicator color={colors.primary} />
           </View>
-        ) : attachmentsQuery.data && attachmentsQuery.data.length > 0 ? (
+        ) : attachmentsQuery.data && attachmentsQuery.data.filter((a) => a.type === "image").length > 0 ? (
           <View style={{ gap: 10, marginBottom: 14 }}>
-            {attachmentsQuery.data.map((attachment) => {
-              const isExtracting = extractingAttachmentId === attachment.id && extractText.isPending;
-              return (
-                <View
-                  key={attachment.id}
-                  style={{
-                    borderWidth: 1,
-                    borderColor: colors.border,
-                    borderRadius: 10,
-                    padding: 10,
-                    backgroundColor: colors.surface,
-                  }}
-                >
-                  <ExpoImage
-                    source={{ uri: attachment.fileUrl }}
-                    contentFit="cover"
-                    style={{ width: "100%", height: 160, borderRadius: 8 }}
-                  />
-                  <Pressable
-                    onPress={() => handleExtractText(attachment.id)}
-                    disabled={isExtracting}
+            {attachmentsQuery.data
+              .filter((a) => a.type === "image")
+              .map((attachment) => {
+                const isExtracting = extractingAttachmentId === attachment.id && extractText.isPending;
+                return (
+                  <View
+                    key={attachment.id}
                     style={{
-                      marginTop: 10,
-                      borderRadius: 8,
-                      paddingVertical: 10,
-                      alignItems: "center",
-                      backgroundColor: colors.primary,
-                      opacity: isExtracting ? 0.75 : 1,
+                      borderWidth: 1,
+                      borderColor: colors.border,
+                      borderRadius: 10,
+                      padding: 10,
+                      backgroundColor: colors.surface,
                     }}
                   >
-                    {isExtracting ? (
-                      <ActivityIndicator color="white" />
-                    ) : (
-                      <Text style={{ color: "white", fontWeight: "700" }}>Extract Text</Text>
-                    )}
-                  </Pressable>
-                </View>
-              );
-            })}
+                    <ExpoImage
+                      source={{ uri: attachment.fileUrl }}
+                      contentFit="cover"
+                      style={{ width: "100%", height: 160, borderRadius: 8 }}
+                    />
+                    <Pressable
+                      onPress={() => handleExtractText(attachment.id)}
+                      disabled={isExtracting}
+                      style={{
+                        marginTop: 10,
+                        borderRadius: 8,
+                        paddingVertical: 10,
+                        alignItems: "center",
+                        backgroundColor: colors.primary,
+                        opacity: isExtracting ? 0.75 : 1,
+                      }}
+                    >
+                      {isExtracting ? (
+                        <ActivityIndicator color="white" />
+                      ) : (
+                        <Text style={{ color: "white", fontWeight: "700" }}>Extract Text</Text>
+                      )}
+                    </Pressable>
+                  </View>
+                );
+              })}
           </View>
         ) : (
           <Text style={{ color: colors.muted, marginBottom: 14 }}>No images attached to this item.</Text>
         )}
+
+        {attachmentsQuery.data && attachmentsQuery.data.filter((a) => a.type === "audio").length > 0 ? (
+          <>
+            <Text className="text-sm font-semibold text-foreground mb-2 mt-4">Audio Attachments</Text>
+            <View style={{ gap: 10, marginBottom: 14 }}>
+              {attachmentsQuery.data
+                .filter((a) => a.type === "audio")
+                .map((attachment) => {
+                  const isBusy = transcribingId === attachment.id && transcribeAttachment.isPending;
+                  const existing = transcriptionByAttachment[attachment.id] ?? attachment.transcription ?? "";
+                  return (
+                    <View
+                      key={attachment.id}
+                      style={{
+                        borderWidth: 1,
+                        borderColor: colors.border,
+                        borderRadius: 10,
+                        padding: 10,
+                        backgroundColor: colors.surface,
+                      }}
+                    >
+                      <View style={{ flexDirection: "row", alignItems: "center", gap: 10 }}>
+                        <MaterialIcons name="audiotrack" size={22} color={colors.primary} />
+                        <Text style={{ color: colors.foreground, flex: 1 }} numberOfLines={1}>
+                          {attachment.filename}
+                        </Text>
+                      </View>
+                      <Pressable
+                        onPress={() => handleTranscribe(attachment.id)}
+                        disabled={isBusy}
+                        style={{
+                          marginTop: 10,
+                          borderRadius: 8,
+                          paddingVertical: 10,
+                          alignItems: "center",
+                          backgroundColor: colors.primary,
+                          opacity: isBusy ? 0.75 : 1,
+                        }}
+                      >
+                        {isBusy ? (
+                          <ActivityIndicator color="white" />
+                        ) : (
+                          <Text style={{ color: "white", fontWeight: "700" }}>
+                            {existing ? "Re-transcribe" : "Transcribe"}
+                          </Text>
+                        )}
+                      </Pressable>
+                      {existing ? (
+                        <View
+                          style={{
+                            marginTop: 10,
+                            padding: 10,
+                            borderRadius: 8,
+                            backgroundColor: colors.background,
+                            borderWidth: 1,
+                            borderColor: colors.border,
+                          }}
+                        >
+                          <Text style={{ color: colors.muted, fontSize: 11, marginBottom: 4 }}>
+                            Transcript
+                          </Text>
+                          <Text style={{ color: colors.foreground, fontSize: 13, lineHeight: 19 }}>
+                            {existing}
+                          </Text>
+                        </View>
+                      ) : null}
+                    </View>
+                  );
+                })}
+            </View>
+          </>
+        ) : null}
 
         {isServerBackedItem && effectiveItem?.accessRole === "owner" && id ? (
           <View
