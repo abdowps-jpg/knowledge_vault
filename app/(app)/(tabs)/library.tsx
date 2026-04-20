@@ -6,6 +6,8 @@ import { useRouter } from "expo-router";
 import { ScreenContainer } from "@/components/screen-container";
 import { ErrorState } from "@/components/error-state";
 import { FilterBar } from "@/components/filter-bar";
+import { SkeletonList } from "@/components/skeleton-loader";
+import { EmptyState } from "@/components/empty-state";
 import { MaterialIcons } from "@expo/vector-icons";
 import { useColors } from "@/hooks/use-colors";
 import { trpc } from "@/lib/trpc";
@@ -661,22 +663,19 @@ export default function LibraryScreen() {
       </View>
 
       {isLoading ? (
-        <View className="flex-1 items-center mt-8">
-          <ActivityIndicator size="large" color={colors.primary} />
-          <Text className="text-muted mt-4">Loading library items...</Text>
-        </View>
+        <SkeletonList count={5} variant="card" />
       ) : error ? (
         <View className="flex-1 p-4">
           <ErrorState error={error} onRetry={refetch} />
         </View>
       ) : filteredItems.length === 0 ? (
-        <View className="flex-1 items-center justify-center mt-8">
-          <MaterialIcons name="library-books" size={64} color={colors.muted} />
-          <Text className="text-muted text-center mt-4">No items found with current filters</Text>
-          <Text className="text-muted text-center mt-2 text-sm">
-            Try removing some filters or adding more items
-          </Text>
-        </View>
+        <EmptyState
+          icon="library-books"
+          title="No items found"
+          subtitle="Try removing some filters or adding new items to your library."
+          actionLabel="Create Note"
+          onAction={() => setShowCreateModal(true)}
+        />
       ) : (
         <View className="flex-1">
           <FlashList

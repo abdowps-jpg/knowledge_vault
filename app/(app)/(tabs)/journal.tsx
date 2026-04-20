@@ -15,6 +15,8 @@ import { useLocalSearchParams } from "expo-router";
 import { ScreenContainer } from "@/components/screen-container";
 import { ErrorState } from "@/components/error-state";
 import { RichTextEditor } from "@/components/rich-text-editor";
+import { SkeletonList } from "@/components/skeleton-loader";
+import { EmptyState } from "@/components/empty-state";
 import { useColors } from "@/hooks/use-colors";
 import { trpc } from "@/lib/trpc";
 import { offlineManager } from "@/lib/offline-manager";
@@ -189,19 +191,19 @@ export default function JournalScreen() {
       </View>
 
       {isLoading ? (
-        <View className="flex-1 items-center mt-8">
-          <ActivityIndicator size="large" color={colors.primary} />
-          <Text className="text-muted mt-4">Loading entries...</Text>
-        </View>
+        <SkeletonList count={4} variant="journal" />
       ) : error ? (
         <View className="flex-1 p-4">
           <ErrorState error={error} onRetry={refetch} />
         </View>
       ) : entries.length === 0 ? (
-        <View className="flex-1 items-center justify-center mt-8">
-          <MaterialIcons name="menu-book" size={64} color={colors.muted} />
-          <Text className="text-muted text-center mt-4">No journal entries yet</Text>
-        </View>
+        <EmptyState
+          icon="menu-book"
+          title="No journal entries yet"
+          subtitle="Start writing your first journal entry to capture your thoughts and reflections."
+          actionLabel="Write Entry"
+          onAction={() => setShowCreateModal(true)}
+        />
       ) : (
         <FlashList
           data={entries as any[]}

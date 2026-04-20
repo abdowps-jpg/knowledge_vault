@@ -29,6 +29,7 @@ const MAPPING = {
   "checkmark.circle.fill": "check-circle",
   "flame.fill": "local-fire-department",
   "magnifyingglass.circle": "search",
+  "sun.max.fill": "wb-sunny",
 } as unknown as IconMapping;
 
 type IconSymbolName = keyof typeof MAPPING;

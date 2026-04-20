@@ -3,6 +3,8 @@ import { ActivityIndicator, Alert, Pressable, ScrollView, Text, TextInput, View 
 import AsyncStorage from "@react-native-async-storage/async-storage";
 
 import { ScreenContainer } from "@/components/screen-container";
+import { SkeletonList } from "@/components/skeleton-loader";
+import { EmptyState } from "@/components/empty-state";
 import { useColors } from "@/hooks/use-colors";
 import { trpc } from "@/lib/trpc";
 
@@ -307,9 +309,7 @@ export default function HabitsScreen() {
           ))}
         </View>
         {habitsQuery.isLoading ? (
-          <View className="items-center mt-8">
-            <ActivityIndicator color={colors.primary} />
-          </View>
+          <SkeletonList count={3} variant="list" />
         ) : filteredHabits.length > 0 ? (
           filteredHabits.map((habit) => {
             const meta = metaByHabitId[habit.id] ?? { category: "General", targetPerWeek: 5 };
@@ -388,10 +388,18 @@ export default function HabitsScreen() {
             </View>
             );
           })
+        ) : habits.length === 0 ? (
+          <EmptyState
+            icon="local-fire-department"
+            title="No habits yet"
+            subtitle="Build consistency by adding your first habit above."
+          />
         ) : (
-          <Text style={{ color: colors.muted, marginTop: 8 }}>
-            {habits.length === 0 ? "No habits yet. Add your first one above." : "No habits match the selected filter."}
-          </Text>
+          <EmptyState
+            icon="filter-list"
+            title="No matching habits"
+            subtitle="No habits match the selected filter. Try a different filter."
+          />
         )}
       </ScrollView>
     </ScreenContainer>

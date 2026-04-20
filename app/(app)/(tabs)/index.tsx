@@ -2,6 +2,8 @@ import React, { Suspense, useMemo, useState } from "react";
 import { useRouter } from "expo-router";
 import { FlatList, Text, View, Pressable, RefreshControl, Modal, ActivityIndicator, TextInput, Alert } from "react-native";
 import { ScreenContainer } from "@/components/screen-container";
+import { SkeletonList } from "@/components/skeleton-loader";
+import { EmptyState } from "@/components/empty-state";
 import { useColors } from "@/hooks/use-colors";
 import { MaterialIcons } from "@expo/vector-icons";
 import { useInbox } from "@/lib/context/inbox-context";
@@ -567,19 +569,17 @@ export default function InboxScreen() {
       {/* Items List */}
       {isSearchMode ? (
         searchLoading ? (
-          <View className="flex-1 items-center justify-center">
-            <ActivityIndicator size="large" color={colors.primary} />
-            <Text className="text-muted mt-4">Searching...</Text>
-          </View>
+          <SkeletonList count={5} variant="list" />
         ) : searchError ? (
           <View className="flex-1 items-center justify-center px-4">
             <Text className="text-muted text-center">Search failed. Try again.</Text>
           </View>
         ) : filteredSearchResults.length === 0 ? (
-          <View className="flex-1 items-center justify-center gap-3">
-            <MaterialIcons name="search-off" size={64} color={colors.muted} />
-            <Text className="text-lg font-semibold text-foreground">No results</Text>
-          </View>
+          <EmptyState
+            icon="search-off"
+            title="No results"
+            subtitle="Try a different search term or check your spelling."
+          />
         ) : (
           <FlatList
             data={filteredSearchResults}
@@ -619,18 +619,15 @@ export default function InboxScreen() {
           />
         )
       ) : loading ? (
-        <View className="flex-1 items-center justify-center">
-          <MaterialIcons name="hourglass-empty" size={48} color={colors.muted} />
-          <Text className="text-muted mt-4">Loading...</Text>
-        </View>
+        <SkeletonList count={5} variant="list" />
       ) : items.length === 0 ? (
-        <View className="flex-1 items-center justify-center gap-3">
-          <MaterialIcons name="inbox" size={64} color={colors.muted} />
-          <Text className="text-lg font-semibold text-foreground">Inbox Empty</Text>
-          <Text className="text-sm text-muted text-center px-4 max-w-xs">
-            No items for this filter yet
-          </Text>
-        </View>
+        <EmptyState
+          icon="inbox"
+          title="Inbox Empty"
+          subtitle="Capture ideas, links, and notes here. Tap + to add your first item."
+          actionLabel="Add Item"
+          onAction={handleQuickAdd}
+        />
       ) : (
         <FlatList
           data={items}

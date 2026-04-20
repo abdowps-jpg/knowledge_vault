@@ -18,6 +18,8 @@ import { Calendar as CalendarView } from "react-native-calendars";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { ScreenContainer } from "@/components/screen-container";
 import { ErrorState } from "@/components/error-state";
+import { SkeletonList } from "@/components/skeleton-loader";
+import { EmptyState } from "@/components/empty-state";
 import { VoiceInputButton } from "@/components/voice-input-button";
 import { PomodoroTimer } from "@/components/pomodoro-timer";
 import { useColors } from "@/hooks/use-colors";
@@ -2397,22 +2399,19 @@ export default function ActionsScreen() {
           </ScrollView>
         </View>
       ) : isLoading ? (
-        <View className="flex-1 items-center mt-8">
-          <ActivityIndicator size="large" color={colors.primary} />
-          <Text className="text-muted mt-4">Loading tasks...</Text>
-        </View>
+        <SkeletonList count={5} variant="task" />
       ) : error ? (
         <View className="flex-1 p-4">
           <ErrorState error={error} onRetry={refetch} />
         </View>
       ) : filteredAndSortedTasks.length === 0 ? (
-        <View className="flex-1 items-center justify-center mt-8 px-4">
-          <MaterialIcons name="assignment-turned-in" size={64} color={colors.muted} />
-          <Text className="text-muted text-center mt-4">No tasks found</Text>
-          <Text className="text-muted text-center mt-2 text-sm">
-            Tap + to create your first task
-          </Text>
-        </View>
+        <EmptyState
+          icon="check-circle"
+          title="No tasks found"
+          subtitle="Create your first task to start tracking your work."
+          actionLabel="Add Task"
+          onAction={() => setShowCreateModal(true)}
+        />
       ) : (
         <View className="flex-1">
           <FlashList
