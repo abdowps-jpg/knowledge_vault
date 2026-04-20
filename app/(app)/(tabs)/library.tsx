@@ -107,6 +107,7 @@ export default function LibraryScreen() {
   const [showCreateModal, setShowCreateModal] = React.useState(false);
   const [newTitle, setNewTitle] = React.useState("");
   const [newContent, setNewContent] = React.useState("");
+  const [newUrl, setNewUrl] = React.useState("");
   const [savedViews, setSavedViews] = React.useState<LibrarySavedView[]>([]);
   const [smartFolder, setSmartFolder] = React.useState<SmartFolderKey>("all");
   const [showCategoryModal, setShowCategoryModal] = React.useState(false);
@@ -204,8 +205,10 @@ export default function LibraryScreen() {
       setShowCreateModal(false);
       setNewTitle("");
       setNewContent("");
+      setNewUrl("");
     },
   });
+  const fetchLinkMeta = trpc.items.fetchLinkMetadata.useMutation();
 
   const createCategory = trpc.categories.create.useMutation({
     onSuccess: () => {
@@ -351,10 +354,13 @@ export default function LibraryScreen() {
     }
 
     try {
+      const trimmedUrl = newUrl.trim();
+      const isLink = trimmedUrl.length > 0;
       const created = await createItem.mutateAsync({
-        type: "note",
+        type: isLink ? "link" : "note",
         title: newTitle.trim(),
         content: newContent.trim() || newTitle.trim(),
+        url: isLink ? trimmedUrl : undefined,
         location: "library",
       });
       if (created?.id) {
@@ -363,6 +369,34 @@ export default function LibraryScreen() {
     } catch (error) {
       console.error("[Library] Failed creating library item:", error);
       Alert.alert("Error", "Failed to create item.");
+    }
+  };
+
+  const handleFetchLinkPreview = async () => {
+    const url = newUrl.trim();
+    if (!url) {
+      Alert.alert("Validation", "Paste a URL first.");
+      return;
+    }
+    try {
+      const result = await fetchLinkMeta.mutateAsync({ url });
+      if (result.error === "rate_limited") {
+        Alert.alert("Slow down", "You're fetching previews too quickly. Try again shortly.");
+        return;
+      }
+      if (!result.metadata) {
+        Alert.alert("Preview", "Could not fetch a preview for this URL.");
+        return;
+      }
+      if (!newTitle.trim() && result.metadata.title) {
+        setNewTitle(result.metadata.title);
+      }
+      if (!newContent.trim() && result.metadata.description) {
+        setNewContent(result.metadata.description);
+      }
+    } catch (err: any) {
+      console.error("[Library] fetchLinkMetadata failed:", err);
+      Alert.alert("Error", err?.message ?? "Failed to fetch preview.");
     }
   };
 
@@ -807,6 +841,42 @@ export default function LibraryScreen() {
         <View className="flex-1 bg-black/50 justify-end">
           <View className="rounded-t-3xl p-6" style={{ backgroundColor: colors.surface }}>
             <Text className="text-xl font-bold text-foreground mb-3">New Library Note</Text>
+            <View style={{ flexDirection: "row", gap: 8, marginBottom: 10 }}>
+              <TextInput
+                value={newUrl}
+                onChangeText={setNewUrl}
+                placeholder="Paste URL (optional)"
+                placeholderTextColor={colors.muted}
+                autoCapitalize="none"
+                autoCorrect={false}
+                keyboardType="url"
+                style={{
+                  flex: 1,
+                  backgroundColor: colors.background,
+                  borderColor: colors.border,
+                  borderWidth: 1,
+                  borderRadius: 8,
+                  color: colors.foreground,
+                  paddingHorizontal: 12,
+                  paddingVertical: 10,
+                }}
+              />
+              <Pressable
+                onPress={handleFetchLinkPreview}
+                disabled={fetchLinkMeta.isPending || !newUrl.trim()}
+                style={{
+                  backgroundColor: colors.primary,
+                  borderRadius: 8,
+                  paddingHorizontal: 12,
+                  justifyContent: "center",
+                  opacity: fetchLinkMeta.isPending || !newUrl.trim() ? 0.5 : 1,
+                }}
+              >
+                <Text style={{ color: "#fff", fontWeight: "600", fontSize: 13 }}>
+                  {fetchLinkMeta.isPending ? "…" : "Fetch"}
+                </Text>
+              </Pressable>
+            </View>
             <TextInput
               value={newTitle}
               onChangeText={setNewTitle}

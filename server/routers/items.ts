@@ -7,7 +7,23 @@ import { randomUUID } from 'crypto';
 import { itemTags, tags } from '../schema/tags';
 import { itemCategories } from '../schema/categories';
 import { ensureItemAccess, getItemAccessById } from '../lib/item-access';
+import { fetchLinkMetadata } from '../lib/link-metadata';
 import { itemVersions } from '../schema/item_versions';
+
+const LINK_META_WINDOW_MS = 60_000;
+const LINK_META_MAX = 20;
+const linkMetaUsage = new Map<string, { count: number; resetAt: number }>();
+
+function enforceLinkMetaQuota(userId: string) {
+  const now = Date.now();
+  const entry = linkMetaUsage.get(userId);
+  if (!entry || now > entry.resetAt) {
+    linkMetaUsage.set(userId, { count: 1, resetAt: now + LINK_META_WINDOW_MS });
+    return true;
+  }
+  entry.count += 1;
+  return entry.count <= LINK_META_MAX;
+}
 
 export const itemsRouter = router({
   // قراءة كل العناصر
@@ -348,5 +364,18 @@ export const itemsRouter = router({
         .where(and(eq(items.userId, ctx.user.id), gte(items.updatedAt, sinceDate)))
         .orderBy(desc(items.updatedAt));
       return result ?? [];
+    }),
+
+  fetchLinkMetadata: protectedProcedure
+    .input(z.object({ url: z.string().url() }))
+    .mutation(async ({ input, ctx }) => {
+      if (!enforceLinkMetaQuota(ctx.user.id)) {
+        return {
+          metadata: null,
+          error: 'rate_limited' as const,
+        };
+      }
+      const metadata = await fetchLinkMetadata(input.url);
+      return { metadata, error: null };
     }),
 });
