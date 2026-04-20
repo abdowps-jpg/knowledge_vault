@@ -44,29 +44,49 @@ import {
 interface SectionProps {
   title: string;
   children: React.ReactNode;
+  defaultOpen?: boolean;
 }
 
-function Section({ title, children }: SectionProps) {
+const Section = React.memo(function Section({ title, children, defaultOpen = false }: SectionProps) {
   const colors = useColors();
+  const [open, setOpen] = React.useState(defaultOpen);
   return (
-    <View className="mb-6">
-      <Text className="text-xs font-semibold uppercase px-4 py-2" style={{ color: colors.muted }}>
-        {title}
-      </Text>
-      <View
+    <View className="mb-4">
+      <Pressable
+        onPress={() => setOpen((v) => !v)}
         style={{
-          backgroundColor: colors.surface,
-          borderTopColor: colors.border,
-          borderBottomColor: colors.border,
-          borderTopWidth: 1,
-          borderBottomWidth: 1,
+          flexDirection: "row",
+          alignItems: "center",
+          justifyContent: "space-between",
+          paddingHorizontal: 16,
+          paddingVertical: 10,
         }}
       >
-        {children}
-      </View>
+        <Text className="text-xs font-semibold uppercase" style={{ color: colors.muted }}>
+          {title}
+        </Text>
+        <MaterialIcons
+          name={open ? "keyboard-arrow-up" : "keyboard-arrow-down"}
+          size={20}
+          color={colors.muted}
+        />
+      </Pressable>
+      {open ? (
+        <View
+          style={{
+            backgroundColor: colors.surface,
+            borderTopColor: colors.border,
+            borderBottomColor: colors.border,
+            borderTopWidth: 1,
+            borderBottomWidth: 1,
+          }}
+        >
+          {children}
+        </View>
+      ) : null}
     </View>
   );
-}
+});
 
 interface RowProps {
   icon: string;
@@ -1270,34 +1290,6 @@ const [showApiModal, setShowApiModal] = useState(false);
     }
   };
 
-  const handleResetProductivityData = () => {
-    Alert.alert("Reset Productivity Data", "Clear local productivity tracking data (goals, habits, saved searches)?", [
-      { text: "Cancel", style: "cancel" },
-      {
-        text: "Reset",
-        style: "destructive",
-        onPress: async () => {
-          try {
-            await AsyncStorage.multiRemove([
-              "actions_saved_views_v1",
-              "actions_focus_stats_v1",
-              "actions_my_day_ids_v1",
-              "actions_habits_v1",
-              "actions_weekly_goals_v1",
-              "actions_monthly_goals_v1",
-              "search_recent_terms_v1",
-              "search_saved_terms_v1",
-            ]);
-            Alert.alert("Done", "Productivity data reset successfully.");
-          } catch (error) {
-            console.error("Failed resetting productivity data:", error);
-            Alert.alert("Error", "Failed to reset productivity data.");
-          }
-        },
-      },
-    ]);
-  };
-
   if (loading) {
     return (
       <ScreenContainer>
@@ -1315,7 +1307,7 @@ const [showApiModal, setShowApiModal] = useState(false);
       </View>
 
       <ScrollView className="flex-1" showsVerticalScrollIndicator={false}>
-        <Section title="Account">
+        <Section title="Account" defaultOpen={true}>
           <Row icon="person" label="Username" value={accountUsername || "Unknown"} />
           <Row icon="email" label="Email" value={accountEmail || "Unknown"} />
           <Row
@@ -1353,7 +1345,7 @@ const [showApiModal, setShowApiModal] = useState(false);
           />
         </Section>
 
-        <Section title="Notifications">
+        <Section title="Notifications & Audio">
           <Row
             icon="alarm"
             label="Task Reminders"
@@ -1390,9 +1382,42 @@ const [showApiModal, setShowApiModal] = useState(false);
             value={settings.journalReminderTime}
             onPress={() => openTimePicker("journal")}
           />
+          <Row
+            icon="record-voice-over"
+            label="Auto-Transcribe"
+            description="Automatically transcribe recorded audio"
+            right={
+              <Switch
+                value={settings.autoTranscribe}
+                onValueChange={(value) => persist({ autoTranscribe: value })}
+                trackColor={{ false: colors.border, true: colors.primary }}
+              />
+            }
+          />
+          <Row icon="language" label="Transcription Language" value={settings.transcribeLanguage === "ar" ? "Arabic" : "English"} />
+          <View className="px-4 pb-3 pt-1 flex-row gap-2">
+            {(["en", "ar"] as const).map((lang) => (
+              <Pressable
+                key={lang}
+                onPress={() => persist({ transcribeLanguage: lang })}
+                style={{
+                  paddingHorizontal: 12,
+                  paddingVertical: 8,
+                  borderRadius: 8,
+                  borderWidth: 1,
+                  borderColor: colors.border,
+                  backgroundColor: settings.transcribeLanguage === lang ? colors.primary : colors.background,
+                }}
+              >
+                <Text style={{ color: settings.transcribeLanguage === lang ? "white" : colors.foreground, fontWeight: "600" }}>
+                  {lang === "ar" ? "Arabic" : "English"}
+                </Text>
+              </Pressable>
+            ))}
+          </View>
         </Section>
 
-        <Section title="Display">
+        <Section title="Appearance">
           <Row icon="palette" label="Theme" value={themeValue} />
           <View className="px-4 pb-3 pt-1 flex-row gap-2">
             {(["light", "dark", "auto"] as ThemePreference[]).map((mode) => (
@@ -1469,77 +1494,7 @@ const [showApiModal, setShowApiModal] = useState(false);
           </View>
         </Section>
 
-        <Section title="Data">
-          <Row
-            icon="download"
-            label="Export Data (Multi-Format)"
-            description="PDF, Markdown, HTML, JSON, CSV, DOCX"
-            onPress={() => setShowExportOptionsModal(true)}
-          />
-          <Row
-            icon="upload-file"
-            label="Import Data (JSON/CSV/MD/ENEX/TXT)"
-            description="Import from Notion CSV, Evernote ENEX, Markdown, or plain text"
-            onPress={handleImportData}
-          />
-          <Row
-            icon="backup"
-            label="Create Backup Snapshot"
-            description="Save a local snapshot before risky changes"
-            onPress={async () => {
-              try {
-                setWorking(true);
-                await createBackupSnapshot("manual");
-                Alert.alert("Backup Created", "Local backup snapshot saved.");
-              } catch (error) {
-                console.error("Failed creating backup snapshot:", error);
-                Alert.alert("Error", "Failed creating backup snapshot.");
-              } finally {
-                setWorking(false);
-              }
-            }}
-          />
-          <Row
-            icon="restore"
-            label="Restore Latest Snapshot"
-            description={lastBackupAt ? `Latest: ${new Date(lastBackupAt).toLocaleString()}` : "No backups yet"}
-            onPress={() => {
-              Alert.alert("Restore Backup", "Restore latest backup snapshot?", [
-                { text: "Cancel", style: "cancel" },
-                {
-                  text: "Restore",
-                  style: "destructive",
-                  onPress: async () => {
-                    try {
-                      setWorking(true);
-                      await restoreLatestBackupSnapshot();
-                    } catch (error) {
-                      console.error("Restore backup failed:", error);
-                      Alert.alert("Error", "Failed restoring backup snapshot.");
-                    } finally {
-                      setWorking(false);
-                    }
-                  },
-                },
-              ]);
-            }}
-          />
-          <Row icon="delete-forever" label="Clear All Data" onPress={handleClearAllData} />
-          <Row icon="storage" label="Storage Used" value={storageUsed} />
-          <Row icon="history" label="Backup Snapshots" value={`${backupCount}/5`} />
-        </Section>
-
-        <Section title="API & Webhooks">
-          <Row
-            icon="vpn-key"
-            label="API Keys & Webhooks"
-            description="Generate keys and manage webhook subscriptions"
-            onPress={() => setShowApiModal(true)}
-          />
-          <Row icon="http" label="REST Base URL" value="http://localhost:3000/api" />
-        </Section>
-
-        <Section title="Cloud Sync">
+        <Section title="Data & Sync">
           <Row
             icon="sync"
             label="Last Sync"
@@ -1565,59 +1520,71 @@ const [showApiModal, setShowApiModal] = useState(false);
             }
           />
           <Row
-            icon={syncingNow ? "cloud-upload" : "cloud-done"}
-            label="Sync Status"
-            value={syncingNow ? "Syncing..." : "Idle"}
+            icon="download"
+            label="Export Data"
+            description="PDF, Markdown, HTML, JSON, CSV, DOCX"
+            onPress={() => setShowExportOptionsModal(true)}
           />
-        </Section>
-
-        <Section title="Transcription">
           <Row
-            icon="record-voice-over"
-            label="Auto-Transcribe"
-            description="Automatically transcribe recorded audio"
-            right={
-              <Switch
-                value={settings.autoTranscribe}
-                onValueChange={(value) => persist({ autoTranscribe: value })}
-                trackColor={{ false: colors.border, true: colors.primary }}
-              />
-            }
+            icon="upload-file"
+            label="Import Data"
+            description="Notion CSV, Evernote ENEX, Markdown, or plain text"
+            onPress={handleImportData}
           />
-          <Row icon="language" label="Language" value={settings.transcribeLanguage === "ar" ? "Arabic" : "English"} />
-          <View className="px-4 pb-3 pt-1 flex-row gap-2">
-            {(["en", "ar"] as const).map((lang) => (
-              <Pressable
-                key={lang}
-                onPress={() => persist({ transcribeLanguage: lang })}
-                style={{
-                  paddingHorizontal: 12,
-                  paddingVertical: 8,
-                  borderRadius: 8,
-                  borderWidth: 1,
-                  borderColor: colors.border,
-                  backgroundColor: settings.transcribeLanguage === lang ? colors.primary : colors.background,
-                }}
-              >
-                <Text style={{ color: settings.transcribeLanguage === lang ? "white" : colors.foreground, fontWeight: "600" }}>
-                  {lang === "ar" ? "Arabic" : "English"}
-                </Text>
-              </Pressable>
-            ))}
-          </View>
+          <Row
+            icon="backup"
+            label="Create Backup"
+            description="Save a local snapshot before risky changes"
+            onPress={async () => {
+              try {
+                setWorking(true);
+                await createBackupSnapshot("manual");
+                Alert.alert("Backup Created", "Local backup snapshot saved.");
+              } catch (error) {
+                console.error("Failed creating backup snapshot:", error);
+                Alert.alert("Error", "Failed creating backup snapshot.");
+              } finally {
+                setWorking(false);
+              }
+            }}
+          />
+          <Row
+            icon="restore"
+            label="Restore Backup"
+            description={lastBackupAt ? `Latest: ${new Date(lastBackupAt).toLocaleString()}` : "No backups yet"}
+            onPress={() => {
+              Alert.alert("Restore Backup", "Restore latest backup snapshot?", [
+                { text: "Cancel", style: "cancel" },
+                {
+                  text: "Restore",
+                  style: "destructive",
+                  onPress: async () => {
+                    try {
+                      setWorking(true);
+                      await restoreLatestBackupSnapshot();
+                    } catch (error) {
+                      console.error("Restore backup failed:", error);
+                      Alert.alert("Error", "Failed restoring backup snapshot.");
+                    } finally {
+                      setWorking(false);
+                    }
+                  },
+                },
+              ]);
+            }}
+          />
+          <Row icon="storage" label="Storage Used" value={storageUsed} />
+          <Row icon="history" label="Backup Snapshots" value={`${backupCount}/5`} />
+          <Row
+            icon="vpn-key"
+            label="API Keys & Webhooks"
+            description="Generate keys and manage webhook subscriptions"
+            onPress={() => setShowApiModal(true)}
+          />
+          <Row icon="delete-forever" label="Clear All Data" onPress={handleClearAllData} />
         </Section>
 
-        <Section title="Productivity">
-          <Row icon="check-circle" label="Open Actions Dashboard" onPress={() => router.push("/(app)/(tabs)/actions" as any)} />
-          <Row icon="search" label="Open Smart Search" onPress={() => router.push("/(app)/(tabs)/search" as any)} />
-          <Row icon="flag" label="Goals & Milestones" onPress={() => router.push("/(app)/goals" as any)} />
-          <Row icon="rate-review" label="Daily & Weekly Review" onPress={() => router.push("/(app)/reviews" as any)} />
-          <Row icon="add-task" label="Widget Quick Add" onPress={() => router.push("/(app)/widgets/quick-add" as any)} />
-          <Row icon="today" label="Widget Today Tasks" onPress={() => router.push("/(app)/widgets/today-tasks" as any)} />
-          <Row icon="refresh" label="Reset Productivity Data" onPress={handleResetProductivityData} />
-        </Section>
-
-        <Section title="About">
+        <Section title="About & Legal">
           <Row icon="info" label="App Version" value={appVersion} />
           <Row icon="bar-chart" label="Statistics" onPress={() => router.push("/stats")} />
           <Row icon="insights" label="Advanced Analytics" onPress={() => router.push("/analytics" as any)} />

@@ -67,3 +67,8 @@ Thumbs.db
 
 # Local SQLite runtime database
 local.db
+local.db-shm
+local.db-wal
+
+# Claude Code
+.claude/
