@@ -40,8 +40,8 @@ function RenderAction({ action, side }: { action: SwipeAction; side: "left" | "r
 export function SwipeableRow({ children, leftAction, rightAction }: SwipeableRowProps) {
   const swipeableRef = useRef<React.ComponentRef<typeof ReanimatedSwipeable>>(null);
 
-  const renderSide = (action: SwipeAction, side: "left" | "right") => () =>
-    (
+  const renderSide = (action: SwipeAction, side: "left" | "right") => {
+    const Renderer = () => (
       <RenderAction
         action={{
           ...action,
@@ -53,6 +53,9 @@ export function SwipeableRow({ children, leftAction, rightAction }: SwipeableRow
         side={side}
       />
     );
+    Renderer.displayName = `SwipeableRowRenderer(${side})`;
+    return Renderer;
+  };
 
   return (
     <ReanimatedSwipeable

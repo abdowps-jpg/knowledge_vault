@@ -322,7 +322,7 @@ export default function TodayScreen() {
               >
                 <MaterialIcons name="edit" size={22} color={colors.primary} />
                 <View style={{ marginLeft: 12, flex: 1 }}>
-                  <Text style={{ color: colors.foreground, fontWeight: "700" }}>Write today's journal</Text>
+                  <Text style={{ color: colors.foreground, fontWeight: "700" }}>Write today&apos;s journal</Text>
                   <Text style={{ color: colors.muted, fontSize: 12, marginTop: 2 }}>Reflect on your day</Text>
                 </View>
                 <MaterialIcons name="chevron-right" size={22} color={colors.muted} />

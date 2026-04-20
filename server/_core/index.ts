@@ -40,6 +40,56 @@ interface ApiRequest extends Request {
   apiUserId?: string;
 }
 
+const SENTRY_DSN = process.env.SENTRY_DSN ?? '';
+
+function reportError(error: unknown, meta: Record<string, unknown> = {}) {
+  const timestamp = new Date().toISOString();
+  const err = error instanceof Error ? error : new Error(String(error));
+  const payload = {
+    timestamp,
+    level: 'error',
+    message: err.message,
+    name: err.name,
+    stack: err.stack,
+    ...meta,
+  };
+  console.error('[ErrorReport]', JSON.stringify(payload));
+
+  if (SENTRY_DSN) {
+    try {
+      const dsn = new URL(SENTRY_DSN);
+      const projectId = dsn.pathname.replace(/^\/+/, '');
+      const publicKey = dsn.username;
+      if (projectId && publicKey) {
+        const envelopeUrl = `${dsn.protocol}//${dsn.host}/api/${projectId}/envelope/`;
+        const eventId = randomUUID().replace(/-/g, '');
+        const header = JSON.stringify({ event_id: eventId, sent_at: timestamp, dsn: SENTRY_DSN });
+        const itemHeader = JSON.stringify({ type: 'event' });
+        const item = JSON.stringify({
+          event_id: eventId,
+          timestamp,
+          level: 'error',
+          platform: 'node',
+          message: err.message,
+          exception: { values: [{ type: err.name, value: err.message, stacktrace: { frames: [] } }] },
+          extra: meta,
+        });
+        fetch(envelopeUrl, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/x-sentry-envelope',
+            'X-Sentry-Auth': `Sentry sentry_version=7, sentry_key=${publicKey}, sentry_client=knowledge-vault/1.0`,
+          },
+          body: `${header}\n${itemHeader}\n${item}\n`,
+          signal: AbortSignal.timeout(5000),
+        }).catch(() => {});
+      }
+    } catch {
+      // malformed DSN — silent drop
+    }
+  }
+}
+
 const RATE_LIMIT_WINDOW_MS = 60_000;
 const RATE_LIMIT_MAX = 100;
 const rateLimitMap = new Map<string, { count: number; resetAt: number }>();
@@ -60,10 +110,61 @@ function rateLimit(req: ApiRequest, res: Response, next: NextFunction) {
   return next();
 }
 
+const AUTH_RATE_LIMIT_WINDOW_MS = 15 * 60_000;
+const AUTH_RATE_LIMIT_MAX = 10;
+const authRateLimitMap = new Map<string, { count: number; resetAt: number }>();
+const SENSITIVE_AUTH_OPS = new Set([
+  'auth.login',
+  'auth.register',
+  'auth.forgotPassword',
+  'auth.resetPassword',
+  'auth.sendVerificationCode',
+  'auth.verifyEmail',
+]);
+
+function authRateLimit(req: Request, res: Response, next: NextFunction) {
+  const path = req.path.replace(/^\/+/, '');
+  const ops = path.split(',').map((p) => p.trim()).filter(Boolean);
+  const hitsAuth = ops.some((op) => SENSITIVE_AUTH_OPS.has(op));
+  if (!hitsAuth) return next();
+
+  const key = req.ip ?? 'unknown';
+  const now = Date.now();
+  const entry = authRateLimitMap.get(key);
+  if (!entry || now > entry.resetAt) {
+    authRateLimitMap.set(key, { count: 1, resetAt: now + AUTH_RATE_LIMIT_WINDOW_MS });
+    return next();
+  }
+  entry.count++;
+  if (entry.count > AUTH_RATE_LIMIT_MAX) {
+    res.setHeader('Retry-After', String(Math.ceil((entry.resetAt - now) / 1000)));
+    return res.status(429).json({ success: false, error: 'auth_rate_limit_exceeded' });
+  }
+  return next();
+}
+
+const rateLimitCleanupTimer = setInterval(() => {
+  const now = Date.now();
+  for (const [key, entry] of rateLimitMap) {
+    if (now > entry.resetAt) rateLimitMap.delete(key);
+  }
+  for (const [key, entry] of authRateLimitMap) {
+    if (now > entry.resetAt) authRateLimitMap.delete(key);
+  }
+}, 60_000);
+if (typeof rateLimitCleanupTimer === 'object' && rateLimitCleanupTimer && 'unref' in rateLimitCleanupTimer) {
+  (rateLimitCleanupTimer as { unref: () => void }).unref();
+}
+
 const app = express();
 const port = process.env.PORT || 3000;
 const host = process.env.HOST || '0.0.0.0';
-const allowedOrigins = process.env.ALLOWED_ORIGINS?.split(',').map(o => o.trim()) ?? null;
+const isProduction = process.env.NODE_ENV === 'production';
+const allowedOrigins = process.env.ALLOWED_ORIGINS?.split(',').map((o) => o.trim()).filter(Boolean) ?? null;
+
+if (isProduction && (!allowedOrigins || allowedOrigins.length === 0)) {
+  console.warn('[CORS] ALLOWED_ORIGINS is not set in production — all cross-origin requests will be rejected.');
+}
 
 // إنشاء main router
 const appRouter = router({
@@ -98,19 +199,38 @@ const appRouter = router({
 export type AppRouter = typeof appRouter;
 
 // Required for tRPC POST/JSON batch requests
-app.use(express.json());
-app.use(express.urlencoded({ extended: true }));
+app.use(express.json({ limit: '2mb' }));
+app.use(express.urlencoded({ extended: true, limit: '2mb' }));
+
+// Security headers
+app.use((_req, res, next) => {
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  res.setHeader('X-Frame-Options', 'DENY');
+  res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
+  res.setHeader('X-DNS-Prefetch-Control', 'off');
+  res.setHeader('Permissions-Policy', 'geolocation=(), microphone=(), camera=()');
+  if (isProduction) {
+    res.setHeader('Strict-Transport-Security', 'max-age=63072000; includeSubDomains');
+  }
+  next();
+});
 
 // CORS middleware
 app.use((req, res, next) => {
   const origin = req.headers.origin ?? '';
-  if (!allowedOrigins || allowedOrigins.includes(origin)) {
+  const isAllowed = allowedOrigins
+    ? origin !== '' && allowedOrigins.includes(origin)
+    : !isProduction;
+
+  if (isAllowed) {
     res.header('Access-Control-Allow-Origin', origin || '*');
+    res.header('Access-Control-Allow-Credentials', 'true');
+    res.header('Vary', 'Origin');
   }
   res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
   res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization, x-trpc-source, x-api-key');
   if (req.method === 'OPTIONS') {
-    return res.sendStatus(200);
+    return res.sendStatus(isAllowed ? 200 : 403);
   }
   next();
 });
@@ -537,7 +657,8 @@ app.post('/email/inbound', async (req, res) => {
   }
 });
 
-// tRPC middleware
+// tRPC middleware — auth rate limit before tRPC handler
+app.use('/trpc', authRateLimit);
 app.use(
   '/trpc',
   createExpressMiddleware({
@@ -564,8 +685,40 @@ app.use(
 
       return createTRPCContext({ req, res, user });
     },
+    onError: ({ error, path, type, ctx }) => {
+      if (error.code === 'INTERNAL_SERVER_ERROR' || !error.code) {
+        reportError(error, {
+          source: 'trpc',
+          path: path ?? 'unknown',
+          type,
+          userId: ctx?.user?.id ?? null,
+        });
+      }
+    },
   })
 );
+
+// Health check for uptime monitors
+app.get('/healthz', (_req, res) => {
+  res.json({ status: 'ok', uptime: process.uptime() });
+});
+
+// Global error handler — catches uncaught errors from REST routes
+app.use((err: Error, req: Request, res: Response, _next: NextFunction) => {
+  reportError(err, { source: 'express', path: req.path, method: req.method });
+  if (res.headersSent) return;
+  res.status(500).json({ success: false, error: 'internal_error' });
+});
+
+process.on('unhandledRejection', (reason) => {
+  reportError(reason instanceof Error ? reason : new Error(String(reason)), {
+    source: 'unhandledRejection',
+  });
+});
+
+process.on('uncaughtException', (err) => {
+  reportError(err, { source: 'uncaughtException' });
+});
 
 app.listen(Number(port), host, () => {
   console.log(`Server running on http://${host}:${port}`);
