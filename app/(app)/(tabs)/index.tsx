@@ -299,6 +299,22 @@ export default function InboxScreen() {
   const updateItemMutation = trpc.items.update.useMutation();
   const createTaskMutation = trpc.tasks.create.useMutation();
   const createJournalMutation = trpc.journal.create.useMutation();
+  const aiSearch = trpc.ai.search.useMutation();
+  const [aiSearchResults, setAiSearchResults] = useState<{ id: string; title: string; reason: string }[]>([]);
+  const [aiSearchQuery, setAiSearchQuery] = useState("");
+
+  const handleAiSearch = async () => {
+    const query = searchQuery.trim();
+    if (query.length < 2) return;
+    try {
+      setAiSearchQuery(query);
+      const res = await aiSearch.mutateAsync({ query, limit: 10 });
+      setAiSearchResults(res.results);
+    } catch (err: any) {
+      console.error("[Inbox] AI search failed:", err);
+      setAiSearchResults([]);
+    }
+  };
 
   // Handle refresh
   const handleRefresh = async () => {
@@ -519,22 +535,84 @@ export default function InboxScreen() {
           ))}
         </View>
         {inboxView === "search" ? (
-          <TextInput
-            placeholder="Search all data (inbox, library, tasks, journal)..."
-            placeholderTextColor={colors.muted}
-            value={searchQuery}
-            onChangeText={setSearchQuery}
-            style={{
-              backgroundColor: colors.surface,
-              borderColor: colors.border,
-              borderWidth: 1,
-              borderRadius: 10,
-              color: colors.foreground,
-              paddingHorizontal: 12,
-              paddingVertical: 10,
-              marginBottom: 10,
-            }}
-          />
+          <View style={{ marginBottom: 10 }}>
+            <TextInput
+              placeholder="Search all data (inbox, library, tasks, journal)..."
+              placeholderTextColor={colors.muted}
+              value={searchQuery}
+              onChangeText={setSearchQuery}
+              onSubmitEditing={handleAiSearch}
+              returnKeyType="search"
+              style={{
+                backgroundColor: colors.surface,
+                borderColor: colors.border,
+                borderWidth: 1,
+                borderRadius: 10,
+                color: colors.foreground,
+                paddingHorizontal: 12,
+                paddingVertical: 10,
+              }}
+            />
+            <View style={{ flexDirection: "row", gap: 8, marginTop: 8, alignItems: "center" }}>
+              <Pressable
+                onPress={handleAiSearch}
+                disabled={aiSearch.isPending || searchQuery.trim().length < 2}
+                style={{
+                  backgroundColor: colors.primary,
+                  paddingHorizontal: 12,
+                  paddingVertical: 6,
+                  borderRadius: 999,
+                  opacity: aiSearch.isPending || searchQuery.trim().length < 2 ? 0.5 : 1,
+                }}
+              >
+                <Text style={{ color: "#fff", fontWeight: "600", fontSize: 12 }}>
+                  {aiSearch.isPending ? "Thinking…" : "Ask AI"}
+                </Text>
+              </Pressable>
+              {aiSearchResults.length > 0 || aiSearchQuery ? (
+                <Pressable
+                  onPress={() => {
+                    setAiSearchResults([]);
+                    setAiSearchQuery("");
+                  }}
+                >
+                  <Text style={{ color: colors.muted, fontSize: 12 }}>Clear AI results</Text>
+                </Pressable>
+              ) : null}
+            </View>
+            {aiSearchQuery && aiSearchResults.length > 0 ? (
+              <View
+                style={{
+                  marginTop: 10,
+                  borderWidth: 1,
+                  borderColor: colors.border,
+                  borderRadius: 10,
+                  padding: 10,
+                  backgroundColor: colors.surface,
+                }}
+              >
+                <Text style={{ color: colors.muted, fontSize: 11, marginBottom: 6 }}>
+                  AI matches for &ldquo;{aiSearchQuery}&rdquo;:
+                </Text>
+                {aiSearchResults.map((r) => (
+                  <Pressable
+                    key={r.id}
+                    onPress={() => router.push(`/(app)/item/${r.id}` as any)}
+                    style={{ paddingVertical: 6 }}
+                  >
+                    <Text style={{ color: colors.foreground, fontWeight: "600", fontSize: 13 }}>
+                      {r.title}
+                    </Text>
+                    {r.reason ? (
+                      <Text style={{ color: colors.muted, fontSize: 11, marginTop: 2 }}>
+                        {r.reason}
+                      </Text>
+                    ) : null}
+                  </Pressable>
+                ))}
+              </View>
+            ) : null}
+          </View>
         ) : null}
         <Text className="text-xs text-muted mb-2">Capture</Text>
         <View style={{ flexDirection: "row", marginBottom: 10 }}>
