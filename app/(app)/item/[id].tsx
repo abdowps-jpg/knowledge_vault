@@ -79,6 +79,10 @@ export default function ItemDetailScreen() {
     { enabled: Boolean(id) && Boolean(itemQuery.data) }
   );
   const restoreVersion = trpc.itemVersions.restore.useMutation();
+  const suggestTags = trpc.ai.suggestTags.useMutation();
+  const summarizeItem = trpc.ai.summarize.useMutation();
+  const [aiSummary, setAiSummary] = React.useState<string>("");
+  const [aiTagSuggestions, setAiTagSuggestions] = React.useState<string[]>([]);
   const isServerBackedItem = Boolean(itemQuery.data);
   const effectiveItem = React.useMemo(() => {
     if (itemQuery.data) return itemQuery.data;
@@ -482,6 +486,123 @@ export default function ItemDetailScreen() {
         ) : (
           <Text style={{ color: colors.muted, marginBottom: 14 }}>No images attached to this item.</Text>
         )}
+
+        {isServerBackedItem && effectiveItem?.accessRole === "owner" && id ? (
+          <View
+            style={{
+              borderWidth: 1,
+              borderColor: colors.border,
+              borderRadius: 10,
+              padding: 12,
+              marginTop: 16,
+              marginBottom: 4,
+              backgroundColor: colors.surface,
+            }}
+          >
+            <Text className="text-sm font-semibold text-foreground mb-2">AI Assistant</Text>
+            <View style={{ flexDirection: "row", gap: 8, flexWrap: "wrap" }}>
+              <Pressable
+                onPress={async () => {
+                  try {
+                    const res = await suggestTags.mutateAsync({ itemId: id });
+                    setAiTagSuggestions(res.suggestions);
+                  } catch (e: any) {
+                    Alert.alert("AI", e?.message ?? "Failed to suggest tags");
+                  }
+                }}
+                disabled={suggestTags.isPending}
+                style={{
+                  backgroundColor: colors.primary,
+                  paddingHorizontal: 12,
+                  paddingVertical: 8,
+                  borderRadius: 8,
+                  opacity: suggestTags.isPending ? 0.6 : 1,
+                }}
+              >
+                <Text style={{ color: "#fff", fontWeight: "600", fontSize: 13 }}>
+                  {suggestTags.isPending ? "Thinking…" : "Suggest tags"}
+                </Text>
+              </Pressable>
+              <Pressable
+                onPress={async () => {
+                  try {
+                    const res = await summarizeItem.mutateAsync({ itemId: id });
+                    setAiSummary(res.summary || "Not enough content to summarize.");
+                  } catch (e: any) {
+                    Alert.alert("AI", e?.message ?? "Failed to summarize");
+                  }
+                }}
+                disabled={summarizeItem.isPending}
+                style={{
+                  backgroundColor: colors.surface,
+                  borderWidth: 1,
+                  borderColor: colors.primary,
+                  paddingHorizontal: 12,
+                  paddingVertical: 8,
+                  borderRadius: 8,
+                  opacity: summarizeItem.isPending ? 0.6 : 1,
+                }}
+              >
+                <Text style={{ color: colors.primary, fontWeight: "600", fontSize: 13 }}>
+                  {summarizeItem.isPending ? "Thinking…" : "Summarize"}
+                </Text>
+              </Pressable>
+            </View>
+            {aiTagSuggestions.length > 0 ? (
+              <View style={{ marginTop: 10 }}>
+                <Text style={{ color: colors.muted, fontSize: 12, marginBottom: 6 }}>
+                  Tap to add:
+                </Text>
+                <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 6 }}>
+                  {aiTagSuggestions.map((tag) => (
+                    <Pressable
+                      key={tag}
+                      onPress={() => {
+                        const current = tagsInput
+                          .split(",")
+                          .map((t) => t.trim().toLowerCase())
+                          .filter(Boolean);
+                        if (current.includes(tag.toLowerCase())) return;
+                        const next = [...current, tag].join(", ");
+                        setTagsInput(next);
+                        setAiTagSuggestions((prev) => prev.filter((t) => t !== tag));
+                      }}
+                      style={{
+                        backgroundColor: colors.background,
+                        borderWidth: 1,
+                        borderColor: colors.border,
+                        paddingHorizontal: 10,
+                        paddingVertical: 6,
+                        borderRadius: 999,
+                      }}
+                    >
+                      <Text style={{ color: colors.foreground, fontSize: 12 }}>+ {tag}</Text>
+                    </Pressable>
+                  ))}
+                </View>
+              </View>
+            ) : null}
+            {aiSummary ? (
+              <View
+                style={{
+                  marginTop: 10,
+                  backgroundColor: colors.background,
+                  padding: 10,
+                  borderRadius: 8,
+                  borderWidth: 1,
+                  borderColor: colors.border,
+                }}
+              >
+                <Text style={{ color: colors.muted, fontSize: 11, marginBottom: 4 }}>
+                  Summary
+                </Text>
+                <Text style={{ color: colors.foreground, fontSize: 13, lineHeight: 18 }}>
+                  {aiSummary}
+                </Text>
+              </View>
+            ) : null}
+          </View>
+        ) : null}
 
         <Text className="text-sm font-semibold text-foreground mb-2 mt-4">Tags (comma separated)</Text>
         <TextInput
