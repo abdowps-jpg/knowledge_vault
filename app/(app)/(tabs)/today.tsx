@@ -19,14 +19,14 @@ function getTodayYmd(): string {
   return `${y}-${m}-${d}`;
 }
 
-function isToday(dateStr: string | null | undefined): boolean {
+function isSameYmd(dateStr: string | null | undefined, todayStr: string): boolean {
   if (!dateStr) return false;
-  return dateStr.slice(0, 10) === getTodayYmd();
+  return dateStr.slice(0, 10) === todayStr;
 }
 
-function isOverdue(dateStr: string | null | undefined): boolean {
+function isBeforeYmd(dateStr: string | null | undefined, todayStr: string): boolean {
   if (!dateStr) return false;
-  return dateStr.slice(0, 10) < getTodayYmd();
+  return dateStr.slice(0, 10) < todayStr;
 }
 
 function SectionHeader({ title, icon, count, color }: { title: string; icon: keyof typeof MaterialIcons.glyphMap; count: number; color?: string }) {
@@ -50,9 +50,10 @@ function SectionHeader({ title, icon, count, color }: { title: string; icon: key
   );
 }
 
-function TaskRow({ task, onToggle, onPress }: { task: any; onToggle: () => void; onPress: () => void }) {
+function TaskRow({ task, onToggle, onPress, todayStr }: { task: any; onToggle: () => void; onPress: () => void; todayStr: string }) {
   const colors = useColors();
   const priorityColor = task.priority === "high" ? colors.error : task.priority === "medium" ? colors.warning : colors.muted;
+  const overdueDue = isBeforeYmd(task.dueDate, todayStr);
 
   return (
     <Pressable
@@ -92,7 +93,7 @@ function TaskRow({ task, onToggle, onPress }: { task: any; onToggle: () => void;
           {task.title}
         </Text>
         {task.dueDate ? (
-          <Text style={{ color: isOverdue(task.dueDate) ? colors.error : colors.muted, fontSize: 11, marginTop: 2 }}>
+          <Text style={{ color: overdueDue ? colors.error : colors.muted, fontSize: 11, marginTop: 2 }}>
             {task.dueDate.slice(0, 10)}
           </Text>
         ) : null}
@@ -170,18 +171,18 @@ export default function TodayScreen() {
   );
 
   const overdueTasks = useMemo(
-    () => allTasks.filter((t: any) => !t.isCompleted && isOverdue(t.dueDate)),
-    [allTasks]
+    () => allTasks.filter((t: any) => !t.isCompleted && isBeforeYmd(t.dueDate, todayStr)),
+    [allTasks, todayStr]
   );
 
   const todayTasks = useMemo(
-    () => allTasks.filter((t: any) => !t.isCompleted && isToday(t.dueDate)),
-    [allTasks]
+    () => allTasks.filter((t: any) => !t.isCompleted && isSameYmd(t.dueDate, todayStr)),
+    [allTasks, todayStr]
   );
 
-  const habits = (habitsQuery.data ?? []) as any[];
-  const pendingHabits = habits.filter((h) => !h.doneToday);
-  const doneHabits = habits.filter((h) => h.doneToday);
+  const habits = useMemo(() => (habitsQuery.data ?? []) as any[], [habitsQuery.data]);
+  const pendingHabits = useMemo(() => habits.filter((h) => !h.doneToday), [habits]);
+  const doneHabits = useMemo(() => habits.filter((h) => h.doneToday), [habits]);
 
   const journalEntries = useMemo(
     () => journalQuery.data?.pages.flatMap((p) => p.items ?? []) ?? [],
@@ -192,11 +193,43 @@ export default function TodayScreen() {
   const isLoading = tasksQuery.isLoading || habitsQuery.isLoading || journalQuery.isLoading;
 
   const completedToday = useMemo(
-    () => allTasks.filter((t: any) => t.isCompleted && isToday(t.updatedAt?.toString?.())).length,
-    [allTasks]
+    () => allTasks.filter((t: any) => t.isCompleted && isSameYmd(t.updatedAt?.toString?.(), todayStr)).length,
+    [allTasks, todayStr]
   );
 
   const totalToday = overdueTasks.length + todayTasks.length + pendingHabits.length;
+
+  const completeTask = (id: string) => toggleTask.mutate({ id, isCompleted: true });
+  const openTask = (id: string) =>
+    router.push({ pathname: "/(app)/(tabs)/actions", params: { taskId: id } } as any);
+
+  const renderTaskRow = (task: any) => (
+    <SwipeableRow
+      key={task.id}
+      leftAction={{
+        icon: "check-circle",
+        color: "#fff",
+        backgroundColor: colors.success,
+        onPress: () => completeTask(task.id),
+      }}
+    >
+      <TaskRow task={task} onToggle={() => completeTask(task.id)} onPress={() => openTask(task.id)} todayStr={todayStr} />
+    </SwipeableRow>
+  );
+
+  const renderHabitRow = (habit: any) => (
+    <SwipeableRow
+      key={habit.id}
+      leftAction={{
+        icon: habit.doneToday ? "undo" : "check-circle",
+        color: "#fff",
+        backgroundColor: habit.doneToday ? colors.warning : colors.success,
+        onPress: () => toggleHabit.mutate({ id: habit.id }),
+      }}
+    >
+      <HabitRow habit={habit} onToggle={() => toggleHabit.mutate({ id: habit.id })} />
+    </SwipeableRow>
+  );
 
   if (isLoading) {
     return (
@@ -211,7 +244,6 @@ export default function TodayScreen() {
 
   return (
     <ScreenContainer>
-      {/* Header */}
       <View style={{ paddingHorizontal: 16, paddingTop: 16, paddingBottom: 8 }}>
         <Text style={{ fontSize: 24, fontWeight: "800", color: colors.foreground }}>Today</Text>
         <Text style={{ color: colors.muted, fontSize: 13, marginTop: 4 }}>
@@ -219,7 +251,6 @@ export default function TodayScreen() {
         </Text>
       </View>
 
-      {/* Progress bar */}
       <View style={{ paddingHorizontal: 16, paddingBottom: 8 }}>
         <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: 6 }}>
           <Text style={{ color: colors.muted, fontSize: 12 }}>
@@ -253,88 +284,28 @@ export default function TodayScreen() {
         />
       ) : (
         <ScrollView style={{ flex: 1 }} showsVerticalScrollIndicator={false}>
-          {/* Overdue */}
           {overdueTasks.length > 0 ? (
             <>
               <SectionHeader title="Overdue" icon="warning" count={overdueTasks.length} color={colors.error} />
-              {overdueTasks.map((task: any) => (
-                <SwipeableRow
-                  key={task.id}
-                  leftAction={{
-                    icon: "check-circle",
-                    color: "#fff",
-                    backgroundColor: colors.success,
-                    onPress: () => toggleTask.mutate({ id: task.id, isCompleted: true }),
-                  }}
-                >
-                  <TaskRow
-                    task={task}
-                    onToggle={() => toggleTask.mutate({ id: task.id, isCompleted: true })}
-                    onPress={() => router.push({ pathname: "/(app)/(tabs)/actions", params: { taskId: task.id } } as any)}
-                  />
-                </SwipeableRow>
-              ))}
+              {overdueTasks.map(renderTaskRow)}
             </>
           ) : null}
 
-          {/* Today's Tasks */}
           {todayTasks.length > 0 ? (
             <>
               <SectionHeader title="Today's Tasks" icon="check-circle" count={todayTasks.length} />
-              {todayTasks.map((task: any) => (
-                <SwipeableRow
-                  key={task.id}
-                  leftAction={{
-                    icon: "check-circle",
-                    color: "#fff",
-                    backgroundColor: colors.success,
-                    onPress: () => toggleTask.mutate({ id: task.id, isCompleted: true }),
-                  }}
-                >
-                  <TaskRow
-                    task={task}
-                    onToggle={() => toggleTask.mutate({ id: task.id, isCompleted: true })}
-                    onPress={() => router.push({ pathname: "/(app)/(tabs)/actions", params: { taskId: task.id } } as any)}
-                  />
-                </SwipeableRow>
-              ))}
+              {todayTasks.map(renderTaskRow)}
             </>
           ) : null}
 
-          {/* Habits */}
           {habits.length > 0 ? (
             <>
               <SectionHeader title="Habits" icon="local-fire-department" count={pendingHabits.length} />
-              {pendingHabits.map((habit: any) => (
-                <SwipeableRow
-                  key={habit.id}
-                  leftAction={{
-                    icon: "check-circle",
-                    color: "#fff",
-                    backgroundColor: colors.success,
-                    onPress: () => toggleHabit.mutate({ id: habit.id }),
-                  }}
-                >
-                  <HabitRow habit={habit} onToggle={() => toggleHabit.mutate({ id: habit.id })} />
-                </SwipeableRow>
-              ))}
-              {doneHabits.map((habit: any) => (
-                <SwipeableRow
-                  key={habit.id}
-                  leftAction={{
-                    icon: "undo",
-                    color: "#fff",
-                    backgroundColor: colors.warning,
-                    onPress: () => toggleHabit.mutate({ id: habit.id }),
-                  }}
-                >
-                  <HabitRow habit={habit} onToggle={() => toggleHabit.mutate({ id: habit.id })} />
-                </SwipeableRow>
-              ))}
+              {pendingHabits.map(renderHabitRow)}
+              {doneHabits.map(renderHabitRow)}
             </>
           ) : null}
 
-          {/* Journal prompt */}
           {!hasTodayJournal ? (
             <View style={{ paddingHorizontal: 16, paddingTop: 20, paddingBottom: 16 }}>
               <Pressable

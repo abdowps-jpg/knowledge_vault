@@ -1,9 +1,8 @@
 import React, { useRef } from "react";
-import { Pressable, Text, View } from "react-native";
+import { Pressable } from "react-native";
 import ReanimatedSwipeable from "react-native-gesture-handler/ReanimatedSwipeable";
 import { MaterialIcons } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
-import { useColors } from "@/hooks/use-colors";
 
 interface SwipeAction {
   icon: keyof typeof MaterialIcons.glyphMap;
@@ -39,45 +38,27 @@ function RenderAction({ action, side }: { action: SwipeAction; side: "left" | "r
 }
 
 export function SwipeableRow({ children, leftAction, rightAction }: SwipeableRowProps) {
-  const swipeableRef = useRef<any>(null);
+  const swipeableRef = useRef<React.ComponentRef<typeof ReanimatedSwipeable>>(null);
 
-  const close = () => swipeableRef.current?.close();
-
-  const renderLeftActions = leftAction
-    ? () => (
-        <RenderAction
-          action={{
-            ...leftAction,
-            onPress: () => {
-              close();
-              leftAction.onPress();
-            },
-          }}
-          side="left"
-        />
-      )
-    : undefined;
-
-  const renderRightActions = rightAction
-    ? () => (
-        <RenderAction
-          action={{
-            ...rightAction,
-            onPress: () => {
-              close();
-              rightAction.onPress();
-            },
-          }}
-          side="right"
-        />
-      )
-    : undefined;
+  const renderSide = (action: SwipeAction, side: "left" | "right") => () =>
+    (
+      <RenderAction
+        action={{
+          ...action,
+          onPress: () => {
+            swipeableRef.current?.close();
+            action.onPress();
+          },
+        }}
+        side={side}
+      />
+    );
 
   return (
     <ReanimatedSwipeable
       ref={swipeableRef}
-      renderLeftActions={renderLeftActions}
-      renderRightActions={renderRightActions}
+      renderLeftActions={leftAction ? renderSide(leftAction, "left") : undefined}
+      renderRightActions={rightAction ? renderSide(rightAction, "right") : undefined}
       overshootLeft={false}
       overshootRight={false}
       friction={2}

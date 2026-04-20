@@ -1,6 +1,7 @@
-import React, { useEffect } from "react";
-import { View } from "react-native";
+import React, { createContext, useContext, useEffect } from "react";
+import { DimensionValue, StyleProp, View, ViewStyle } from "react-native";
 import Animated, {
+  SharedValue,
   useAnimatedStyle,
   useSharedValue,
   withRepeat,
@@ -8,21 +9,38 @@ import Animated, {
 } from "react-native-reanimated";
 import { useColors } from "@/hooks/use-colors";
 
-function SkeletonBox({ width, height, borderRadius = 6, style }: { width: number | string; height: number; borderRadius?: number; style?: any }) {
-  const colors = useColors();
-  const opacity = useSharedValue(0.3);
+const SkeletonOpacityContext = createContext<SharedValue<number> | null>(null);
 
+function useSkeletonOpacity(): SharedValue<number> {
+  const shared = useContext(SkeletonOpacityContext);
+  const fallback = useSharedValue(0.3);
   useEffect(() => {
-    opacity.value = withRepeat(withTiming(1, { duration: 800 }), -1, true);
-  }, [opacity]);
+    if (shared) return;
+    fallback.value = withRepeat(withTiming(1, { duration: 800 }), -1, true);
+  }, [shared, fallback]);
+  return shared ?? fallback;
+}
 
+function SkeletonBox({
+  width,
+  height,
+  borderRadius = 6,
+  style,
+}: {
+  width: DimensionValue;
+  height: number;
+  borderRadius?: number;
+  style?: StyleProp<ViewStyle>;
+}) {
+  const colors = useColors();
+  const opacity = useSkeletonOpacity();
   const animatedStyle = useAnimatedStyle(() => ({ opacity: opacity.value }));
 
   return (
     <Animated.View
       style={[
         {
-          width: width as any,
+          width,
           height,
           borderRadius,
           backgroundColor: colors.border,
@@ -128,13 +146,37 @@ export function SkeletonJournalCard() {
   );
 }
 
-export function SkeletonList({ count = 5, variant = "list" }: { count?: number; variant?: "list" | "card" | "task" | "journal" }) {
-  const Component = variant === "card" ? SkeletonCard : variant === "task" ? SkeletonTaskRow : variant === "journal" ? SkeletonJournalCard : SkeletonListItem;
+export function SkeletonList({
+  count = 5,
+  variant = "list",
+}: {
+  count?: number;
+  variant?: "list" | "card" | "task" | "journal";
+}) {
+  const opacity = useSharedValue(0.3);
+  useEffect(() => {
+    opacity.value = withRepeat(withTiming(1, { duration: 800 }), -1, true);
+  }, [opacity]);
+
+  const Component =
+    variant === "card"
+      ? SkeletonCard
+      : variant === "task"
+      ? SkeletonTaskRow
+      : variant === "journal"
+      ? SkeletonJournalCard
+      : SkeletonListItem;
+
+  const wrapperStyle: StyleProp<ViewStyle> =
+    variant === "card" || variant === "journal" ? { padding: 16 } : null;
+
   return (
-    <View style={variant === "card" || variant === "journal" ? { padding: 16 } : undefined}>
-      {Array.from({ length: count }).map((_, i) => (
-        <Component key={i} />
-      ))}
-    </View>
+    <SkeletonOpacityContext.Provider value={opacity}>
+      <View style={wrapperStyle}>
+        {Array.from({ length: count }).map((_, i) => (
+          <Component key={i} />
+        ))}
+      </View>
+    </SkeletonOpacityContext.Provider>
   );
 }
