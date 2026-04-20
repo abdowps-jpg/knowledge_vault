@@ -338,6 +338,143 @@ export const aiRouter = router({
       return { related: out };
     }),
 
+  weeklyReview: protectedProcedure.mutation(async ({ ctx }) => {
+    enforceLlmQuota(ctx.user.id);
+
+    const weekAgo = new Date();
+    weekAgo.setDate(weekAgo.getDate() - 7);
+    weekAgo.setHours(0, 0, 0, 0);
+
+    const [weekItems, weekTasks, weekJournal] = await Promise.all([
+      db
+        .select()
+        .from(items)
+        .where(and(eq(items.userId, ctx.user.id), isNull(items.deletedAt), gte(items.createdAt, weekAgo)))
+        .orderBy(desc(items.createdAt))
+        .limit(100),
+      db
+        .select()
+        .from(tasks)
+        .where(and(eq(tasks.userId, ctx.user.id), isNull(tasks.deletedAt), gte(tasks.createdAt, weekAgo)))
+        .orderBy(desc(tasks.createdAt))
+        .limit(100),
+      db
+        .select()
+        .from(journal)
+        .where(and(eq(journal.userId, ctx.user.id), isNull(journal.deletedAt), gte(journal.createdAt, weekAgo)))
+        .orderBy(desc(journal.createdAt))
+        .limit(30),
+    ]);
+
+    const totalCount = weekItems.length + weekTasks.length + weekJournal.length;
+    if (totalCount === 0) {
+      return {
+        overview: '',
+        themes: [] as string[],
+        progress: [] as string[],
+        focusAreas: [] as string[],
+        counts: { items: 0, tasks: 0, journal: 0, completedTasks: 0 },
+      };
+    }
+
+    const completedTasks = weekTasks.filter((t) => t.isCompleted);
+    const itemLines = weekItems
+      .slice(0, 40)
+      .map((it) => `- [${it.type}] ${it.title}${it.content ? `: ${it.content.slice(0, 100).replace(/\s+/g, ' ')}` : ''}`)
+      .join('\n');
+    const taskLines = weekTasks
+      .slice(0, 40)
+      .map((t) => `- ${t.isCompleted ? '✓' : '○'} ${t.title}${t.priority ? ` [${t.priority}]` : ''}`)
+      .join('\n');
+    const journalLines = weekJournal
+      .slice(0, 10)
+      .map((j) => `- ${j.title ?? '(untitled)'}: ${(j.content ?? '').slice(0, 180).replace(/\s+/g, ' ')}`)
+      .join('\n');
+
+    const result = await invokeLLM({
+      messages: [
+        {
+          role: 'system',
+          content:
+            "You write a concise weekly review for a knowledge worker. Synthesize — don't list. " +
+            'Output: a 3-4 sentence overview, 3-5 dominant themes (noun phrases), ' +
+            '2-4 progress signals (what moved forward), and 2-4 focus areas for next week. ' +
+            'Be specific, grounded in the data, no fluff, no preamble.',
+        },
+        {
+          role: 'user',
+          content:
+            `Items captured this week (${weekItems.length}):\n${itemLines || '(none)'}\n\n` +
+            `Tasks this week (${weekTasks.length}, ${completedTasks.length} completed):\n${taskLines || '(none)'}\n\n` +
+            `Journal entries (${weekJournal.length}):\n${journalLines || '(none)'}`,
+        },
+      ],
+      outputSchema: {
+        name: 'weekly_review',
+        schema: {
+          type: 'object',
+          additionalProperties: false,
+          properties: {
+            overview: { type: 'string', minLength: 1, maxLength: 800 },
+            themes: {
+              type: 'array',
+              maxItems: 5,
+              items: { type: 'string', minLength: 1, maxLength: 80 },
+            },
+            progress: {
+              type: 'array',
+              maxItems: 4,
+              items: { type: 'string', minLength: 1, maxLength: 200 },
+            },
+            focusAreas: {
+              type: 'array',
+              maxItems: 4,
+              items: { type: 'string', minLength: 1, maxLength: 200 },
+            },
+          },
+          required: ['overview', 'themes', 'progress', 'focusAreas'],
+        },
+        strict: true,
+      },
+    });
+
+    const raw = result.choices?.[0]?.message?.content ?? '';
+    const body = typeof raw === 'string' ? raw : raw.map((p) => ('text' in p ? p.text : '')).join('');
+    let parsed: {
+      overview?: unknown;
+      themes?: unknown;
+      progress?: unknown;
+      focusAreas?: unknown;
+    } = {};
+    try {
+      parsed = JSON.parse(body);
+    } catch {
+      parsed = {};
+    }
+
+    const asStringArray = (value: unknown, max: number) =>
+      Array.isArray(value)
+        ? value
+            .filter((v): v is string => typeof v === 'string')
+            .map((v) => v.trim().slice(0, 200))
+            .filter(Boolean)
+            .slice(0, max)
+        : [];
+
+    return {
+      overview: typeof parsed.overview === 'string' ? parsed.overview.trim().slice(0, 800) : '',
+      themes: asStringArray(parsed.themes, 5),
+      progress: asStringArray(parsed.progress, 4),
+      focusAreas: asStringArray(parsed.focusAreas, 4),
+      counts: {
+        items: weekItems.length,
+        tasks: weekTasks.length,
+        journal: weekJournal.length,
+        completedTasks: completedTasks.length,
+      },
+    };
+  }),
+
   dailyDigest: protectedProcedure.mutation(async ({ ctx }) => {
     enforceLlmQuota(ctx.user.id);
 

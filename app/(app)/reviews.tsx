@@ -27,6 +27,24 @@ export default function ReviewsScreen() {
   const [improvements, setImprovements] = React.useState("");
   const [nextFocus, setNextFocus] = React.useState("");
   const [saving, setSaving] = React.useState(false);
+  const weeklyReview = trpc.ai.weeklyReview.useMutation();
+  const [review, setReview] = React.useState<{
+    overview: string;
+    themes: string[];
+    progress: string[];
+    focusAreas: string[];
+    counts: { items: number; tasks: number; journal: number; completedTasks: number };
+  } | null>(null);
+
+  const handleGenerateWeeklyReview = async () => {
+    try {
+      const res = await weeklyReview.mutateAsync();
+      setReview(res);
+    } catch (err: any) {
+      console.error("[Reviews] Weekly review failed:", err);
+      Alert.alert("AI", err?.message ?? "Failed to generate weekly review.");
+    }
+  };
 
   const tasksQuery = trpc.tasks.list.useInfiniteQuery(
     {
@@ -81,6 +99,100 @@ export default function ReviewsScreen() {
       <ScrollView className="flex-1 p-4">
         <Text className="text-2xl font-bold text-foreground mb-2">Daily & Weekly Review</Text>
         <Text className="text-sm text-muted mb-4">Reflect, learn, and plan next actions.</Text>
+
+        <View
+          style={{
+            borderWidth: 1,
+            borderColor: colors.border,
+            borderRadius: 12,
+            padding: 12,
+            backgroundColor: colors.surface,
+            marginBottom: 12,
+          }}
+        >
+          <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}>
+            <Text style={{ color: colors.foreground, fontWeight: "700", fontSize: 14 }}>
+              AI Weekly Review
+            </Text>
+            <Pressable
+              onPress={handleGenerateWeeklyReview}
+              disabled={weeklyReview.isPending}
+              style={{
+                backgroundColor: colors.primary,
+                paddingHorizontal: 10,
+                paddingVertical: 5,
+                borderRadius: 999,
+                opacity: weeklyReview.isPending ? 0.5 : 1,
+              }}
+            >
+              <Text style={{ color: "#fff", fontWeight: "600", fontSize: 11 }}>
+                {weeklyReview.isPending ? "Thinking…" : review ? "Refresh" : "Generate"}
+              </Text>
+            </Pressable>
+          </View>
+          {!review && !weeklyReview.isPending ? (
+            <Text style={{ color: colors.muted, fontSize: 12, marginTop: 6 }}>
+              Synthesize the last 7 days into themes, progress, and focus for next week.
+            </Text>
+          ) : null}
+          {review && review.counts.items + review.counts.tasks + review.counts.journal === 0 ? (
+            <Text style={{ color: colors.muted, fontSize: 12, marginTop: 8 }}>
+              No captures this week yet.
+            </Text>
+          ) : null}
+          {review && review.overview ? (
+            <>
+              <Text style={{ color: colors.foreground, fontSize: 13, lineHeight: 19, marginTop: 10 }}>
+                {review.overview}
+              </Text>
+              <Text style={{ color: colors.muted, fontSize: 11, marginTop: 8 }}>
+                {review.counts.items} items · {review.counts.completedTasks}/{review.counts.tasks} tasks done · {review.counts.journal} journal entries
+              </Text>
+              {review.themes.length > 0 ? (
+                <View style={{ marginTop: 10 }}>
+                  <Text style={{ color: colors.muted, fontSize: 11, marginBottom: 4 }}>Themes</Text>
+                  <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 6 }}>
+                    {review.themes.map((t, i) => (
+                      <View
+                        key={i}
+                        style={{
+                          backgroundColor: colors.background,
+                          borderWidth: 1,
+                          borderColor: colors.border,
+                          paddingHorizontal: 10,
+                          paddingVertical: 4,
+                          borderRadius: 999,
+                        }}
+                      >
+                        <Text style={{ color: colors.foreground, fontSize: 12 }}>{t}</Text>
+                      </View>
+                    ))}
+                  </View>
+                </View>
+              ) : null}
+              {review.progress.length > 0 ? (
+                <View style={{ marginTop: 10 }}>
+                  <Text style={{ color: colors.muted, fontSize: 11, marginBottom: 4 }}>Progress</Text>
+                  {review.progress.map((p, i) => (
+                    <Text key={i} style={{ color: colors.foreground, fontSize: 12, lineHeight: 18 }}>
+                      ✓ {p}
+                    </Text>
+                  ))}
+                </View>
+              ) : null}
+              {review.focusAreas.length > 0 ? (
+                <View style={{ marginTop: 10 }}>
+                  <Text style={{ color: colors.muted, fontSize: 11, marginBottom: 4 }}>Focus next week</Text>
+                  {review.focusAreas.map((f, i) => (
+                    <Text key={i} style={{ color: colors.foreground, fontSize: 12, lineHeight: 18 }}>
+                      → {f}
+                    </Text>
+                  ))}
+                </View>
+              ) : null}
+            </>
+          ) : null}
+        </View>
 
         <View style={{ borderWidth: 1, borderColor: colors.border, borderRadius: 12, padding: 12, backgroundColor: colors.surface, marginBottom: 12 }}>
           <Text style={{ color: colors.foreground, fontWeight: "700", marginBottom: 8 }}>Completed Today ({completedToday.length})</Text>
