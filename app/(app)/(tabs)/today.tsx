@@ -164,6 +164,22 @@ export default function TodayScreen() {
   const toggleHabit = trpc.habits.toggleToday.useMutation({
     onSuccess: () => utils.habits.list.invalidate(),
   });
+  const dailyDigest = trpc.ai.dailyDigest.useMutation();
+  const [digest, setDigest] = React.useState<{
+    digest: string;
+    highlights: string[];
+    suggestions: string[];
+    counts: { items: number; tasks: number; journal: number };
+  } | null>(null);
+
+  const handleGenerateDigest = async () => {
+    try {
+      const res = await dailyDigest.mutateAsync();
+      setDigest(res);
+    } catch (err: any) {
+      console.error("[Today] Daily digest failed:", err);
+    }
+  };
 
   const allTasks = useMemo(
     () => tasksQuery.data?.pages.flatMap((p) => p.items ?? []) ?? [],
@@ -305,6 +321,80 @@ export default function TodayScreen() {
               {doneHabits.map(renderHabitRow)}
             </>
           ) : null}
+
+          <View style={{ paddingHorizontal: 16, paddingTop: 20, paddingBottom: 4 }}>
+            <View
+              style={{
+                borderWidth: 1,
+                borderColor: colors.border,
+                borderRadius: 12,
+                padding: 14,
+                backgroundColor: colors.surface,
+              }}
+            >
+              <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}>
+                <Text style={{ color: colors.foreground, fontWeight: "700", fontSize: 14 }}>
+                  AI Daily Digest
+                </Text>
+                <Pressable
+                  onPress={handleGenerateDigest}
+                  disabled={dailyDigest.isPending}
+                  style={{
+                    backgroundColor: colors.primary,
+                    paddingHorizontal: 10,
+                    paddingVertical: 5,
+                    borderRadius: 999,
+                    opacity: dailyDigest.isPending ? 0.5 : 1,
+                  }}
+                >
+                  <Text style={{ color: "#fff", fontWeight: "600", fontSize: 11 }}>
+                    {dailyDigest.isPending ? "Thinking…" : digest ? "Refresh" : "Generate"}
+                  </Text>
+                </Pressable>
+              </View>
+              {!digest && !dailyDigest.isPending ? (
+                <Text style={{ color: colors.muted, fontSize: 12, marginTop: 6 }}>
+                  Get a summary of what you captured today and a few ideas for tomorrow.
+                </Text>
+              ) : null}
+              {digest && digest.counts.items + digest.counts.tasks + digest.counts.journal === 0 ? (
+                <Text style={{ color: colors.muted, fontSize: 12, marginTop: 8 }}>
+                  No captures today yet. Add an item, task, or journal entry.
+                </Text>
+              ) : null}
+              {digest && digest.digest ? (
+                <>
+                  <Text style={{ color: colors.foreground, fontSize: 13, lineHeight: 19, marginTop: 10 }}>
+                    {digest.digest}
+                  </Text>
+                  {digest.highlights.length > 0 ? (
+                    <View style={{ marginTop: 10 }}>
+                      <Text style={{ color: colors.muted, fontSize: 11, marginBottom: 4 }}>
+                        Highlights
+                      </Text>
+                      {digest.highlights.map((h, idx) => (
+                        <Text key={idx} style={{ color: colors.foreground, fontSize: 12, lineHeight: 18 }}>
+                          • {h}
+                        </Text>
+                      ))}
+                    </View>
+                  ) : null}
+                  {digest.suggestions.length > 0 ? (
+                    <View style={{ marginTop: 10 }}>
+                      <Text style={{ color: colors.muted, fontSize: 11, marginBottom: 4 }}>
+                        For tomorrow
+                      </Text>
+                      {digest.suggestions.map((s, idx) => (
+                        <Text key={idx} style={{ color: colors.foreground, fontSize: 12, lineHeight: 18 }}>
+                          → {s}
+                        </Text>
+                      ))}
+                    </View>
+                  ) : null}
+                </>
+              ) : null}
+            </View>
+          </View>
 
           {!hasTodayJournal ? (
             <View style={{ paddingHorizontal: 16, paddingTop: 20, paddingBottom: 16 }}>

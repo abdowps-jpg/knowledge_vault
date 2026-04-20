@@ -1,10 +1,12 @@
 import { TRPCError } from '@trpc/server';
-import { and, desc, eq, isNull } from 'drizzle-orm';
+import { and, desc, eq, gte, isNull } from 'drizzle-orm';
 import { z } from 'zod';
 import { db } from '../db';
 import { invokeLLM } from '../_core/llm';
 import { items } from '../schema/items';
+import { journal } from '../schema/journal';
 import { tags } from '../schema/tags';
+import { tasks } from '../schema/tasks';
 import { protectedProcedure, router } from '../trpc';
 
 const LLM_WINDOW_MS = 60 * 60_000;
@@ -245,4 +247,135 @@ export const aiRouter = router({
       const summary = typeof parsed.summary === 'string' ? parsed.summary.trim().slice(0, 600) : '';
       return { summary };
     }),
+
+  dailyDigest: protectedProcedure.mutation(async ({ ctx }) => {
+    enforceLlmQuota(ctx.user.id);
+
+    const startOfDay = new Date();
+    startOfDay.setHours(0, 0, 0, 0);
+
+    const [todayItems, todayTasks, todayJournal] = await Promise.all([
+      db
+        .select()
+        .from(items)
+        .where(and(eq(items.userId, ctx.user.id), isNull(items.deletedAt), gte(items.createdAt, startOfDay)))
+        .orderBy(desc(items.createdAt))
+        .limit(50),
+      db
+        .select()
+        .from(tasks)
+        .where(and(eq(tasks.userId, ctx.user.id), isNull(tasks.deletedAt), gte(tasks.createdAt, startOfDay)))
+        .orderBy(desc(tasks.createdAt))
+        .limit(50),
+      db
+        .select()
+        .from(journal)
+        .where(and(eq(journal.userId, ctx.user.id), isNull(journal.deletedAt), gte(journal.createdAt, startOfDay)))
+        .orderBy(desc(journal.createdAt))
+        .limit(10),
+    ]);
+
+    const totalCount = todayItems.length + todayTasks.length + todayJournal.length;
+    if (totalCount === 0) {
+      return {
+        digest: '',
+        highlights: [] as string[],
+        suggestions: [] as string[],
+        counts: { items: 0, tasks: 0, journal: 0 },
+      };
+    }
+
+    const itemLines = todayItems
+      .slice(0, 30)
+      .map((it) => `- [${it.type}] ${it.title}${it.content ? `: ${it.content.slice(0, 120).replace(/\s+/g, ' ')}` : ''}`)
+      .join('\n');
+    const taskLines = todayTasks
+      .slice(0, 30)
+      .map((t) => `- ${t.isCompleted ? '✓' : '○'} ${t.title}`)
+      .join('\n');
+    const journalLines = todayJournal
+      .slice(0, 5)
+      .map((j) => `- ${j.title ?? '(untitled)'}: ${(j.content ?? '').slice(0, 200).replace(/\s+/g, ' ')}`)
+      .join('\n');
+
+    const result = await invokeLLM({
+      messages: [
+        {
+          role: 'system',
+          content:
+            "You write a tight daily digest for a knowledge-worker's personal vault. " +
+            'Output: a 2-3 sentence overview of the day, 3-5 short highlight bullets, ' +
+            'and 2-4 concrete suggestions for tomorrow (follow-up tasks, gaps to fill, ' +
+            'connections to make). No preamble, no meta commentary. Direct, useful prose.',
+        },
+        {
+          role: 'user',
+          content:
+            `Items captured today (${todayItems.length}):\n${itemLines || '(none)'}\n\n` +
+            `Tasks today (${todayTasks.length}):\n${taskLines || '(none)'}\n\n` +
+            `Journal entries today (${todayJournal.length}):\n${journalLines || '(none)'}`,
+        },
+      ],
+      outputSchema: {
+        name: 'daily_digest',
+        schema: {
+          type: 'object',
+          additionalProperties: false,
+          properties: {
+            digest: { type: 'string', minLength: 1, maxLength: 600 },
+            highlights: {
+              type: 'array',
+              minItems: 0,
+              maxItems: 5,
+              items: { type: 'string', minLength: 1, maxLength: 200 },
+            },
+            suggestions: {
+              type: 'array',
+              minItems: 0,
+              maxItems: 4,
+              items: { type: 'string', minLength: 1, maxLength: 200 },
+            },
+          },
+          required: ['digest', 'highlights', 'suggestions'],
+        },
+        strict: true,
+      },
+    });
+
+    const raw = result.choices?.[0]?.message?.content ?? '';
+    const body = typeof raw === 'string' ? raw : raw.map((p) => ('text' in p ? p.text : '')).join('');
+    let parsed: { digest?: unknown; highlights?: unknown; suggestions?: unknown } = {};
+    try {
+      parsed = JSON.parse(body);
+    } catch {
+      parsed = {};
+    }
+
+    const digest = typeof parsed.digest === 'string' ? parsed.digest.trim().slice(0, 600) : '';
+    const highlights = Array.isArray(parsed.highlights)
+      ? parsed.highlights
+          .filter((h): h is string => typeof h === 'string')
+          .map((h) => h.trim().slice(0, 200))
+          .filter(Boolean)
+          .slice(0, 5)
+      : [];
+    const suggestions = Array.isArray(parsed.suggestions)
+      ? parsed.suggestions
+          .filter((s): s is string => typeof s === 'string')
+          .map((s) => s.trim().slice(0, 200))
+          .filter(Boolean)
+          .slice(0, 4)
+      : [];
+
+    return {
+      digest,
+      highlights,
+      suggestions,
+      counts: {
+        items: todayItems.length,
+        tasks: todayTasks.length,
+        journal: todayJournal.length,
+      },
+    };
+  }),
 });
