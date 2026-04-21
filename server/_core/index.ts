@@ -755,6 +755,86 @@ app.get('/healthz', (_req, res) => {
   res.json({ status: 'ok', uptime: process.uptime() });
 });
 
+function escapeHtml(value: string): string {
+  return value
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
+app.get('/p/:token', async (req: Request, res: Response) => {
+  try {
+    const { publicLinks } = await import('../schema/public_links');
+    const tokenRaw = String(req.params.token ?? '').trim();
+    if (!tokenRaw || tokenRaw.length < 8) {
+      return res.status(400).type('html').send('<h1>Invalid link</h1>');
+    }
+    const linkRows = await db.select().from(publicLinks).where(eq(publicLinks.token, tokenRaw)).limit(1);
+    const link = linkRows[0];
+    if (!link || link.isRevoked) {
+      return res.status(404).type('html').send('<h1>Link not found</h1>');
+    }
+    if (link.expiresAt && link.expiresAt.getTime() < Date.now()) {
+      return res.status(410).type('html').send('<h1>Link expired</h1>');
+    }
+    if (link.passwordHash) {
+      // Password-protected links still require the app UI; don't expose content here
+      return res
+        .status(401)
+        .type('html')
+        .send(
+          `<!doctype html><html><head><meta charset="utf-8"><title>Password required</title></head><body style="font-family:system-ui;padding:32px;max-width:480px;margin:auto;"><h1>Password required</h1><p>Open this link in the Knowledge Vault app to enter the password.</p></body></html>`
+        );
+    }
+
+    const itemRows = await db
+      .select()
+      .from(items)
+      .where(and(eq(items.id, link.itemId), isNull(items.deletedAt)))
+      .limit(1);
+    const item = itemRows[0];
+    if (!item) {
+      return res.status(404).type('html').send('<h1>Item not found</h1>');
+    }
+
+    const title = escapeHtml(item.title || 'Untitled');
+    const contentHtml = escapeHtml(item.content ?? '').replace(/\n/g, '<br>');
+    const urlLink = item.url
+      ? `<p><a href="${escapeHtml(item.url)}" rel="nofollow noreferrer">${escapeHtml(item.url)}</a></p>`
+      : '';
+    const created = item.createdAt ? new Date(item.createdAt).toISOString().slice(0, 10) : '';
+
+    res.type('html').send(
+      `<!doctype html><html lang="en"><head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="robots" content="noindex,nofollow">
+<title>${title} — Knowledge Vault</title>
+<style>
+  :root{color-scheme:light dark}
+  body{font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;max-width:720px;margin:0 auto;padding:32px 20px;line-height:1.6;color:#111}
+  @media (prefers-color-scheme:dark){body{background:#0b0b10;color:#eaeaea}a{color:#8ab4ff}}
+  h1{font-size:1.8rem;margin:0 0 .5rem}
+  .meta{color:#888;font-size:.85rem;margin-bottom:1.5rem}
+  .content{white-space:pre-wrap;word-wrap:break-word}
+  footer{margin-top:3rem;padding-top:1rem;border-top:1px solid #ccc3;color:#888;font-size:.8rem}
+</style>
+</head><body>
+<h1>${title}</h1>
+<div class="meta">Shared via Knowledge Vault${created ? ` · ${created}` : ''}</div>
+${urlLink}
+<div class="content">${contentHtml}</div>
+<footer>Served by Knowledge Vault. This page is not indexed.</footer>
+</body></html>`
+    );
+  } catch (err) {
+    reportError(err instanceof Error ? err : new Error(String(err)), { source: 'public-link-html' });
+    res.status(500).type('html').send('<h1>Server error</h1>');
+  }
+});
+
 // Global error handler — catches uncaught errors from REST routes
 app.use((err: Error, req: Request, res: Response, _next: NextFunction) => {
   reportError(err, { source: 'express', path: req.path, method: req.method });
