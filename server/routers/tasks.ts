@@ -1,5 +1,5 @@
 import { randomUUID } from 'crypto';
-import { and, asc, desc, eq, gte, isNull } from 'drizzle-orm';
+import { and, asc, desc, eq, gte, inArray, isNull } from 'drizzle-orm';
 import { TRPCError } from '@trpc/server';
 import { z } from 'zod';
 import { db } from '../db';
@@ -339,5 +339,31 @@ export const tasksRouter = router({
         .where(and(eq(tasks.userId, ctx.user.id), gte(tasks.updatedAt, sinceDate)))
         .orderBy(desc(tasks.updatedAt));
       return result ?? [];
+    }),
+
+  bulkComplete: protectedProcedure
+    .input(
+      z.object({
+        ids: z.array(z.string()).min(1).max(100),
+        isCompleted: z.boolean().default(true),
+      })
+    )
+    .mutation(async ({ input, ctx }) => {
+      const now = new Date();
+      const result = await db
+        .update(tasks)
+        .set({
+          isCompleted: input.isCompleted,
+          completedAt: input.isCompleted ? now : null,
+          updatedAt: now,
+        })
+        .where(
+          and(
+            inArray(tasks.id, input.ids),
+            eq(tasks.userId, ctx.user.id),
+            isNull(tasks.deletedAt)
+          )
+        );
+      return { success: true as const, updated: input.ids.length, result: Array.isArray(result) ? result.length : undefined };
     }),
 });

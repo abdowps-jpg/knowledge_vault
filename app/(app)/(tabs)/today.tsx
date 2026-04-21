@@ -8,6 +8,7 @@ import { ScreenContainer } from "@/components/screen-container";
 import { EmptyState } from "@/components/empty-state";
 import { SkeletonList } from "@/components/skeleton-loader";
 import { SwipeableRow } from "@/components/swipeable-row";
+import { useAiEnabled } from "@/hooks/use-ai-enabled";
 import { useColors } from "@/hooks/use-colors";
 import { trpc } from "@/lib/trpc";
 
@@ -164,6 +165,7 @@ export default function TodayScreen() {
   const toggleHabit = trpc.habits.toggleToday.useMutation({
     onSuccess: () => utils.habits.list.invalidate(),
   });
+  const aiEnabled = useAiEnabled();
   const dailyDigest = trpc.ai.dailyDigest.useMutation();
   const [digest, setDigest] = React.useState<{
     digest: string;
@@ -322,6 +324,7 @@ export default function TodayScreen() {
             </>
           ) : null}
 
+          {aiEnabled ? (
           <View style={{ paddingHorizontal: 16, paddingTop: 20, paddingBottom: 4 }}>
             <View
               style={{
@@ -395,6 +398,7 @@ export default function TodayScreen() {
               ) : null}
             </View>
           </View>
+          ) : null}
 
           {!hasTodayJournal ? (
             <View style={{ paddingHorizontal: 16, paddingTop: 20, paddingBottom: 16 }}>

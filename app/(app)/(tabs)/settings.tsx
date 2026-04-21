@@ -1420,6 +1420,18 @@ const [showApiModal, setShowApiModal] = useState(false);
               />
             }
           />
+          <Row
+            icon="auto-awesome"
+            label="AI Features"
+            description="Suggest tags, summarize, search, related items, digests"
+            right={
+              <Switch
+                value={settings.aiFeaturesEnabled}
+                onValueChange={(value) => persist({ aiFeaturesEnabled: value })}
+                trackColor={{ false: colors.border, true: colors.primary }}
+              />
+            }
+          />
           <Row icon="language" label="Transcription Language" value={settings.transcribeLanguage === "ar" ? "Arabic" : "English"} />
           <View className="px-4 pb-3 pt-1 flex-row gap-2">
             {(["en", "ar"] as const).map((lang) => (

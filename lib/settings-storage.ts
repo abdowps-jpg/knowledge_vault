@@ -17,6 +17,7 @@ export interface AppSettings {
   autoSyncEnabled: boolean;
   autoTranscribe: boolean;
   transcribeLanguage: "ar" | "en";
+  aiFeaturesEnabled: boolean;
 }
 
 const SETTINGS_KEY = "app_settings_v1";
@@ -35,6 +36,7 @@ export const DEFAULT_APP_SETTINGS: AppSettings = {
   autoSyncEnabled: true,
   autoTranscribe: false,
   transcribeLanguage: "en",
+  aiFeaturesEnabled: true,
 };
 
 export async function loadAppSettings(): Promise<AppSettings> {

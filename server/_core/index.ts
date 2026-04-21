@@ -160,6 +160,25 @@ if (typeof rateLimitCleanupTimer === 'object' && rateLimitCleanupTimer && 'unref
   (rateLimitCleanupTimer as { unref: () => void }).unref();
 }
 
+// Daily audit-log retention: keep the last 90 days per user
+const auditRetentionTimer = setInterval(
+  () => {
+    void (async () => {
+      try {
+        const { pruneAudit } = await import('../lib/audit');
+        const cutoff = new Date(Date.now() - 90 * 24 * 60 * 60 * 1000);
+        await pruneAudit(cutoff);
+      } catch (err) {
+        console.error('[AuditRetention] prune failed:', err);
+      }
+    })();
+  },
+  24 * 60 * 60 * 1000
+);
+if (typeof auditRetentionTimer === 'object' && auditRetentionTimer && 'unref' in auditRetentionTimer) {
+  (auditRetentionTimer as { unref: () => void }).unref();
+}
+
 const app = express();
 const port = process.env.PORT || 3000;
 const host = process.env.HOST || '0.0.0.0';

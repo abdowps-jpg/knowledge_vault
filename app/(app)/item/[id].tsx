@@ -7,6 +7,7 @@ import Markdown from "react-native-markdown-display";
 
 import { ScreenContainer } from "@/components/screen-container";
 import { RichTextEditor } from "@/components/rich-text-editor";
+import { useAiEnabled } from "@/hooks/use-ai-enabled";
 import { useColors } from "@/hooks/use-colors";
 import { trpc } from "@/lib/trpc";
 import * as localStorage from "@/lib/db/storage";
@@ -119,6 +120,7 @@ export default function ItemDetailScreen() {
     { kind: "task" | "followup" | "question" | "note"; label: string; detail?: string }[]
   >([]);
   const [previewMarkdown, setPreviewMarkdown] = React.useState(false);
+  const aiEnabled = useAiEnabled();
   const isServerBackedItem = Boolean(itemQuery.data);
   const effectiveItem = React.useMemo(() => {
     if (itemQuery.data) return itemQuery.data;
@@ -671,7 +673,7 @@ export default function ItemDetailScreen() {
           </>
         ) : null}
 
-        {isServerBackedItem && effectiveItem?.accessRole === "owner" && id ? (
+        {isServerBackedItem && effectiveItem?.accessRole === "owner" && id && aiEnabled ? (
           <View
             style={{
               borderWidth: 1,

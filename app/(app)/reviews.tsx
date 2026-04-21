@@ -3,6 +3,7 @@ import React from "react";
 import { ActivityIndicator, Alert, Pressable, ScrollView, Text, TextInput, View } from "react-native";
 
 import { ScreenContainer } from "@/components/screen-container";
+import { useAiEnabled } from "@/hooks/use-ai-enabled";
 import { useColors } from "@/hooks/use-colors";
 import { trpc } from "@/lib/trpc";
 
@@ -27,6 +28,7 @@ export default function ReviewsScreen() {
   const [improvements, setImprovements] = React.useState("");
   const [nextFocus, setNextFocus] = React.useState("");
   const [saving, setSaving] = React.useState(false);
+  const aiEnabled = useAiEnabled();
   const weeklyReview = trpc.ai.weeklyReview.useMutation();
   const [review, setReview] = React.useState<{
     overview: string;
@@ -100,6 +102,7 @@ export default function ReviewsScreen() {
         <Text className="text-2xl font-bold text-foreground mb-2">Daily & Weekly Review</Text>
         <Text className="text-sm text-muted mb-4">Reflect, learn, and plan next actions.</Text>
 
+        {aiEnabled ? (
         <View
           style={{
             borderWidth: 1,
@@ -193,6 +196,7 @@ export default function ReviewsScreen() {
             </>
           ) : null}
         </View>
+        ) : null}
 
         <View style={{ borderWidth: 1, borderColor: colors.border, borderRadius: 12, padding: 12, backgroundColor: colors.surface, marginBottom: 12 }}>
           <Text style={{ color: colors.foreground, fontWeight: "700", marginBottom: 8 }}>Completed Today ({completedToday.length})</Text>

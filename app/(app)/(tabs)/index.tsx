@@ -5,6 +5,7 @@ import { ScreenContainer } from "@/components/screen-container";
 import { SkeletonList } from "@/components/skeleton-loader";
 import { EmptyState } from "@/components/empty-state";
 import { useColors } from "@/hooks/use-colors";
+import { useAiEnabled } from "@/hooks/use-ai-enabled";
 import { MaterialIcons } from "@expo/vector-icons";
 import { useInbox } from "@/lib/context/inbox-context";
 import { Item, ItemType } from "@/lib/db/schema";
@@ -299,6 +300,7 @@ export default function InboxScreen() {
   const updateItemMutation = trpc.items.update.useMutation();
   const createTaskMutation = trpc.tasks.create.useMutation();
   const createJournalMutation = trpc.journal.create.useMutation();
+  const aiEnabled = useAiEnabled();
   const aiSearch = trpc.ai.search.useMutation();
   const [aiSearchResults, setAiSearchResults] = useState<{ id: string; title: string; reason: string }[]>([]);
   const [aiSearchQuery, setAiSearchQuery] = useState("");
@@ -554,21 +556,23 @@ export default function InboxScreen() {
               }}
             />
             <View style={{ flexDirection: "row", gap: 8, marginTop: 8, alignItems: "center" }}>
-              <Pressable
-                onPress={handleAiSearch}
-                disabled={aiSearch.isPending || searchQuery.trim().length < 2}
-                style={{
-                  backgroundColor: colors.primary,
-                  paddingHorizontal: 12,
-                  paddingVertical: 6,
-                  borderRadius: 999,
-                  opacity: aiSearch.isPending || searchQuery.trim().length < 2 ? 0.5 : 1,
-                }}
-              >
-                <Text style={{ color: "#fff", fontWeight: "600", fontSize: 12 }}>
-                  {aiSearch.isPending ? "Thinking…" : "Ask AI"}
-                </Text>
-              </Pressable>
+              {aiEnabled ? (
+                <Pressable
+                  onPress={handleAiSearch}
+                  disabled={aiSearch.isPending || searchQuery.trim().length < 2}
+                  style={{
+                    backgroundColor: colors.primary,
+                    paddingHorizontal: 12,
+                    paddingVertical: 6,
+                    borderRadius: 999,
+                    opacity: aiSearch.isPending || searchQuery.trim().length < 2 ? 0.5 : 1,
+                  }}
+                >
+                  <Text style={{ color: "#fff", fontWeight: "600", fontSize: 12 }}>
+                    {aiSearch.isPending ? "Thinking…" : "Ask AI"}
+                  </Text>
+                </Pressable>
+              ) : null}
               {aiSearchResults.length > 0 || aiSearchQuery ? (
                 <Pressable
                   onPress={() => {

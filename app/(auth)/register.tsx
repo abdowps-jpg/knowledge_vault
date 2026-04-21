@@ -130,9 +130,34 @@ export default function RegisterScreen() {
         onChangeText={setPassword}
         secureTextEntry
         placeholder="Password (8+ chars)"
-        className="bg-surface border border-border rounded-xl px-4 py-3 text-foreground mb-3"
+        className="bg-surface border border-border rounded-xl px-4 py-3 text-foreground mb-2"
         placeholderTextColor={colors.muted}
       />
+      {password.length > 0 ? (
+        (() => {
+          const hasLower = /[a-z]/.test(password);
+          const hasUpper = /[A-Z]/.test(password);
+          const hasDigit = /\d/.test(password);
+          const hasSymbol = /[^A-Za-z0-9]/.test(password);
+          const lengthScore = password.length >= 12 ? 2 : password.length >= 8 ? 1 : 0;
+          const score = lengthScore + (hasLower ? 1 : 0) + (hasUpper ? 1 : 0) + (hasDigit ? 1 : 0) + (hasSymbol ? 1 : 0);
+          const label = score < 3 ? "Weak" : score < 5 ? "OK" : "Strong";
+          const color = score < 3 ? colors.error : score < 5 ? colors.warning : colors.success;
+          const pct = Math.min(100, Math.round((score / 6) * 100));
+          return (
+            <View style={{ marginBottom: 12 }}>
+              <View style={{ height: 4, backgroundColor: colors.border, borderRadius: 2, overflow: "hidden" }}>
+                <View style={{ height: 4, width: `${pct}%`, backgroundColor: color }} />
+              </View>
+              <Text style={{ color, fontSize: 11, marginTop: 4, fontWeight: "600" }}>
+                {label} · need 8+ chars, mix of upper/lower/digits/symbols
+              </Text>
+            </View>
+          );
+        })()
+      ) : (
+        <View style={{ marginBottom: 12 }} />
+      )}
       <TextInput
         value={confirmPassword}
         onChangeText={setConfirmPassword}
