@@ -4,6 +4,7 @@ import { TRPCError } from '@trpc/server';
 import { z } from 'zod';
 import { db } from '../db';
 import { ensureItemAccess, getItemAccessById } from '../lib/item-access';
+import { sendPushToUser } from '../lib/push-sender';
 import { itemComments } from '../schema/item_comments';
 import { itemShares } from '../schema/item_shares';
 import { items } from '../schema/items';
@@ -133,30 +134,44 @@ export const itemCommentsRouter = router({
           if (mentionedTargetIds.has(target.id)) continue;
           mentionedTargetIds.add(target.id);
           mentionedEchoes.push({ id: target.id, email: target.email, username: target.username ?? null });
+          const title = 'You were mentioned in a comment';
+          const body = `${ctx.user.username ?? ctx.user.email} mentioned you`;
           await db.insert(userNotifications).values({
             id: randomUUID(),
             userId: target.id,
             type: 'mention',
-            title: 'You were mentioned in a comment',
-            body: `${ctx.user.username ?? ctx.user.email} mentioned you`,
+            title,
+            body,
             meta: JSON.stringify({ itemId: input.itemId, commentId }),
             isRead: false,
             createdAt: new Date(),
           });
+          sendPushToUser(target.id, {
+            title,
+            body,
+            data: { type: 'mention', itemId: input.itemId, commentId },
+          }).catch(() => {});
         }
       }
 
-      if (ensuredAccess.item.userId !== ctx.user.id) {
+      if (ensuredAccess.item.userId !== ctx.user.id && !mentionedTargetIds.has(ensuredAccess.item.userId)) {
+        const title = 'New comment on your item';
+        const body = `${ctx.user.username ?? ctx.user.email} commented on your item`;
         await db.insert(userNotifications).values({
           id: randomUUID(),
           userId: ensuredAccess.item.userId,
           type: 'item_comment',
-          title: 'New comment on your item',
-          body: `${ctx.user.email} commented on your item`,
+          title,
+          body,
           meta: JSON.stringify({ itemId: input.itemId, commentId }),
           isRead: false,
           createdAt: new Date(),
         });
+        sendPushToUser(ensuredAccess.item.userId, {
+          title,
+          body,
+          data: { type: 'item_comment', itemId: input.itemId, commentId },
+        }).catch(() => {});
       }
 
       return { success: true as const, id: commentId, mentioned: mentionedEchoes };

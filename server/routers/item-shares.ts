@@ -3,8 +3,11 @@ import { and, count, eq, inArray, isNull } from 'drizzle-orm';
 import { TRPCError } from '@trpc/server';
 import { z } from 'zod';
 import { db } from '../db';
+import { sendPushToUser } from '../lib/push-sender';
 import { itemShares } from '../schema/item_shares';
 import { items } from '../schema/items';
+import { userNotifications } from '../schema/user_notifications';
+import { users } from '../schema/users';
 import { protectedProcedure, router } from '../trpc';
 
 export const itemSharesRouter = router({
@@ -86,6 +89,39 @@ export const itemSharesRouter = router({
         updatedAt: new Date(),
       };
       await db.insert(itemShares).values(newShare);
+
+      // Notify the recipient if they already have an account.
+      try {
+        const recipient = await db
+          .select()
+          .from(users)
+          .where(and(eq(users.email, normalizedEmail), eq(users.isActive, true)))
+          .limit(1);
+        const target = recipient[0];
+        if (target && target.id !== ctx.user.id) {
+          const itemTitle = ownerRows[0]?.title ?? 'an item';
+          const title = 'Someone shared an item with you';
+          const body = `${ctx.user.email} shared "${String(itemTitle).slice(0, 80)}"`;
+          await db.insert(userNotifications).values({
+            id: randomUUID(),
+            userId: target.id,
+            type: 'item_shared',
+            title,
+            body,
+            meta: JSON.stringify({ itemId: input.itemId, shareId: newShare.id }),
+            isRead: false,
+            createdAt: new Date(),
+          });
+          sendPushToUser(target.id, {
+            title,
+            body,
+            data: { type: 'item_shared', itemId: input.itemId, shareId: newShare.id },
+          }).catch(() => {});
+        }
+      } catch (err) {
+        console.error('[itemShares.create] recipient notification failed:', err);
+      }
+
       return { success: true as const, id: newShare.id };
     }),
 
