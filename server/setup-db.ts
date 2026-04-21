@@ -483,5 +483,21 @@ db.exec(`
   CREATE INDEX IF NOT EXISTS idx_audit_created_at ON audit_log(created_at);
 `);
 
+db.exec(`
+  CREATE TABLE IF NOT EXISTS push_tokens (
+    id TEXT PRIMARY KEY,
+    user_id TEXT NOT NULL,
+    token TEXT NOT NULL,
+    platform TEXT NOT NULL CHECK(platform IN ('ios', 'android', 'web')),
+    device_name TEXT,
+    is_active INTEGER NOT NULL DEFAULT 1,
+    created_at INTEGER DEFAULT (strftime('%s', 'now')),
+    last_seen_at INTEGER DEFAULT (strftime('%s', 'now'))
+  );
+
+  CREATE INDEX IF NOT EXISTS idx_push_tokens_user_id ON push_tokens(user_id);
+  CREATE UNIQUE INDEX IF NOT EXISTS idx_push_tokens_token_unique ON push_tokens(token);
+`);
+
 console.log('✅ Database tables created successfully!');
 db.close();

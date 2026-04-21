@@ -29,6 +29,7 @@ import { JournalProvider } from "@/lib/context/journal-context";
 import { SearchProvider } from "@/lib/context/search-context";
 import { requestTaskNotificationPermissions } from "@/lib/notifications/task-notifications";
 import { scheduleReviewPrompts } from "@/lib/notifications/review-notifications";
+import { registerPushTokenOnce } from "@/lib/notifications/push-token";
 import { OfflineSnapshot, offlineManager } from "@/lib/offline-manager";
 
 const DEFAULT_WEB_INSETS: EdgeInsets = { top: 0, right: 0, bottom: 0, left: 0 };
@@ -303,12 +304,23 @@ export default function RootLayout() {
       if (state.isConnected) runSync();
     });
 
+    // Register push token once per authenticated session (no-op on web)
+    registerPushTokenOnce({
+      isLoggedIn: true,
+      register: async (input) => {
+        await trpcClient.pushTokens.register.mutate(input);
+      },
+      deviceName: Platform.OS,
+    }).catch((err) => {
+      console.warn("Push token registration failed:", err);
+    });
+
     return () => {
       clearInterval(interval);
       appStateSub.remove();
       netUnsub();
     };
-  }, [isAuthenticated]);
+  }, [isAuthenticated, trpcClient]);
 
   // Ensure minimum 8px padding for top and bottom on mobile
   const providerInitialMetrics = useMemo(() => {
