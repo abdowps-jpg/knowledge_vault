@@ -599,6 +599,67 @@ export const itemsRouter = router({
       return result ?? [];
     }),
 
+  searchFast: protectedProcedure
+    .input(
+      z.object({
+        q: z.string().min(1).max(120),
+        limit: z.number().int().min(1).max(50).default(20),
+      })
+    )
+    .query(async ({ input, ctx }) => {
+      const needle = `%${input.q.trim().replace(/[%_\\]/g, (m) => `\\${m}`)}%`;
+      const rows = await db
+        .select()
+        .from(items)
+        .where(
+          and(
+            eq(items.userId, ctx.user.id),
+            isNull(items.deletedAt),
+            sql`(lower(${items.title}) LIKE lower(${needle}) OR lower(coalesce(${items.content}, '')) LIKE lower(${needle}))`
+          )
+        )
+        .orderBy(desc(items.updatedAt))
+        .limit(input.limit);
+      return rows;
+    }),
+
+  listByTag: protectedProcedure
+    .input(
+      z.object({
+        tagId: z.string(),
+        limit: z.number().int().min(1).max(100).default(50),
+      })
+    )
+    .query(async ({ input, ctx }) => {
+      // Verify the tag belongs to the user
+      const tagRow = await db
+        .select()
+        .from(tags)
+        .where(and(eq(tags.id, input.tagId), eq(tags.userId, ctx.user.id)))
+        .limit(1);
+      if (tagRow.length === 0) return [];
+
+      const links = await db
+        .select()
+        .from(itemTags)
+        .where(eq(itemTags.tagId, input.tagId));
+      const itemIds = links.map((l) => l.itemId);
+      if (itemIds.length === 0) return [];
+
+      return db
+        .select()
+        .from(items)
+        .where(
+          and(
+            eq(items.userId, ctx.user.id),
+            isNull(items.deletedAt),
+            inArray(items.id, itemIds)
+          )
+        )
+        .orderBy(desc(items.updatedAt))
+        .limit(input.limit);
+    }),
+
   recentlyEdited: protectedProcedure
     .input(z.object({ limit: z.number().int().min(1).max(20).default(8) }).optional())
     .query(async ({ input, ctx }) => {

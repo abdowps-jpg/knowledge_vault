@@ -1,5 +1,5 @@
 import { randomUUID } from 'crypto';
-import { and, desc, eq, gte, isNull, lte } from 'drizzle-orm';
+import { and, desc, eq, gte, isNull, lte, sql } from 'drizzle-orm';
 import { TRPCError } from '@trpc/server';
 import { z } from 'zod';
 import { db } from '../db';
@@ -164,6 +164,30 @@ export const journalRouter = router({
         console.error('Error fetching journal entries by date:', error);
         return [];
       }
+    }),
+
+  searchFast: protectedProcedure
+    .input(
+      z.object({
+        q: z.string().min(1).max(120),
+        limit: z.number().int().min(1).max(50).default(20),
+      })
+    )
+    .query(async ({ input, ctx }) => {
+      const needle = `%${input.q.trim().replace(/[%_\\]/g, (m) => `\\${m}`)}%`;
+      const rows = await db
+        .select()
+        .from(journal)
+        .where(
+          and(
+            eq(journal.userId, ctx.user.id),
+            isNull(journal.deletedAt),
+            sql`(lower(coalesce(${journal.title}, '')) LIKE lower(${needle}) OR lower(coalesce(${journal.content}, '')) LIKE lower(${needle}))`
+          )
+        )
+        .orderBy(desc(journal.entryDate))
+        .limit(input.limit);
+      return rows;
     }),
 
   syncJournal: protectedProcedure

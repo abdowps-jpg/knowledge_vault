@@ -1,5 +1,5 @@
 import { randomUUID } from 'crypto';
-import { and, asc, desc, eq, gte, inArray, isNull } from 'drizzle-orm';
+import { and, asc, desc, eq, gte, inArray, isNull, sql } from 'drizzle-orm';
 import { TRPCError } from '@trpc/server';
 import { z } from 'zod';
 import { db } from '../db';
@@ -339,6 +339,31 @@ export const tasksRouter = router({
         .where(and(eq(tasks.userId, ctx.user.id), gte(tasks.updatedAt, sinceDate)))
         .orderBy(desc(tasks.updatedAt));
       return result ?? [];
+    }),
+
+  searchFast: protectedProcedure
+    .input(
+      z.object({
+        q: z.string().min(1).max(120),
+        limit: z.number().int().min(1).max(50).default(20),
+        includeCompleted: z.boolean().default(false),
+      })
+    )
+    .query(async ({ input, ctx }) => {
+      const needle = `%${input.q.trim().replace(/[%_\\]/g, (m) => `\\${m}`)}%`;
+      const where = [
+        eq(tasks.userId, ctx.user.id),
+        isNull(tasks.deletedAt),
+        sql`(lower(${tasks.title}) LIKE lower(${needle}) OR lower(coalesce(${tasks.description}, '')) LIKE lower(${needle}))`,
+      ];
+      if (!input.includeCompleted) where.push(eq(tasks.isCompleted, false));
+      const rows = await db
+        .select()
+        .from(tasks)
+        .where(and(...where))
+        .orderBy(desc(tasks.updatedAt))
+        .limit(input.limit);
+      return rows;
     }),
 
   atRisk: protectedProcedure.query(async ({ ctx }) => {
