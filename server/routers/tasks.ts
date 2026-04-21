@@ -341,6 +341,35 @@ export const tasksRouter = router({
       return result ?? [];
     }),
 
+  stats: protectedProcedure.query(async ({ ctx }) => {
+    const rows = await db
+      .select()
+      .from(tasks)
+      .where(and(eq(tasks.userId, ctx.user.id), isNull(tasks.deletedAt)));
+    const total = rows.length;
+    const completed = rows.filter((t) => t.isCompleted).length;
+    const pending = total - completed;
+    const byPriority = { low: 0, medium: 0, high: 0 };
+    for (const t of rows) {
+      const p = (t.priority ?? 'medium') as 'low' | 'medium' | 'high';
+      if (p in byPriority) byPriority[p] += 1;
+    }
+    const weekAgo = Date.now() - 7 * 24 * 60 * 60 * 1000;
+    const completedThisWeek = rows.filter((t) => {
+      if (!t.isCompleted || !t.completedAt) return false;
+      const ts = new Date(t.completedAt).getTime();
+      return !Number.isNaN(ts) && ts >= weekAgo;
+    }).length;
+    return {
+      total,
+      completed,
+      pending,
+      byPriority,
+      completionRate: total > 0 ? Math.round((completed / total) * 100) : 0,
+      completedThisWeek,
+    };
+  }),
+
   searchFast: protectedProcedure
     .input(
       z.object({

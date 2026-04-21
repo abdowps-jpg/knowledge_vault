@@ -95,6 +95,24 @@ export const habitsRouter = router({
       return { success: true as const };
     }),
 
+  completionRate: protectedProcedure.query(async ({ ctx }) => {
+    const rows = await db.select().from(habits).where(eq(habits.userId, ctx.user.id));
+    if (rows.length === 0) {
+      return { overall: 0, perHabit: [] as { id: string; name: string; streak: number; doneToday: boolean }[] };
+    }
+    // Simple heuristic: completion rate is ratio of habits with streak > 0 to total
+    const active = rows.filter((h) => (h.streak ?? 0) > 0).length;
+    return {
+      overall: Math.round((active / rows.length) * 100),
+      perHabit: rows.map((h) => ({
+        id: h.id,
+        name: h.name,
+        streak: h.streak ?? 0,
+        doneToday: Boolean(h.doneToday),
+      })),
+    };
+  }),
+
   stats: protectedProcedure.query(async ({ ctx }) => {
     const rows = await db.select().from(habits).where(eq(habits.userId, ctx.user.id));
     const total = rows.length;

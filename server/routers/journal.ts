@@ -166,6 +166,30 @@ export const journalRouter = router({
       }
     }),
 
+  stats: protectedProcedure.query(async ({ ctx }) => {
+    const rows = await db
+      .select()
+      .from(journal)
+      .where(and(eq(journal.userId, ctx.user.id), isNull(journal.deletedAt)));
+    const total = rows.length;
+    let wordCount = 0;
+    let charCount = 0;
+    const uniqueDates = new Set<string>();
+    for (const r of rows) {
+      const content = r.content ?? '';
+      charCount += content.length;
+      wordCount += content.trim() ? content.trim().split(/\s+/).length : 0;
+      if (r.entryDate) uniqueDates.add(String(r.entryDate).slice(0, 10));
+    }
+    return {
+      totalEntries: total,
+      uniqueDays: uniqueDates.size,
+      totalWords: wordCount,
+      totalChars: charCount,
+      averageWordsPerEntry: total > 0 ? Math.round(wordCount / total) : 0,
+    };
+  }),
+
   moodStats: protectedProcedure.query(async ({ ctx }) => {
     const since = new Date();
     since.setDate(since.getDate() - 30);
