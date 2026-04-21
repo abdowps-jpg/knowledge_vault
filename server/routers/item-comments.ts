@@ -1,5 +1,5 @@
 import { randomUUID } from 'crypto';
-import { and, asc, eq, inArray } from 'drizzle-orm';
+import { and, asc, eq, inArray, or } from 'drizzle-orm';
 import { TRPCError } from '@trpc/server';
 import { z } from 'zod';
 import { db } from '../db';
@@ -112,17 +112,16 @@ export const itemCommentsRouter = router({
       const mentionedEchoes: { id: string; email: string; username: string | null }[] = [];
 
       if (mentionedEmails.length > 0 || mentionedUsernames.length > 0) {
+        const orClauses = [];
+        if (mentionedEmails.length > 0) orClauses.push(inArray(users.email, mentionedEmails));
+        if (mentionedUsernames.length > 0) orClauses.push(inArray(users.username, mentionedUsernames));
+
+        const matchCondition = orClauses.length === 1 ? orClauses[0] : or(...orClauses);
         const rows = await db
           .select()
           .from(users)
-          .where(
-            and(
-              eq(users.isActive, true),
-              mentionedEmails.length > 0 && mentionedUsernames.length > 0
-                ? undefined
-                : undefined
-            )
-          );
+          .where(and(eq(users.isActive, true), matchCondition));
+
         const candidates = rows.filter((u) => {
           if (u.email && mentionedEmails.includes(u.email.toLowerCase())) return true;
           if (u.username && mentionedUsernames.includes(u.username.toLowerCase())) return true;
