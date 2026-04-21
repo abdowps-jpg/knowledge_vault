@@ -32,6 +32,7 @@ import { apiRouter, buildApiKeyHash } from '../routers/api';
 import { itemVersionsRouter } from '../routers/item-versions';
 import { aiRouter } from '../routers/ai';
 import { pushTokensRouter } from '../routers/push-tokens';
+import { notificationsRouter } from '../routers/notifications';
 import { apiKeys, webhookSubscriptions } from '../schema/api_keys';
 import { and } from 'drizzle-orm';
 import { items } from '../schema/items';
@@ -195,6 +196,7 @@ const appRouter = router({
   itemVersions: itemVersionsRouter,
   ai: aiRouter,
   pushTokens: pushTokensRouter,
+  notifications: notificationsRouter,
   // test endpoint
   hello: publicProcedure.query(() => {
     return { message: 'Hello from tRPC!' };

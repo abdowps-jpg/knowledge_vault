@@ -581,6 +581,20 @@ const [showApiModal, setShowApiModal] = useState(false);
     { limit: 50 },
     { enabled: showAuditModal }
   );
+  const [showNotificationsModal, setShowNotificationsModal] = useState(false);
+  const notificationsQuery = trpc.notifications.list.useQuery(
+    { limit: 50 },
+    { enabled: showNotificationsModal }
+  );
+  const unreadCountQuery = trpc.notifications.unreadCount.useQuery(undefined, {
+    refetchInterval: 60_000,
+  });
+  const markAllRead = trpc.notifications.markAllRead.useMutation({
+    onSuccess: () => {
+      notificationsQuery.refetch();
+      unreadCountQuery.refetch();
+    },
+  });
   const [newWebhookUrl, setNewWebhookUrl] = useState("");
   const [newWebhookSecret, setNewWebhookSecret] = useState("");
   const [newWebhookEvent, setNewWebhookEvent] = useState<
@@ -1594,6 +1608,16 @@ const [showApiModal, setShowApiModal] = useState(false);
             onPress={() => setShowApiModal(true)}
           />
           <Row
+            icon="notifications"
+            label="Notifications"
+            description={
+              (unreadCountQuery.data?.count ?? 0) > 0
+                ? `${unreadCountQuery.data?.count} unread`
+                : "Mentions, shares, and comments"
+            }
+            onPress={() => setShowNotificationsModal(true)}
+          />
+          <Row
             icon="receipt-long"
             label="Activity Log"
             description="Recent security events on your account"
@@ -1963,6 +1987,74 @@ const [showApiModal, setShowApiModal] = useState(false);
               )}
             </ScrollView>
             <Pressable onPress={() => setShowAuditModal(false)}>
+              <View className="bg-border rounded-lg py-3 items-center">
+                <Text className="text-foreground font-semibold">Close</Text>
+              </View>
+            </Pressable>
+          </View>
+        </View>
+      </Modal>
+
+      <Modal
+        visible={showNotificationsModal}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setShowNotificationsModal(false)}
+      >
+        <View className="flex-1 bg-black/50 justify-end">
+          <View className="rounded-t-3xl p-6 max-h-[85%]" style={{ backgroundColor: colors.surface }}>
+            <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
+              <Text className="text-lg font-bold text-foreground">Notifications</Text>
+              {(notificationsQuery.data ?? []).some((n: any) => !n.isRead) ? (
+                <Pressable
+                  onPress={() => markAllRead.mutate()}
+                  disabled={markAllRead.isPending}
+                  style={{ opacity: markAllRead.isPending ? 0.5 : 1 }}
+                >
+                  <Text style={{ color: colors.primary, fontSize: 12, fontWeight: "600" }}>
+                    Mark all read
+                  </Text>
+                </Pressable>
+              ) : null}
+            </View>
+            <ScrollView style={{ maxHeight: 420, marginBottom: 12 }}>
+              {notificationsQuery.isLoading ? (
+                <View style={{ paddingVertical: 16, alignItems: "center" }}>
+                  <ActivityIndicator color={colors.primary} />
+                </View>
+              ) : (notificationsQuery.data ?? []).length === 0 ? (
+                <Text style={{ color: colors.muted, textAlign: "center", paddingVertical: 20 }}>
+                  No notifications yet.
+                </Text>
+              ) : (
+                (notificationsQuery.data ?? []).map((n: any) => (
+                  <View
+                    key={n.id}
+                    style={{
+                      borderWidth: 1,
+                      borderColor: colors.border,
+                      borderRadius: 8,
+                      padding: 10,
+                      marginBottom: 6,
+                      backgroundColor: n.isRead ? colors.background : colors.primary + "10",
+                    }}
+                  >
+                    <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center" }}>
+                      <Text style={{ color: colors.foreground, fontWeight: "600", fontSize: 13, flex: 1 }} numberOfLines={1}>
+                        {n.title}
+                      </Text>
+                      <Text style={{ color: colors.muted, fontSize: 11 }}>
+                        {new Date(n.createdAt).toLocaleDateString()}
+                      </Text>
+                    </View>
+                    <Text style={{ color: colors.foreground, fontSize: 12, marginTop: 2 }} numberOfLines={2}>
+                      {n.body}
+                    </Text>
+                  </View>
+                ))
+              )}
+            </ScrollView>
+            <Pressable onPress={() => setShowNotificationsModal(false)}>
               <View className="bg-border rounded-lg py-3 items-center">
                 <Text className="text-foreground font-semibold">Close</Text>
               </View>
