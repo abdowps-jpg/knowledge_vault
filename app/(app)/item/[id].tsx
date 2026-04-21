@@ -110,6 +110,7 @@ export default function ItemDetailScreen() {
   const summarizeItem = trpc.ai.summarize.useMutation();
   const relatedItems = trpc.ai.relatedItems.useMutation();
   const quickActions = trpc.ai.quickActions.useMutation();
+  const expandDraft = trpc.ai.expand.useMutation();
   const createTaskFromAction = trpc.tasks.create.useMutation();
   const [aiSummary, setAiSummary] = React.useState<string>("");
   const [aiTagSuggestions, setAiTagSuggestions] = React.useState<string[]>([]);
@@ -776,6 +777,38 @@ export default function ItemDetailScreen() {
               >
                 <Text style={{ color: colors.primary, fontWeight: "600", fontSize: 13 }}>
                   {quickActions.isPending ? "Thinking…" : "Quick actions"}
+                </Text>
+              </Pressable>
+              <Pressable
+                onPress={async () => {
+                  try {
+                    const res = await expandDraft.mutateAsync({ itemId: id, tone: "neutral" });
+                    if (!res.expanded) {
+                      Alert.alert("AI", "Not enough content to expand.");
+                      return;
+                    }
+                    setContent((prev) => {
+                      const trimmed = prev.trim();
+                      const section = `\n\n[Expanded]\n${res.expanded}`.trim();
+                      return trimmed ? `${trimmed}\n\n${section}` : section;
+                    });
+                  } catch (e: any) {
+                    Alert.alert("AI", e?.message ?? "Failed to expand");
+                  }
+                }}
+                disabled={expandDraft.isPending}
+                style={{
+                  backgroundColor: colors.surface,
+                  borderWidth: 1,
+                  borderColor: colors.primary,
+                  paddingHorizontal: 12,
+                  paddingVertical: 8,
+                  borderRadius: 8,
+                  opacity: expandDraft.isPending ? 0.6 : 1,
+                }}
+              >
+                <Text style={{ color: colors.primary, fontWeight: "600", fontSize: 13 }}>
+                  {expandDraft.isPending ? "Thinking…" : "Expand"}
                 </Text>
               </Pressable>
             </View>

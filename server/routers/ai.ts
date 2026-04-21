@@ -248,6 +248,66 @@ export const aiRouter = router({
       return { summary };
     }),
 
+  expand: protectedProcedure
+    .input(
+      z.object({
+        itemId: z.string(),
+        tone: z.enum(['neutral', 'concise', 'detailed']).default('neutral'),
+      })
+    )
+    .mutation(async ({ input, ctx }) => {
+      enforceLlmQuota(ctx.user.id);
+      const item = await loadItemForUser(input.itemId, ctx.user.id);
+      const text = extractContentText(item.title, item.content, item.url);
+      if (text.trim().length < 5) {
+        return { expanded: '' };
+      }
+
+      const toneInstruction: Record<typeof input.tone, string> = {
+        neutral: 'Keep a natural, factual tone.',
+        concise: 'Be tight and punchy. No filler.',
+        detailed: 'Expand fully with context, reasoning, and relevant caveats.',
+      };
+
+      const result = await invokeLLM({
+        messages: [
+          {
+            role: 'system',
+            content:
+              'You expand a user\'s short note into clear, well-structured prose. ' +
+              'Preserve the original meaning and voice — do not invent facts. ' +
+              'Output plain markdown (paragraphs, bullet lists where natural). ' +
+              'No preamble, no meta commentary, no headings unless the input had structure. ' +
+              `${toneInstruction[input.tone]}`,
+          },
+          { role: 'user', content: text },
+        ],
+        outputSchema: {
+          name: 'expanded_note',
+          schema: {
+            type: 'object',
+            additionalProperties: false,
+            properties: {
+              expanded: { type: 'string', minLength: 1, maxLength: 4000 },
+            },
+            required: ['expanded'],
+          },
+          strict: true,
+        },
+      });
+
+      const raw = result.choices?.[0]?.message?.content ?? '';
+      const body = typeof raw === 'string' ? raw : raw.map((p) => ('text' in p ? p.text : '')).join('');
+      let parsed: { expanded?: unknown } = {};
+      try {
+        parsed = JSON.parse(body);
+      } catch {
+        parsed = { expanded: '' };
+      }
+      const expanded = typeof parsed.expanded === 'string' ? parsed.expanded.trim().slice(0, 4000) : '';
+      return { expanded };
+    }),
+
   quickActions: protectedProcedure
     .input(z.object({ itemId: z.string() }))
     .mutation(async ({ input, ctx }) => {
