@@ -33,6 +33,32 @@ yarn-error.*
 # local env files
 .env*.local
 .env
+.env.production
+.env.staging
+.env.development
+!.env.example
+
+# secrets / credentials (defense-in-depth)
+*.p12
+*.pfx
+*.p8
+*.pem
+*.key
+*.keystore
+id_rsa
+id_rsa.*
+id_ed25519
+id_ed25519.*
+credentials.json
+credentials.*.json
+service-account*.json
+*-adminsdk-*.json
+firebase-adminsdk-*.json
+google-services.json
+GoogleService-Info.plist
+aws-exports.js
+secrets.json
+secrets.*.json
 
 # typescript
 *.tsbuildinfo
