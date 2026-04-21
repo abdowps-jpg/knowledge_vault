@@ -138,6 +138,8 @@ db.exec(`
     password_hash TEXT,
     expires_at INTEGER,
     is_revoked INTEGER DEFAULT 0,
+    view_count INTEGER NOT NULL DEFAULT 0,
+    last_viewed_at INTEGER,
     created_at INTEGER DEFAULT (strftime('%s', 'now'))
   );
 
@@ -145,6 +147,16 @@ db.exec(`
   CREATE INDEX IF NOT EXISTS idx_public_links_item_id ON public_links(item_id);
   CREATE INDEX IF NOT EXISTS idx_public_links_owner_user_id ON public_links(owner_user_id);
 `);
+try {
+  db.exec(`ALTER TABLE public_links ADD COLUMN view_count INTEGER NOT NULL DEFAULT 0;`);
+} catch {
+  // Column already exists.
+}
+try {
+  db.exec(`ALTER TABLE public_links ADD COLUMN last_viewed_at INTEGER;`);
+} catch {
+  // Column already exists.
+}
 
 db.exec(`
   CREATE TABLE IF NOT EXISTS api_keys (

@@ -91,6 +91,22 @@ export const publicLinksRouter = router({
       return db.select().from(publicLinks).where(eq(publicLinks.itemId, input.itemId));
     }),
 
+  rotate: protectedProcedure
+    .input(z.object({ linkId: z.string() }))
+    .mutation(async ({ input, ctx }) => {
+      const rows = await db.select().from(publicLinks).where(eq(publicLinks.id, input.linkId)).limit(1);
+      const link = rows[0];
+      if (!link) {
+        throw new TRPCError({ code: 'NOT_FOUND', message: 'Link not found' });
+      }
+      if (link.ownerUserId !== ctx.user.id) {
+        throw new TRPCError({ code: 'FORBIDDEN', message: 'Only owner can rotate this link' });
+      }
+      const newToken = randomUUID().replace(/-/g, '');
+      await db.update(publicLinks).set({ token: newToken }).where(eq(publicLinks.id, input.linkId));
+      return { success: true as const, token: newToken, urlPath: `/public/${newToken}` };
+    }),
+
   revoke: protectedProcedure
     .input(
       z.object({

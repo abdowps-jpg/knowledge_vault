@@ -10,6 +10,8 @@ export const publicLinks = sqliteTable(
     passwordHash: text('password_hash'),
     expiresAt: integer('expires_at', { mode: 'timestamp' }),
     isRevoked: integer('is_revoked', { mode: 'boolean' }).default(false),
+    viewCount: integer('view_count').notNull().default(0),
+    lastViewedAt: integer('last_viewed_at', { mode: 'timestamp' }),
     createdAt: integer('created_at', { mode: 'timestamp' }).$defaultFn(() => new Date()),
   },
   (table) => ({

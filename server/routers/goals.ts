@@ -202,4 +202,67 @@ export const goalsRouter = router({
       await db.delete(goals).where(eq(goals.id, input.goalId));
       return { success: true as const };
     }),
+
+  progress: protectedProcedure.query(async ({ ctx }) => {
+    const goalRows = await db.select().from(goals).where(eq(goals.userId, ctx.user.id));
+    if (goalRows.length === 0) {
+      return {
+        totalGoals: 0,
+        byGoal: [] as { id: string; title: string; percent: number; milestones: number; tasksDone: number; tasksTotal: number }[],
+      };
+    }
+    const goalIds = goalRows.map((g) => g.id);
+    const milestoneRows = await db.select().from(goalMilestones).where(inArray(goalMilestones.goalId, goalIds));
+    const milestoneIds = milestoneRows.map((m) => m.id);
+    const taskLinks = milestoneIds.length > 0
+      ? await db.select().from(milestoneTasks).where(inArray(milestoneTasks.milestoneId, milestoneIds))
+      : [];
+    const taskIds = Array.from(new Set(taskLinks.map((l) => l.taskId)));
+    const taskRows = taskIds.length > 0
+      ? await db.select().from(tasks).where(inArray(tasks.id, taskIds))
+      : [];
+    const taskById = new Map(taskRows.map((t) => [t.id, t]));
+
+    const milestonesByGoal = new Map<string, typeof milestoneRows>();
+    for (const m of milestoneRows) {
+      const arr = milestonesByGoal.get(m.goalId) ?? [];
+      arr.push(m);
+      milestonesByGoal.set(m.goalId, arr);
+    }
+    const tasksByMilestone = new Map<string, string[]>();
+    for (const link of taskLinks) {
+      const arr = tasksByMilestone.get(link.milestoneId) ?? [];
+      arr.push(link.taskId);
+      tasksByMilestone.set(link.milestoneId, arr);
+    }
+
+    const byGoal = goalRows.map((g) => {
+      const ms = milestonesByGoal.get(g.id) ?? [];
+      let tasksDone = 0;
+      let tasksTotal = 0;
+      for (const m of ms) {
+        const ids = tasksByMilestone.get(m.id) ?? [];
+        for (const id of ids) {
+          const t = taskById.get(id);
+          if (!t || t.deletedAt) continue;
+          tasksTotal += 1;
+          if (t.isCompleted) tasksDone += 1;
+        }
+      }
+      const percent = tasksTotal === 0 ? 0 : Math.round((tasksDone / tasksTotal) * 100);
+      return {
+        id: g.id,
+        title: g.title,
+        percent,
+        milestones: ms.length,
+        tasksDone,
+        tasksTotal,
+      };
+    });
+
+    return {
+      totalGoals: goalRows.length,
+      byGoal,
+    };
+  }),
 });

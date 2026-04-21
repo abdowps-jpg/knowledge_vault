@@ -94,4 +94,25 @@ export const habitsRouter = router({
       await db.delete(habits).where(and(eq(habits.id, input.id), eq(habits.userId, ctx.user.id)));
       return { success: true as const };
     }),
+
+  stats: protectedProcedure.query(async ({ ctx }) => {
+    const rows = await db.select().from(habits).where(eq(habits.userId, ctx.user.id));
+    const total = rows.length;
+    const doneToday = rows.filter((h) => h.doneToday).length;
+    const longestStreak = rows.reduce((max, h) => Math.max(max, h.streak ?? 0), 0);
+    const averageStreak =
+      total > 0 ? Number((rows.reduce((sum, h) => sum + (h.streak ?? 0), 0) / total).toFixed(1)) : 0;
+    const topStreaks = rows
+      .slice()
+      .sort((a, b) => (b.streak ?? 0) - (a.streak ?? 0))
+      .slice(0, 5)
+      .map((h) => ({ id: h.id, name: h.name, streak: h.streak ?? 0 }));
+    return {
+      total,
+      doneToday,
+      longestStreak,
+      averageStreak,
+      topStreaks,
+    };
+  }),
 });

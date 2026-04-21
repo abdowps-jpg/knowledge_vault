@@ -927,6 +927,15 @@ app.get('/p/:token', async (req: Request, res: Response) => {
       return res.status(404).type('html').send('<h1>Item not found</h1>');
     }
 
+    // Fire-and-forget view tally
+    db.update(publicLinks)
+      .set({
+        viewCount: (link.viewCount ?? 0) + 1,
+        lastViewedAt: new Date(),
+      })
+      .where(eq(publicLinks.id, link.id))
+      .catch(() => {});
+
     const title = escapeHtml(item.title || 'Untitled');
     const contentHtml = escapeHtml(item.content ?? '').replace(/\n/g, '<br>');
     const urlLink = item.url
