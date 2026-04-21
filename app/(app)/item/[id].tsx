@@ -3,6 +3,7 @@ import { ActivityIndicator, Alert, Modal, Platform, Pressable, ScrollView, Text,
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { Image as ExpoImage } from "expo-image";
 import { MaterialIcons } from "@expo/vector-icons";
+import Markdown from "react-native-markdown-display";
 
 import { ScreenContainer } from "@/components/screen-container";
 import { RichTextEditor } from "@/components/rich-text-editor";
@@ -116,6 +117,7 @@ export default function ItemDetailScreen() {
   const [aiActions, setAiActions] = React.useState<
     { kind: "task" | "followup" | "question" | "note"; label: string; detail?: string }[]
   >([]);
+  const [previewMarkdown, setPreviewMarkdown] = React.useState(false);
   const isServerBackedItem = Boolean(itemQuery.data);
   const effectiveItem = React.useMemo(() => {
     if (itemQuery.data) return itemQuery.data;
@@ -466,8 +468,82 @@ export default function ItemDetailScreen() {
           }}
         />
 
-        <Text className="text-sm font-semibold text-foreground mb-2">Content</Text>
-        <RichTextEditor value={content} onChange={setContent} placeholder="Write content..." minHeight={220} />
+        <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: 8 }}>
+          <Text className="text-sm font-semibold text-foreground">Content</Text>
+          <Pressable
+            onPress={() => setPreviewMarkdown((v) => !v)}
+            style={{
+              paddingHorizontal: 10,
+              paddingVertical: 4,
+              borderRadius: 999,
+              borderWidth: 1,
+              borderColor: colors.border,
+              backgroundColor: previewMarkdown ? colors.primary : colors.surface,
+            }}
+          >
+            <Text
+              style={{
+                color: previewMarkdown ? "#fff" : colors.foreground,
+                fontSize: 11,
+                fontWeight: "600",
+              }}
+            >
+              {previewMarkdown ? "Edit" : "Preview"}
+            </Text>
+          </Pressable>
+        </View>
+        {previewMarkdown ? (
+          <View
+            style={{
+              minHeight: 220,
+              padding: 12,
+              borderWidth: 1,
+              borderColor: colors.border,
+              borderRadius: 10,
+              backgroundColor: colors.surface,
+              marginBottom: 4,
+            }}
+          >
+            {content.trim().length === 0 ? (
+              <Text style={{ color: colors.muted, fontStyle: "italic" }}>
+                Nothing to preview yet.
+              </Text>
+            ) : (
+              <Markdown
+                style={{
+                  body: { color: colors.foreground, fontSize: 14, lineHeight: 21 },
+                  heading1: { color: colors.foreground, fontSize: 20, fontWeight: "700" },
+                  heading2: { color: colors.foreground, fontSize: 17, fontWeight: "700" },
+                  heading3: { color: colors.foreground, fontSize: 15, fontWeight: "700" },
+                  link: { color: colors.primary },
+                  code_inline: {
+                    backgroundColor: colors.background,
+                    color: colors.foreground,
+                    borderRadius: 4,
+                    paddingHorizontal: 4,
+                  },
+                  code_block: {
+                    backgroundColor: colors.background,
+                    color: colors.foreground,
+                    padding: 8,
+                    borderRadius: 6,
+                  },
+                  blockquote: {
+                    backgroundColor: colors.background,
+                    borderLeftWidth: 3,
+                    borderLeftColor: colors.primary,
+                    paddingLeft: 10,
+                    paddingVertical: 4,
+                  },
+                }}
+              >
+                {content}
+              </Markdown>
+            )}
+          </View>
+        ) : (
+          <RichTextEditor value={content} onChange={setContent} placeholder="Write content..." minHeight={220} />
+        )}
 
         <Text className="text-sm font-semibold text-foreground mb-2 mt-4">Image Attachments</Text>
         {attachmentsQuery.isLoading ? (
