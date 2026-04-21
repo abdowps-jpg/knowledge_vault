@@ -327,6 +327,17 @@ async function triggerWebhooks(args: { userId: string; event: string; payload: R
   }
 }
 
+// Forward-compat: /api/v1/* is an alias for /api/*. Rewrite before auth
+// runs so clients can pin a version without requiring any route duplication.
+app.use((req: Request, _res: Response, next: NextFunction) => {
+  if (req.url.startsWith('/api/v1/')) {
+    req.url = '/api' + req.url.slice('/api/v1'.length);
+  } else if (req.url === '/api/v1') {
+    req.url = '/api';
+  }
+  next();
+});
+
 app.use('/api', async (req: ApiRequest, res, next) => {
   try {
     const rawKey = String(req.headers['x-api-key'] ?? '').trim();
