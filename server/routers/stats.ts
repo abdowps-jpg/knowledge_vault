@@ -1,6 +1,7 @@
-import { and, eq, inArray, isNull } from 'drizzle-orm';
+import { and, eq, gte, inArray, isNull, like } from 'drizzle-orm';
 import { protectedProcedure, router } from '../trpc';
 import { db } from '../db';
+import { auditLog } from '../schema/audit_log';
 import { items, tasks, journal, tags, itemTags } from '../schema';
 
 type DateLike = string | number | Date | null | undefined;
@@ -267,6 +268,38 @@ export const statsRouter = router({
         mostProductiveDay: 'N/A',
         averageItemsPerDay: 0,
       };
+    }
+  }),
+
+  getAiUsage: protectedProcedure.query(async ({ ctx }) => {
+    try {
+      const since = new Date();
+      since.setDate(since.getDate() - 30);
+      const rows = await db
+        .select({ action: auditLog.action, createdAt: auditLog.createdAt })
+        .from(auditLog)
+        .where(
+          and(
+            eq(auditLog.userId, ctx.user.id),
+            like(auditLog.action, 'ai.%'),
+            gte(auditLog.createdAt, since)
+          )
+        );
+      const byProcedure = new Map<string, number>();
+      for (const r of rows) {
+        const key = r.action.replace(/^ai\./, '');
+        byProcedure.set(key, (byProcedure.get(key) ?? 0) + 1);
+      }
+      const total = rows.length;
+      const breakdown = Array.from(byProcedure.entries())
+        .sort((a, b) => b[1] - a[1])
+        .map(([name, count]) => ({ name, count }));
+      return {
+        last30Days: { total, breakdown },
+      };
+    } catch (error) {
+      console.error('Error getting AI usage:', error);
+      return { last30Days: { total: 0, breakdown: [] as { name: string; count: number }[] } };
     }
   }),
 });

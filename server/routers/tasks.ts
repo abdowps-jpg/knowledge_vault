@@ -341,6 +341,33 @@ export const tasksRouter = router({
       return result ?? [];
     }),
 
+  atRisk: protectedProcedure.query(async ({ ctx }) => {
+    const rows = await db
+      .select()
+      .from(tasks)
+      .where(and(eq(tasks.userId, ctx.user.id), isNull(tasks.deletedAt), eq(tasks.isCompleted, false)));
+    const now = Date.now();
+    const overdue: typeof rows = [];
+    const dueSoon: typeof rows = [];
+    const staleHigh: typeof rows = [];
+    for (const t of rows) {
+      const due = t.dueDate ? new Date(t.dueDate).getTime() : null;
+      if (due !== null && !Number.isNaN(due)) {
+        if (due < now) overdue.push(t);
+        else if (due - now < 2 * 24 * 60 * 60 * 1000) dueSoon.push(t);
+      }
+      const created = t.createdAt ? new Date(t.createdAt).getTime() : null;
+      if (created && t.priority === 'high' && now - created > 7 * 24 * 60 * 60 * 1000) {
+        staleHigh.push(t);
+      }
+    }
+    return {
+      overdue: overdue.slice(0, 20),
+      dueSoon: dueSoon.slice(0, 20),
+      staleHighPriority: staleHigh.slice(0, 10),
+    };
+  }),
+
   bulkComplete: protectedProcedure
     .input(
       z.object({

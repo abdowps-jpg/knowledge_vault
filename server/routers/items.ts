@@ -380,9 +380,50 @@ export const itemsRouter = router({
       await db
         .delete(items)
         .where(and(eq(items.id, input.id), eq(items.userId, ctx.user.id)));
-      
+
       return { success: true };
     }),
+
+  trash: protectedProcedure
+    .input(z.object({ id: z.string() }))
+    .mutation(async ({ input, ctx }) => {
+      await db
+        .update(items)
+        .set({ deletedAt: new Date(), updatedAt: new Date() })
+        .where(and(eq(items.id, input.id), eq(items.userId, ctx.user.id)));
+      return { success: true as const };
+    }),
+
+  restore: protectedProcedure
+    .input(z.object({ id: z.string() }))
+    .mutation(async ({ input, ctx }) => {
+      await db
+        .update(items)
+        .set({ deletedAt: null, updatedAt: new Date() })
+        .where(and(eq(items.id, input.id), eq(items.userId, ctx.user.id)));
+      return { success: true as const };
+    }),
+
+  listTrashed: protectedProcedure.query(async ({ ctx }) => {
+    const rows = await db
+      .select()
+      .from(items)
+      .where(and(eq(items.userId, ctx.user.id), sql`${items.deletedAt} IS NOT NULL`))
+      .orderBy(desc(items.deletedAt))
+      .limit(200);
+    return rows;
+  }),
+
+  emptyTrash: protectedProcedure.mutation(async ({ ctx }) => {
+    const trashed = await db
+      .select({ id: items.id })
+      .from(items)
+      .where(and(eq(items.userId, ctx.user.id), sql`${items.deletedAt} IS NOT NULL`));
+    const ids = trashed.map((t) => t.id);
+    if (ids.length === 0) return { success: true as const, deleted: 0 };
+    await db.delete(items).where(and(eq(items.userId, ctx.user.id), inArray(items.id, ids)));
+    return { success: true as const, deleted: ids.length };
+  }),
 
   syncItems: protectedProcedure
     .input(

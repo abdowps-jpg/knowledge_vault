@@ -178,6 +178,9 @@ db.exec(`
     event TEXT NOT NULL,
     secret TEXT,
     is_active INTEGER DEFAULT 1,
+    last_delivered_at INTEGER,
+    last_status INTEGER,
+    failure_count INTEGER NOT NULL DEFAULT 0,
     created_at INTEGER DEFAULT (strftime('%s', 'now')),
     updated_at INTEGER DEFAULT (strftime('%s', 'now'))
   );
@@ -186,6 +189,22 @@ db.exec(`
   CREATE INDEX IF NOT EXISTS idx_webhooks_event ON webhook_subscriptions(event);
   CREATE INDEX IF NOT EXISTS idx_webhooks_is_active ON webhook_subscriptions(is_active);
 `);
+
+try {
+  db.exec(`ALTER TABLE webhook_subscriptions ADD COLUMN last_delivered_at INTEGER;`);
+} catch {
+  // Column already exists.
+}
+try {
+  db.exec(`ALTER TABLE webhook_subscriptions ADD COLUMN last_status INTEGER;`);
+} catch {
+  // Column already exists.
+}
+try {
+  db.exec(`ALTER TABLE webhook_subscriptions ADD COLUMN failure_count INTEGER NOT NULL DEFAULT 0;`);
+} catch {
+  // Column already exists.
+}
 
 db.exec(`
   CREATE TABLE IF NOT EXISTS item_versions (

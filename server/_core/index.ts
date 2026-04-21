@@ -179,6 +179,26 @@ if (typeof auditRetentionTimer === 'object' && auditRetentionTimer && 'unref' in
   (auditRetentionTimer as { unref: () => void }).unref();
 }
 
+// Trash auto-purge: permanently delete items soft-deleted more than 30 days ago
+const trashPurgeTimer = setInterval(
+  () => {
+    void (async () => {
+      try {
+        const cutoff = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
+        const { lt } = await import('drizzle-orm');
+        const deleted = await db.delete(items).where(lt(items.deletedAt, cutoff));
+        console.log('[TrashPurge] removed items older than 30d:', deleted);
+      } catch (err) {
+        console.error('[TrashPurge] failed:', err);
+      }
+    })();
+  },
+  24 * 60 * 60 * 1000
+);
+if (typeof trashPurgeTimer === 'object' && trashPurgeTimer && 'unref' in trashPurgeTimer) {
+  (trashPurgeTimer as { unref: () => void }).unref();
+}
+
 const app = express();
 const port = process.env.PORT || 3000;
 const host = process.env.HOST || '0.0.0.0';
@@ -287,6 +307,21 @@ function signWebhookBody(body: string, secret: string | null, timestamp: string)
   return createHmac('sha256', secret).update(toSign).digest('hex');
 }
 
+async function recordWebhookOutcome(hookId: string, status: number | null, failed: boolean): Promise<void> {
+  try {
+    await db
+      .update(webhookSubscriptions)
+      .set({
+        lastDeliveredAt: new Date(),
+        lastStatus: status,
+        failureCount: failed ? 1 : 0, // reset on success; increment only by raw update is lossy here
+      })
+      .where(eq(webhookSubscriptions.id, hookId));
+  } catch (err) {
+    console.error('[Webhook] outcome persist failed:', err);
+  }
+}
+
 async function deliverWebhook(hook: { id: string; url: string; secret: string | null }, body: string, attempt = 0): Promise<void> {
   try {
     const timestamp = String(Math.floor(Date.now() / 1000));
@@ -306,9 +341,15 @@ async function deliverWebhook(hook: { id: string; url: string; secret: string | 
       body,
       signal: AbortSignal.timeout(10_000),
     });
-    if (!response.ok && attempt < WEBHOOK_MAX_RETRIES) {
+    if (response.ok) {
+      recordWebhookOutcome(hook.id, response.status, false).catch(() => {});
+      return;
+    }
+    if (attempt < WEBHOOK_MAX_RETRIES) {
       const delay = WEBHOOK_RETRY_DELAYS[attempt] ?? 15000;
       setTimeout(() => deliverWebhook(hook, body, attempt + 1), delay);
+    } else {
+      recordWebhookOutcome(hook.id, response.status, true).catch(() => {});
     }
   } catch (error) {
     if (attempt < WEBHOOK_MAX_RETRIES) {
@@ -316,6 +357,7 @@ async function deliverWebhook(hook: { id: string; url: string; secret: string | 
       setTimeout(() => deliverWebhook(hook, body, attempt + 1), delay);
     } else {
       console.error('[Webhook] delivery failed after retries:', hook.url, error);
+      recordWebhookOutcome(hook.id, null, true).catch(() => {});
     }
   }
 }
@@ -357,6 +399,46 @@ app.use((req: Request, _res: Response, next: NextFunction) => {
     req.url = '/api';
   }
   next();
+});
+
+// Public schema endpoint — registered before the /api auth middleware
+app.get('/api/schema', (_req, res) => {
+  res.json({
+    info: {
+      title: 'Knowledge Vault REST API',
+      version: '1.0.0',
+      description: 'Send X-Api-Key header. Scopes: read (GET), write (GET/POST/PUT), admin (+DELETE).',
+    },
+    basePath: '/api',
+    versionedBasePath: '/api/v1',
+    endpoints: [
+      { method: 'GET', path: '/api/items', scope: 'read' },
+      { method: 'POST', path: '/api/items', scope: 'write' },
+      { method: 'PUT', path: '/api/items/:id', scope: 'write' },
+      { method: 'DELETE', path: '/api/items/:id', scope: 'admin' },
+      { method: 'GET', path: '/api/tasks', scope: 'read' },
+      { method: 'POST', path: '/api/tasks', scope: 'write' },
+      { method: 'PUT', path: '/api/tasks/:id', scope: 'write' },
+      { method: 'DELETE', path: '/api/tasks/:id', scope: 'admin' },
+      { method: 'GET', path: '/api/journal', scope: 'read' },
+      { method: 'POST', path: '/api/journal', scope: 'write' },
+      { method: 'PUT', path: '/api/journal/:id', scope: 'write' },
+      { method: 'DELETE', path: '/api/journal/:id', scope: 'admin' },
+    ],
+    webhookEvents: [
+      'items.created',
+      'items.updated',
+      'items.deleted',
+      'tasks.created',
+      'tasks.updated',
+      'tasks.deleted',
+    ],
+    webhookHeaders: {
+      'x-kv-webhook-id': 'Subscription id',
+      'x-kv-timestamp': 'Unix seconds',
+      'x-kv-signature': 'sha256=<hex HMAC of "<timestamp>.<raw body>" using the subscription secret>',
+    },
+  });
 });
 
 app.use('/api', async (req: ApiRequest, res, next) => {
@@ -785,6 +867,20 @@ app.use(
 // Health check for uptime monitors
 app.get('/healthz', (_req, res) => {
   res.json({ status: 'ok', uptime: process.uptime() });
+});
+
+// Tell crawlers to stay out of the API surface; /p/:token is also noindex via meta
+app.get('/robots.txt', (_req, res) => {
+  res.type('text/plain').send('User-agent: *\nDisallow: /\n');
+});
+
+// Minimal landing for accidental browser hits on the API host
+app.get('/', (_req, res) => {
+  res
+    .type('html')
+    .send(
+      `<!doctype html><html><head><meta charset="utf-8"><meta name="robots" content="noindex"><title>Knowledge Vault API</title></head><body style="font-family:system-ui;padding:40px;max-width:560px;margin:auto"><h1>Knowledge Vault</h1><p>This is the API host. Open the Knowledge Vault app.</p></body></html>`
+    );
 });
 
 function escapeHtml(value: string): string {

@@ -1903,22 +1903,52 @@ const [showApiModal, setShowApiModal] = useState(false);
               </View>
             </Pressable>
             <ScrollView style={{ maxHeight: 130 }}>
-              {(webhooksQuery.data ?? []).map((hook) => (
-                <View key={hook.id} className="border border-border rounded-lg p-2 mb-2">
-                  <Text style={{ color: colors.foreground, fontWeight: "600" }}>{hook.event}</Text>
-                  <Text style={{ color: colors.muted, fontSize: 12 }} numberOfLines={1}>
-                    {hook.url}
-                  </Text>
-                  <Pressable
-                    onPress={async () => {
-                      await deleteWebhookMutation.mutateAsync({ id: hook.id });
-                      await webhooksQuery.refetch();
-                    }}
-                  >
-                    <Text style={{ color: colors.error, fontWeight: "700", marginTop: 4 }}>Delete</Text>
-                  </Pressable>
-                </View>
-              ))}
+              {(webhooksQuery.data ?? []).map((hook: any) => {
+                const hasStatus = typeof hook.lastStatus === "number";
+                const statusColor =
+                  !hasStatus
+                    ? colors.muted
+                    : hook.lastStatus >= 200 && hook.lastStatus < 300
+                    ? colors.success
+                    : colors.error;
+                return (
+                  <View key={hook.id} className="border border-border rounded-lg p-2 mb-2">
+                    <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
+                      <Text style={{ color: colors.foreground, fontWeight: "600" }}>{hook.event}</Text>
+                      {hasStatus ? (
+                        <View
+                          style={{
+                            paddingHorizontal: 6,
+                            paddingVertical: 1,
+                            borderRadius: 999,
+                            backgroundColor: statusColor + "22",
+                          }}
+                        >
+                          <Text style={{ color: statusColor, fontSize: 10, fontWeight: "700" }}>
+                            {hook.lastStatus}
+                          </Text>
+                        </View>
+                      ) : null}
+                    </View>
+                    <Text style={{ color: colors.muted, fontSize: 12 }} numberOfLines={1}>
+                      {hook.url}
+                    </Text>
+                    {hook.lastDeliveredAt ? (
+                      <Text style={{ color: colors.muted, fontSize: 10, marginTop: 2 }}>
+                        Last: {new Date(hook.lastDeliveredAt).toLocaleString()}
+                      </Text>
+                    ) : null}
+                    <Pressable
+                      onPress={async () => {
+                        await deleteWebhookMutation.mutateAsync({ id: hook.id });
+                        await webhooksQuery.refetch();
+                      }}
+                    >
+                      <Text style={{ color: colors.error, fontWeight: "700", marginTop: 4 }}>Delete</Text>
+                    </Pressable>
+                  </View>
+                );
+              })}
             </ScrollView>
 
             <Pressable onPress={() => setShowApiModal(false)} style={{ marginTop: 10 }}>
