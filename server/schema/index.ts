@@ -16,3 +16,4 @@ export * from './user_notifications';
 export * from './public_links';
 export * from './api_keys';
 export * from './item_versions';
+export * from './audit_log';

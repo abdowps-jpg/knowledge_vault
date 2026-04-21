@@ -7,8 +7,19 @@ import { getSessionCookieOptions } from '../_core/cookies';
 import { comparePassword, generateToken, hashPassword, verifyToken as verifyJwtToken } from '../lib/auth';
 import { buildTaskInboxAddressForUser } from '../lib/email-task-address';
 import { sendPasswordResetEmail, sendVerificationEmail } from '../lib/email';
+import { listAuditForUser, recordAudit } from '../lib/audit';
 import { users } from '../schema/users';
 import { protectedProcedure, publicProcedure, router } from '../trpc';
+
+function getRequestAudit(req: unknown): { ip: string | null; userAgent: string | null } {
+  const r = req as { ip?: string; headers?: Record<string, string | string[] | undefined> } | null;
+  if (!r) return { ip: null, userAgent: null };
+  const ua = r.headers?.['user-agent'];
+  return {
+    ip: r.ip ?? null,
+    userAgent: Array.isArray(ua) ? ua[0] ?? null : (ua ?? null),
+  };
+}
 import { COOKIE_NAME } from '../../shared/const.js';
 
 const authUserSelect = {
@@ -190,8 +201,9 @@ export const authRouter = router({
         password: z.string().min(1),
       })
     )
-    .mutation(async ({ input }) => {
+    .mutation(async ({ input, ctx }) => {
       const email = input.email.trim().toLowerCase();
+      const audit = getRequestAudit(ctx.req);
       try {
         const existing = await db.select().from(users).where(eq(users.email, email)).limit(1);
         const user = existing[0];
@@ -213,6 +225,7 @@ export const authRouter = router({
 
         const passwordMatches = await comparePassword(input.password, user.password);
         if (!passwordMatches) {
+          await recordAudit({ userId: user.id, ...audit }, 'auth.login.failed');
           throw new TRPCError({ code: 'UNAUTHORIZED', message: 'Invalid email or password' });
         }
 
@@ -221,6 +234,7 @@ export const authRouter = router({
           email: user.email,
           username: user.username,
         });
+        await recordAudit({ userId: user.id, ...audit }, 'auth.login.success');
         return {
           token,
           user: {
@@ -461,16 +475,28 @@ export const authRouter = router({
       })
     )
     .mutation(async ({ ctx, input }) => {
+      const audit = getRequestAudit(ctx.req);
       const userRows = await db.select().from(users).where(eq(users.id, ctx.user.id)).limit(1);
       const user = userRows[0];
       if (!user) throw new TRPCError({ code: 'NOT_FOUND', message: 'User not found' });
 
       const valid = await comparePassword(input.currentPassword, user.password);
-      if (!valid) throw new TRPCError({ code: 'UNAUTHORIZED', message: 'Current password is incorrect' });
+      if (!valid) {
+        await recordAudit({ userId: user.id, ...audit }, 'auth.password.change.failed');
+        throw new TRPCError({ code: 'UNAUTHORIZED', message: 'Current password is incorrect' });
+      }
 
       const hashed = await hashPassword(input.newPassword);
       await db.update(users).set({ password: hashed, updatedAt: new Date() }).where(eq(users.id, ctx.user.id));
+      await recordAudit({ userId: user.id, ...audit }, 'auth.password.changed');
       return { success: true as const };
+    }),
+
+  getAuditLog: protectedProcedure
+    .input(z.object({ limit: z.number().int().min(1).max(200).default(50) }).optional())
+    .query(async ({ input, ctx }) => {
+      const rows = await listAuditForUser(ctx.user.id, input?.limit ?? 50);
+      return rows;
     }),
 
   deleteAccount: protectedProcedure

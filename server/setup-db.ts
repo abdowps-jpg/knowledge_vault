@@ -466,5 +466,22 @@ db.exec(`
   CREATE INDEX IF NOT EXISTS idx_subtasks_task_id ON subtasks(task_id);
 `);
 
+db.exec(`
+  CREATE TABLE IF NOT EXISTS audit_log (
+    id TEXT PRIMARY KEY,
+    user_id TEXT NOT NULL,
+    action TEXT NOT NULL,
+    resource TEXT,
+    resource_id TEXT,
+    ip TEXT,
+    user_agent TEXT,
+    created_at INTEGER DEFAULT (strftime('%s', 'now'))
+  );
+
+  CREATE INDEX IF NOT EXISTS idx_audit_user_id ON audit_log(user_id);
+  CREATE INDEX IF NOT EXISTS idx_audit_action ON audit_log(action);
+  CREATE INDEX IF NOT EXISTS idx_audit_created_at ON audit_log(created_at);
+`);
+
 console.log('✅ Database tables created successfully!');
 db.close();

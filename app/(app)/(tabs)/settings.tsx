@@ -576,6 +576,11 @@ export default function SettingsScreen() {
 const [showApiModal, setShowApiModal] = useState(false);
   const [latestApiKey, setLatestApiKey] = useState("");
   const [newApiKeyScope, setNewApiKeyScope] = useState<"read" | "write" | "admin">("write");
+  const [showAuditModal, setShowAuditModal] = useState(false);
+  const auditQuery = trpc.auth.getAuditLog.useQuery(
+    { limit: 50 },
+    { enabled: showAuditModal }
+  );
   const [newWebhookUrl, setNewWebhookUrl] = useState("");
   const [newWebhookSecret, setNewWebhookSecret] = useState("");
   const [newWebhookEvent, setNewWebhookEvent] = useState<
@@ -1588,6 +1593,12 @@ const [showApiModal, setShowApiModal] = useState(false);
             description="Generate keys and manage webhook subscriptions"
             onPress={() => setShowApiModal(true)}
           />
+          <Row
+            icon="receipt-long"
+            label="Activity Log"
+            description="Recent security events on your account"
+            onPress={() => setShowAuditModal(true)}
+          />
           <Row icon="delete-forever" label="Clear All Data" onPress={handleClearAllData} />
         </Section>
 
@@ -1875,6 +1886,83 @@ const [showApiModal, setShowApiModal] = useState(false);
             </ScrollView>
 
             <Pressable onPress={() => setShowApiModal(false)} style={{ marginTop: 10 }}>
+              <View className="bg-border rounded-lg py-3 items-center">
+                <Text className="text-foreground font-semibold">Close</Text>
+              </View>
+            </Pressable>
+          </View>
+        </View>
+      </Modal>
+
+      <Modal
+        visible={showAuditModal}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setShowAuditModal(false)}
+      >
+        <View className="flex-1 bg-black/50 justify-end">
+          <View className="rounded-t-3xl p-6 max-h-[85%]" style={{ backgroundColor: colors.surface }}>
+            <Text className="text-lg font-bold text-foreground mb-1">Activity Log</Text>
+            <Text className="text-xs mb-3" style={{ color: colors.muted }}>
+              Recent authentication and security events
+            </Text>
+            <ScrollView style={{ maxHeight: 400, marginBottom: 12 }}>
+              {auditQuery.isLoading ? (
+                <View style={{ paddingVertical: 16, alignItems: "center" }}>
+                  <ActivityIndicator color={colors.primary} />
+                </View>
+              ) : (auditQuery.data ?? []).length === 0 ? (
+                <Text style={{ color: colors.muted, textAlign: "center", paddingVertical: 20 }}>
+                  No recorded events yet.
+                </Text>
+              ) : (
+                (auditQuery.data ?? []).map((entry: any) => {
+                  const isFailure = typeof entry.action === "string" && entry.action.endsWith(".failed");
+                  return (
+                    <View
+                      key={entry.id}
+                      style={{
+                        borderWidth: 1,
+                        borderColor: colors.border,
+                        borderRadius: 8,
+                        padding: 10,
+                        marginBottom: 6,
+                        backgroundColor: colors.background,
+                      }}
+                    >
+                      <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center" }}>
+                        <Text
+                          style={{
+                            color: isFailure ? colors.error : colors.foreground,
+                            fontWeight: "600",
+                            fontSize: 13,
+                          }}
+                        >
+                          {entry.action}
+                        </Text>
+                        <Text style={{ color: colors.muted, fontSize: 11 }}>
+                          {new Date(entry.createdAt).toLocaleString()}
+                        </Text>
+                      </View>
+                      {entry.ip ? (
+                        <Text style={{ color: colors.muted, fontSize: 11, marginTop: 2 }}>
+                          IP: {entry.ip}
+                        </Text>
+                      ) : null}
+                      {entry.userAgent ? (
+                        <Text
+                          style={{ color: colors.muted, fontSize: 11, marginTop: 1 }}
+                          numberOfLines={1}
+                        >
+                          {entry.userAgent}
+                        </Text>
+                      ) : null}
+                    </View>
+                  );
+                })
+              )}
+            </ScrollView>
+            <Pressable onPress={() => setShowAuditModal(false)}>
               <View className="bg-border rounded-lg py-3 items-center">
                 <Text className="text-foreground font-semibold">Close</Text>
               </View>
