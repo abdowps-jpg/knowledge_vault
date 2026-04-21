@@ -216,6 +216,34 @@ export const tagsRouter = router({
       }
     }),
 
+  listWithCounts: protectedProcedure.query(async ({ ctx }) => {
+    const tagRows = await db.select().from(tags).where(eq(tags.userId, ctx.user.id));
+    if (tagRows.length === 0) return [];
+    const tagIds = tagRows.map((t) => t.id);
+    const links = await db.select().from(itemTags).where(inArray(itemTags.tagId, tagIds));
+    const itemIds = links.map((l) => l.itemId);
+    const ownedItems = itemIds.length > 0
+      ? await db
+          .select({ id: items.id })
+          .from(items)
+          .where(and(inArray(items.id, itemIds), eq(items.userId, ctx.user.id)))
+      : [];
+    const ownedItemIds = new Set(ownedItems.map((i) => i.id));
+    const countByTag = new Map<string, number>();
+    for (const link of links) {
+      if (!ownedItemIds.has(link.itemId)) continue;
+      countByTag.set(link.tagId, (countByTag.get(link.tagId) ?? 0) + 1);
+    }
+    return tagRows
+      .map((t) => ({
+        id: t.id,
+        name: t.name,
+        color: t.color ?? null,
+        itemCount: countByTag.get(t.id) ?? 0,
+      }))
+      .sort((a, b) => b.itemCount - a.itemCount || a.name.localeCompare(b.name));
+  }),
+
   rename: protectedProcedure
     .input(
       z.object({

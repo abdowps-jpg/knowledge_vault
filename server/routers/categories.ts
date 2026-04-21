@@ -1,5 +1,5 @@
 import { randomUUID } from 'crypto';
-import { and, desc, eq } from 'drizzle-orm';
+import { and, desc, eq, inArray, isNull } from 'drizzle-orm';
 import { z } from 'zod';
 import { db } from '../db';
 import { categories, itemCategories } from '../schema/categories';
@@ -164,4 +164,30 @@ export const categoriesRouter = router({
         return { success: false, categoryId: null };
       }
     }),
+
+  listWithCounts: protectedProcedure.query(async ({ ctx }) => {
+    const cats = await db.select().from(categories).where(eq(categories.userId, ctx.user.id));
+    if (cats.length === 0) return [];
+    const catIds = cats.map((c) => c.id);
+    const links = await db.select().from(itemCategories).where(inArray(itemCategories.categoryId, catIds));
+    const itemIds = links.map((l) => l.itemId);
+    const ownedItems = itemIds.length > 0
+      ? await db
+          .select({ id: items.id })
+          .from(items)
+          .where(and(inArray(items.id, itemIds), eq(items.userId, ctx.user.id), isNull(items.deletedAt)))
+      : [];
+    const ownedItemIds = new Set(ownedItems.map((i) => i.id));
+    const countByCategory = new Map<string, number>();
+    for (const link of links) {
+      if (!ownedItemIds.has(link.itemId)) continue;
+      countByCategory.set(link.categoryId, (countByCategory.get(link.categoryId) ?? 0) + 1);
+    }
+    return cats.map((c) => ({
+      id: c.id,
+      name: c.name,
+      icon: c.icon ?? null,
+      itemCount: countByCategory.get(c.id) ?? 0,
+    }));
+  }),
 });

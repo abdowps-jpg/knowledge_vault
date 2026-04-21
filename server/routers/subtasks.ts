@@ -119,4 +119,32 @@ export const subtasksRouter = router({
       await db.delete(subtasks).where(and(eq(subtasks.id, input.id), eq(subtasks.userId, ctx.user.id)));
       return { success: true as const };
     }),
+
+  reorder: protectedProcedure
+    .input(
+      z.object({
+        taskId: z.string(),
+        orderedIds: z.array(z.string()).min(1).max(50),
+      })
+    )
+    .mutation(async ({ ctx, input }) => {
+      await ensureSubtasksTable();
+      if (!(await ensureTaskOwner(input.taskId, ctx.user.id))) {
+        return { success: false as const };
+      }
+      const existing = await db
+        .select()
+        .from(subtasks)
+        .where(and(eq(subtasks.taskId, input.taskId), eq(subtasks.userId, ctx.user.id)));
+      const validIds = new Set(existing.map((s) => s.id));
+      for (let i = 0; i < input.orderedIds.length; i += 1) {
+        const id = input.orderedIds[i];
+        if (!validIds.has(id)) continue;
+        await db
+          .update(subtasks)
+          .set({ sortOrder: i, updatedAt: new Date() })
+          .where(eq(subtasks.id, id));
+      }
+      return { success: true as const, reordered: input.orderedIds.length };
+    }),
 });
