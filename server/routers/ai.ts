@@ -34,6 +34,25 @@ function enforceLlmQuota(userId: string) {
   }
 }
 
+function quotaSnapshot(userId: string) {
+  const now = Date.now();
+  const entry = llmUsage.get(userId);
+  if (!entry || now > entry.resetAt) {
+    return {
+      used: 0,
+      max: LLM_MAX_PER_WINDOW,
+      remaining: LLM_MAX_PER_WINDOW,
+      resetAt: null as string | null,
+    };
+  }
+  return {
+    used: entry.count,
+    max: LLM_MAX_PER_WINDOW,
+    remaining: Math.max(0, LLM_MAX_PER_WINDOW - entry.count),
+    resetAt: new Date(entry.resetAt).toISOString(),
+  };
+}
+
 function extractContentText(title: string, content: string | null | undefined, url: string | null | undefined): string {
   const parts = [title.trim()];
   if (content && content.trim()) parts.push(content.trim());
@@ -56,6 +75,8 @@ async function loadItemForUser(itemId: string, userId: string) {
 }
 
 export const aiRouter = router({
+  quota: protectedProcedure.query(({ ctx }) => quotaSnapshot(ctx.user.id)),
+
   suggestTags: protectedProcedure
     .input(z.object({ itemId: z.string() }))
     .mutation(async ({ input, ctx }) => {

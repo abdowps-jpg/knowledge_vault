@@ -296,6 +296,43 @@ export const attachmentsRouter = router({
       }
     }),
 
+  storageUsage: protectedProcedure.query(async ({ ctx }) => {
+    // Join attachments to items to scope by user
+    const rows = await db
+      .select({
+        id: attachments.id,
+        type: attachments.type,
+        fileSize: attachments.fileSize,
+        itemUserId: items.userId,
+      })
+      .from(attachments)
+      .leftJoin(items, eq(items.id, attachments.itemId))
+      .where(eq(items.userId, ctx.user.id));
+
+    let totalBytes = 0;
+    let imageCount = 0;
+    let audioCount = 0;
+    let imageBytes = 0;
+    let audioBytes = 0;
+    for (const r of rows) {
+      const size = typeof r.fileSize === 'number' ? r.fileSize : 0;
+      totalBytes += size;
+      if (r.type === 'image') {
+        imageCount += 1;
+        imageBytes += size;
+      } else if (r.type === 'audio') {
+        audioCount += 1;
+        audioBytes += size;
+      }
+    }
+    return {
+      count: rows.length,
+      totalBytes,
+      images: { count: imageCount, bytes: imageBytes },
+      audio: { count: audioCount, bytes: audioBytes },
+    };
+  }),
+
   transcribe: protectedProcedure
     .input(
       z.object({

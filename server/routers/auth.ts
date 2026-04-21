@@ -646,4 +646,16 @@ export const authRouter = router({
         token,
       };
     }),
+
+  signOutEverywhere: protectedProcedure.mutation(async ({ ctx }) => {
+    const audit = getRequestAudit(ctx.req);
+    const { pushTokens } = await import('../schema/push_tokens');
+    // Deactivate push tokens so server-push stops
+    await db
+      .update(pushTokens)
+      .set({ isActive: false })
+      .where(eq(pushTokens.userId, ctx.user.id));
+    await recordAudit({ userId: ctx.user.id, ...audit }, 'auth.signOutEverywhere');
+    return { success: true as const };
+  }),
 });

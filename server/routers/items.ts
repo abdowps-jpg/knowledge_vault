@@ -541,6 +541,59 @@ export const itemsRouter = router({
       return copy;
     }),
 
+  bulkAddTag: protectedProcedure
+    .input(
+      z.object({
+        itemIds: z.array(z.string()).min(1).max(100),
+        tagId: z.string(),
+      })
+    )
+    .mutation(async ({ input, ctx }) => {
+      // Verify tag ownership
+      const tagRow = await db
+        .select()
+        .from(tags)
+        .where(and(eq(tags.id, input.tagId), eq(tags.userId, ctx.user.id)))
+        .limit(1);
+      if (tagRow.length === 0) {
+        throw new TRPCError({ code: 'FORBIDDEN', message: 'Tag not found for this user' });
+      }
+
+      // Verify all items belong to the user
+      const ownedItems = await db
+        .select({ id: items.id })
+        .from(items)
+        .where(
+          and(
+            inArray(items.id, input.itemIds),
+            eq(items.userId, ctx.user.id),
+            isNull(items.deletedAt)
+          )
+        );
+      const ownedIds = new Set(ownedItems.map((r) => r.id));
+      const toLink = input.itemIds.filter((id) => ownedIds.has(id));
+      if (toLink.length === 0) return { success: true as const, linked: 0 };
+
+      // Skip items that already have this tag
+      const existingLinks = await db
+        .select()
+        .from(itemTags)
+        .where(and(inArray(itemTags.itemId, toLink), eq(itemTags.tagId, input.tagId)));
+      const existingItemIds = new Set(existingLinks.map((l) => l.itemId));
+      const newLinks = toLink
+        .filter((id) => !existingItemIds.has(id))
+        .map((id) => ({
+          id: randomUUID(),
+          itemId: id,
+          tagId: input.tagId,
+          createdAt: new Date(),
+        }));
+      if (newLinks.length > 0) {
+        await db.insert(itemTags).values(newLinks);
+      }
+      return { success: true as const, linked: newLinks.length, skipped: toLink.length - newLinks.length };
+    }),
+
   bulkTrash: protectedProcedure
     .input(z.object({ ids: z.array(z.string()).min(1).max(100) }))
     .mutation(async ({ input, ctx }) => {
@@ -622,6 +675,35 @@ export const itemsRouter = router({
         .limit(input.limit);
       return rows;
     }),
+
+  counts: protectedProcedure.query(async ({ ctx }) => {
+    const rows = await db
+      .select()
+      .from(items)
+      .where(and(eq(items.userId, ctx.user.id), isNull(items.deletedAt)));
+    const total = rows.length;
+    const byType = { note: 0, quote: 0, link: 0, audio: 0 };
+    const byLocation = { inbox: 0, library: 0, archive: 0 };
+    let favorites = 0;
+    for (const r of rows) {
+      const t = r.type as keyof typeof byType;
+      if (t in byType) byType[t] += 1;
+      const l = (r.location ?? 'inbox') as keyof typeof byLocation;
+      if (l in byLocation) byLocation[l] += 1;
+      if (r.isFavorite) favorites += 1;
+    }
+    const trashedRows = await db
+      .select()
+      .from(items)
+      .where(and(eq(items.userId, ctx.user.id), sql`${items.deletedAt} IS NOT NULL`));
+    return {
+      total,
+      byType,
+      byLocation,
+      favorites,
+      trashed: trashedRows.length,
+    };
+  }),
 
   listByTag: protectedProcedure
     .input(
