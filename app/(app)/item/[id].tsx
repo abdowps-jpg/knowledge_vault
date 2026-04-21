@@ -93,6 +93,14 @@ export default function ItemDetailScreen() {
     { itemId: id || "" },
     {
       enabled: Boolean(id) && Boolean(itemQuery.data),
+      refetchInterval: 30_000,
+      refetchIntervalInBackground: false,
+    }
+  );
+  const mentionableQuery = trpc.itemComments.listMentionable.useQuery(
+    { itemId: id || "" },
+    {
+      enabled: Boolean(id) && Boolean(itemQuery.data),
     }
   );
   const createComment = trpc.itemComments.create.useMutation();
@@ -1239,7 +1247,7 @@ export default function ItemDetailScreen() {
           <TextInput
             value={commentInput}
             onChangeText={setCommentInput}
-            placeholder="Add comment... Use @email for mentions"
+            placeholder="Add comment... Use @username or @email to mention"
             placeholderTextColor={colors.muted}
             multiline
             style={{
@@ -1251,9 +1259,40 @@ export default function ItemDetailScreen() {
               paddingHorizontal: 12,
               paddingVertical: 10,
               minHeight: 80,
-              marginBottom: 10,
+              marginBottom: 8,
             }}
           />
+          {mentionableQuery.data && mentionableQuery.data.length > 0 ? (
+            <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 6, marginBottom: 10 }}>
+              <Text style={{ color: colors.muted, fontSize: 11, width: "100%", marginBottom: 2 }}>
+                Tap to mention:
+              </Text>
+              {mentionableQuery.data.slice(0, 8).map((u: any) => {
+                const handle = u.username || u.email;
+                return (
+                  <Pressable
+                    key={u.id}
+                    onPress={() => {
+                      setCommentInput((prev) => {
+                        const sep = prev.trim().length > 0 && !/\s$/.test(prev) ? " " : "";
+                        return `${prev}${sep}@${handle} `;
+                      });
+                    }}
+                    style={{
+                      paddingHorizontal: 8,
+                      paddingVertical: 4,
+                      borderRadius: 999,
+                      borderWidth: 1,
+                      borderColor: colors.border,
+                      backgroundColor: colors.surface,
+                    }}
+                  >
+                    <Text style={{ color: colors.primary, fontSize: 11, fontWeight: "600" }}>@{handle}</Text>
+                  </Pressable>
+                );
+              })}
+            </View>
+          ) : null}
           <Pressable
             onPress={handleAddComment}
             disabled={createComment.isPending}
