@@ -1,4 +1,4 @@
-import { and, count, desc, eq } from 'drizzle-orm';
+import { and, count, desc, eq, inArray } from 'drizzle-orm';
 import { z } from 'zod';
 import { db } from '../db';
 import { userNotifications } from '../schema/user_notifications';
@@ -45,6 +45,21 @@ export const notificationsRouter = router({
         .set({ isRead: true })
         .where(and(eq(userNotifications.id, input.id), eq(userNotifications.userId, ctx.user.id)));
       return { success: true as const };
+    }),
+
+  bulkMarkRead: protectedProcedure
+    .input(z.object({ ids: z.array(z.string()).min(1).max(200) }))
+    .mutation(async ({ input, ctx }) => {
+      await db
+        .update(userNotifications)
+        .set({ isRead: true })
+        .where(
+          and(
+            eq(userNotifications.userId, ctx.user.id),
+            inArray(userNotifications.id, input.ids)
+          )
+        );
+      return { success: true as const, marked: input.ids.length };
     }),
 
   markAllRead: protectedProcedure.mutation(async ({ ctx }) => {

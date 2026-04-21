@@ -215,4 +215,57 @@ export const tagsRouter = router({
         return [];
       }
     }),
+
+  rename: protectedProcedure
+    .input(
+      z.object({
+        id: z.string(),
+        name: z.string().min(1).max(80),
+      })
+    )
+    .mutation(async ({ input, ctx }) => {
+      const newName = input.name.trim().toLowerCase();
+      const rows = await db
+        .select()
+        .from(tags)
+        .where(and(eq(tags.id, input.id), eq(tags.userId, ctx.user.id)))
+        .limit(1);
+      const current = rows[0];
+      if (!current) return { success: false as const, merged: false };
+
+      // If another tag with the new name exists for this user, merge: point
+      // all itemTags links at the target tag then delete the current tag.
+      const collision = await db
+        .select()
+        .from(tags)
+        .where(and(eq(tags.userId, ctx.user.id), eq(tags.name, newName)))
+        .limit(1);
+      const target = collision.find((t) => t.id !== current.id);
+
+      if (target) {
+        // Move links
+        const links = await db
+          .select()
+          .from(itemTags)
+          .where(eq(itemTags.tagId, current.id));
+        for (const link of links) {
+          // Skip if the item already has the target tag
+          const existing = await db
+            .select()
+            .from(itemTags)
+            .where(and(eq(itemTags.itemId, link.itemId), eq(itemTags.tagId, target.id)))
+            .limit(1);
+          if (existing.length === 0) {
+            await db.update(itemTags).set({ tagId: target.id }).where(eq(itemTags.id, link.id));
+          } else {
+            await db.delete(itemTags).where(eq(itemTags.id, link.id));
+          }
+        }
+        await db.delete(tags).where(eq(tags.id, current.id));
+        return { success: true as const, merged: true, targetId: target.id };
+      }
+
+      await db.update(tags).set({ name: newName }).where(eq(tags.id, current.id));
+      return { success: true as const, merged: false };
+    }),
 });

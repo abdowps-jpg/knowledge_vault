@@ -1,3 +1,4 @@
+import { TRPCError } from '@trpc/server';
 import { z } from 'zod';
 import { protectedProcedure, router } from '../trpc';
 import { items } from '../schema';
@@ -384,6 +385,48 @@ export const itemsRouter = router({
       return { success: true };
     }),
 
+  bulkMove: protectedProcedure
+    .input(
+      z.object({
+        ids: z.array(z.string()).min(1).max(100),
+        location: z.enum(['inbox', 'library', 'archive']),
+      })
+    )
+    .mutation(async ({ input, ctx }) => {
+      await db
+        .update(items)
+        .set({ location: input.location, updatedAt: new Date() })
+        .where(
+          and(
+            inArray(items.id, input.ids),
+            eq(items.userId, ctx.user.id),
+            isNull(items.deletedAt)
+          )
+        );
+      return { success: true as const, moved: input.ids.length };
+    }),
+
+  bulkFavorite: protectedProcedure
+    .input(
+      z.object({
+        ids: z.array(z.string()).min(1).max(100),
+        isFavorite: z.boolean(),
+      })
+    )
+    .mutation(async ({ input, ctx }) => {
+      await db
+        .update(items)
+        .set({ isFavorite: input.isFavorite, updatedAt: new Date() })
+        .where(
+          and(
+            inArray(items.id, input.ids),
+            eq(items.userId, ctx.user.id),
+            isNull(items.deletedAt)
+          )
+        );
+      return { success: true as const, updated: input.ids.length };
+    }),
+
   trash: protectedProcedure
     .input(z.object({ id: z.string() }))
     .mutation(async ({ input, ctx }) => {
@@ -392,6 +435,121 @@ export const itemsRouter = router({
         .set({ deletedAt: new Date(), updatedAt: new Date() })
         .where(and(eq(items.id, input.id), eq(items.userId, ctx.user.id)));
       return { success: true as const };
+    }),
+
+  merge: protectedProcedure
+    .input(
+      z.object({
+        keepId: z.string(),
+        mergeFromId: z.string(),
+      })
+    )
+    .mutation(async ({ input, ctx }) => {
+      if (input.keepId === input.mergeFromId) {
+        throw new TRPCError({ code: 'BAD_REQUEST', message: 'Cannot merge an item into itself' });
+      }
+      const rows = await db
+        .select()
+        .from(items)
+        .where(
+          and(
+            inArray(items.id, [input.keepId, input.mergeFromId]),
+            eq(items.userId, ctx.user.id),
+            isNull(items.deletedAt)
+          )
+        );
+      const keep = rows.find((r) => r.id === input.keepId);
+      const from = rows.find((r) => r.id === input.mergeFromId);
+      if (!keep || !from) {
+        throw new TRPCError({ code: 'NOT_FOUND', message: 'Item not found' });
+      }
+
+      const mergedContent = [
+        (keep.content ?? '').trim(),
+        from.content && from.content.trim() ? `\n\n---\n\n${from.content.trim()}` : '',
+      ]
+        .join('')
+        .slice(0, 100_000);
+
+      await db
+        .update(items)
+        .set({
+          content: mergedContent,
+          url: keep.url ?? from.url ?? null,
+          updatedAt: new Date(),
+        })
+        .where(eq(items.id, keep.id));
+
+      // Union tag links
+      const fromTagLinks = await db.select().from(itemTags).where(eq(itemTags.itemId, from.id));
+      for (const link of fromTagLinks) {
+        const existing = await db
+          .select()
+          .from(itemTags)
+          .where(and(eq(itemTags.itemId, keep.id), eq(itemTags.tagId, link.tagId)))
+          .limit(1);
+        if (existing.length === 0) {
+          await db.update(itemTags).set({ itemId: keep.id }).where(eq(itemTags.id, link.id));
+        } else {
+          await db.delete(itemTags).where(eq(itemTags.id, link.id));
+        }
+      }
+
+      // Soft-delete the source
+      await db.update(items).set({ deletedAt: new Date() }).where(eq(items.id, from.id));
+
+      return { success: true as const, keptId: keep.id };
+    }),
+
+  duplicate: protectedProcedure
+    .input(z.object({ id: z.string() }))
+    .mutation(async ({ input, ctx }) => {
+      const rows = await db
+        .select()
+        .from(items)
+        .where(and(eq(items.id, input.id), eq(items.userId, ctx.user.id), isNull(items.deletedAt)))
+        .limit(1);
+      const src = rows[0];
+      if (!src) {
+        throw new TRPCError({ code: 'NOT_FOUND', message: 'Item not found' });
+      }
+      const now = new Date();
+      const copy = {
+        id: randomUUID(),
+        userId: ctx.user.id,
+        type: src.type,
+        title: `${src.title} (copy)`.slice(0, 500),
+        content: src.content,
+        url: src.url,
+        location: src.location ?? 'inbox',
+        isFavorite: false,
+        createdAt: now,
+        updatedAt: now,
+      };
+      await db.insert(items).values(copy);
+
+      // Copy tag links
+      const tagLinks = await db.select().from(itemTags).where(eq(itemTags.itemId, src.id));
+      for (const link of tagLinks) {
+        await db.insert(itemTags).values({
+          id: randomUUID(),
+          itemId: copy.id,
+          tagId: link.tagId,
+          createdAt: now,
+        });
+      }
+      return copy;
+    }),
+
+  bulkTrash: protectedProcedure
+    .input(z.object({ ids: z.array(z.string()).min(1).max(100) }))
+    .mutation(async ({ input, ctx }) => {
+      const now = new Date();
+      await db
+        .update(items)
+        .set({ deletedAt: now, updatedAt: now })
+        .where(and(inArray(items.id, input.ids), eq(items.userId, ctx.user.id)));
+      return { success: true as const, trashed: input.ids.length };
     }),
 
   restore: protectedProcedure
@@ -439,6 +597,24 @@ export const itemsRouter = router({
         .where(and(eq(items.userId, ctx.user.id), gte(items.updatedAt, sinceDate)))
         .orderBy(desc(items.updatedAt));
       return result ?? [];
+    }),
+
+  recentlyEdited: protectedProcedure
+    .input(z.object({ limit: z.number().int().min(1).max(20).default(8) }).optional())
+    .query(async ({ input, ctx }) => {
+      const limit = input?.limit ?? 8;
+      const rows = await db
+        .select()
+        .from(items)
+        .where(and(eq(items.userId, ctx.user.id), isNull(items.deletedAt)))
+        .orderBy(desc(items.updatedAt))
+        .limit(limit);
+      return rows.map((r) => ({
+        id: r.id,
+        title: r.title,
+        type: r.type,
+        updatedAt: r.updatedAt,
+      }));
     }),
 
   fetchLinkMetadata: protectedProcedure
