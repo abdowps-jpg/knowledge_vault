@@ -5,7 +5,7 @@ import { verifyToken } from '../lib/auth';
 import { db } from '../db';
 import { users } from '../schema/users';
 import { tasks } from '../schema/tasks';
-import { randomUUID } from 'crypto';
+import { createHmac, randomUUID } from 'crypto';
 import { eq, isNull } from 'drizzle-orm';
 import { resolveUserIdFromTaskInboxAddress } from '../lib/email-task-address';
 import { itemsRouter } from '../routers/items';
@@ -241,15 +241,28 @@ app.use((req, res, next) => {
 const WEBHOOK_MAX_RETRIES = 3;
 const WEBHOOK_RETRY_DELAYS = [1000, 5000, 15000];
 
+function signWebhookBody(body: string, secret: string | null, timestamp: string): string | null {
+  if (!secret) return null;
+  const toSign = `${timestamp}.${body}`;
+  return createHmac('sha256', secret).update(toSign).digest('hex');
+}
+
 async function deliverWebhook(hook: { id: string; url: string; secret: string | null }, body: string, attempt = 0): Promise<void> {
   try {
+    const timestamp = String(Math.floor(Date.now() / 1000));
+    const signature = signWebhookBody(body, hook.secret, timestamp);
+    const headers: Record<string, string> = {
+      'content-type': 'application/json',
+      'x-kv-webhook-id': hook.id,
+      'x-kv-timestamp': timestamp,
+    };
+    if (signature) {
+      headers['x-kv-signature'] = `sha256=${signature}`;
+    }
+
     const response = await fetch(hook.url, {
       method: 'POST',
-      headers: {
-        'content-type': 'application/json',
-        'x-kv-webhook-id': hook.id,
-        'x-kv-webhook-secret': hook.secret ?? '',
-      },
+      headers,
       body,
       signal: AbortSignal.timeout(10_000),
     });

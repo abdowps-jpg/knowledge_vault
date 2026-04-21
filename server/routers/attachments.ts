@@ -1,5 +1,5 @@
 import { randomUUID } from 'crypto';
-import { and, desc, eq } from 'drizzle-orm';
+import { and, count, desc, eq } from 'drizzle-orm';
 import { TRPCError } from '@trpc/server';
 import { z } from 'zod';
 import { db } from '../db';
@@ -8,6 +8,52 @@ import { attachments } from '../schema/attachments';
 import { items } from '../schema/items';
 import { journal } from '../schema/journal';
 import { protectedProcedure, router } from '../trpc';
+
+const MAX_ATTACHMENTS_PER_ITEM = 50;
+const MAX_IMAGE_SIZE_BYTES = 10 * 1024 * 1024;
+const MAX_AUDIO_SIZE_BYTES = 25 * 1024 * 1024;
+const MAX_REMOTE_URL_LENGTH = 2048;
+
+const IMAGE_DATA_URL_PREFIXES = ['data:image/png', 'data:image/jpeg', 'data:image/jpg', 'data:image/webp', 'data:image/gif', 'data:image/heic', 'data:image/heif'];
+const AUDIO_DATA_URL_PREFIXES = ['data:audio/mpeg', 'data:audio/mp3', 'data:audio/wav', 'data:audio/wave', 'data:audio/webm', 'data:audio/ogg', 'data:audio/mp4', 'data:audio/m4a'];
+
+function validateAttachmentPayload(fileUrl: string, declaredType: 'image' | 'audio'): { estimatedBytes: number } {
+  const isDataUrl = fileUrl.startsWith('data:');
+  const isHttp = /^https?:\/\//i.test(fileUrl);
+
+  if (!isDataUrl && !isHttp) {
+    throw new TRPCError({ code: 'BAD_REQUEST', message: 'fileUrl must be a data: or https? URL' });
+  }
+
+  if (isHttp) {
+    if (fileUrl.length > MAX_REMOTE_URL_LENGTH) {
+      throw new TRPCError({ code: 'BAD_REQUEST', message: 'Remote URL too long' });
+    }
+    return { estimatedBytes: 0 };
+  }
+
+  const allowedPrefixes = declaredType === 'image' ? IMAGE_DATA_URL_PREFIXES : AUDIO_DATA_URL_PREFIXES;
+  const matchesType = allowedPrefixes.some((p) => fileUrl.toLowerCase().startsWith(p));
+  if (!matchesType) {
+    throw new TRPCError({
+      code: 'BAD_REQUEST',
+      message: `Attachment MIME does not match declared type '${declaredType}'`,
+    });
+  }
+
+  const commaIdx = fileUrl.indexOf(',');
+  const base64Length = commaIdx >= 0 ? fileUrl.length - commaIdx - 1 : fileUrl.length;
+  const estimatedBytes = Math.floor((base64Length * 3) / 4);
+
+  const limit = declaredType === 'image' ? MAX_IMAGE_SIZE_BYTES : MAX_AUDIO_SIZE_BYTES;
+  if (estimatedBytes > limit) {
+    throw new TRPCError({
+      code: 'PAYLOAD_TOO_LARGE',
+      message: `${declaredType} exceeds max size (${Math.floor(limit / (1024 * 1024))}MB)`,
+    });
+  }
+  return { estimatedBytes };
+}
 
 const TRANSCRIBE_WINDOW_MS = 60 * 60_000;
 const TRANSCRIBE_MAX_PER_WINDOW = 30;
@@ -30,40 +76,48 @@ export const attachmentsRouter = router({
     .input(
       z.object({
         itemId: z.string(),
-        fileUrl: z.string().min(1),
-        filename: z.string().min(1),
+        fileUrl: z.string().min(1).max(15 * 1024 * 1024),
+        filename: z.string().min(1).max(255),
         type: z.enum(['image', 'audio']).default('image'),
       })
     )
     .mutation(async ({ input, ctx }) => {
-      try {
-        const ownerItem = await db
-          .select()
-          .from(items)
-          .where(and(eq(items.id, input.itemId), eq(items.userId, ctx.user.id)))
-          .limit(1);
-        if (ownerItem.length === 0) {
-          return null;
-        }
-
-        const newAttachment = {
-          id: randomUUID(),
-          itemId: input.itemId,
-          journalId: null,
-          fileUrl: input.fileUrl,
-          filename: input.filename,
-          type: input.type,
-          fileSize: input.fileUrl.length,
-          duration: null,
-          transcription: null,
-        };
-
-        await db.insert(attachments).values(newAttachment);
-        return newAttachment;
-      } catch (error) {
-        console.error('Error creating attachment:', error);
-        return null;
+      const ownerItem = await db
+        .select()
+        .from(items)
+        .where(and(eq(items.id, input.itemId), eq(items.userId, ctx.user.id)))
+        .limit(1);
+      if (ownerItem.length === 0) {
+        throw new TRPCError({ code: 'FORBIDDEN', message: 'Not the owner of this item' });
       }
+
+      const { estimatedBytes } = validateAttachmentPayload(input.fileUrl, input.type);
+
+      const [countRow] = await db
+        .select({ total: count() })
+        .from(attachments)
+        .where(eq(attachments.itemId, input.itemId));
+      if ((countRow?.total ?? 0) >= MAX_ATTACHMENTS_PER_ITEM) {
+        throw new TRPCError({
+          code: 'BAD_REQUEST',
+          message: `Maximum of ${MAX_ATTACHMENTS_PER_ITEM} attachments per item allowed.`,
+        });
+      }
+
+      const newAttachment = {
+        id: randomUUID(),
+        itemId: input.itemId,
+        journalId: null,
+        fileUrl: input.fileUrl,
+        filename: input.filename.trim().slice(0, 255),
+        type: input.type,
+        fileSize: estimatedBytes > 0 ? estimatedBytes : input.fileUrl.length,
+        duration: null,
+        transcription: null,
+      };
+
+      await db.insert(attachments).values(newAttachment);
+      return newAttachment;
     }),
 
   // Get all attachments for item
