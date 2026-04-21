@@ -108,9 +108,14 @@ export default function ItemDetailScreen() {
   const suggestTags = trpc.ai.suggestTags.useMutation();
   const summarizeItem = trpc.ai.summarize.useMutation();
   const relatedItems = trpc.ai.relatedItems.useMutation();
+  const quickActions = trpc.ai.quickActions.useMutation();
+  const createTaskFromAction = trpc.tasks.create.useMutation();
   const [aiSummary, setAiSummary] = React.useState<string>("");
   const [aiTagSuggestions, setAiTagSuggestions] = React.useState<string[]>([]);
   const [aiRelated, setAiRelated] = React.useState<{ id: string; title: string; reason: string }[]>([]);
+  const [aiActions, setAiActions] = React.useState<
+    { kind: "task" | "followup" | "question" | "note"; label: string; detail?: string }[]
+  >([]);
   const isServerBackedItem = Boolean(itemQuery.data);
   const effectiveItem = React.useMemo(() => {
     if (itemQuery.data) return itemQuery.data;
@@ -673,7 +678,116 @@ export default function ItemDetailScreen() {
                   {relatedItems.isPending ? "Thinking…" : "Find related"}
                 </Text>
               </Pressable>
+              <Pressable
+                onPress={async () => {
+                  try {
+                    const res = await quickActions.mutateAsync({ itemId: id });
+                    setAiActions(res.actions);
+                  } catch (e: any) {
+                    Alert.alert("AI", e?.message ?? "Failed to suggest actions");
+                  }
+                }}
+                disabled={quickActions.isPending}
+                style={{
+                  backgroundColor: colors.surface,
+                  borderWidth: 1,
+                  borderColor: colors.primary,
+                  paddingHorizontal: 12,
+                  paddingVertical: 8,
+                  borderRadius: 8,
+                  opacity: quickActions.isPending ? 0.6 : 1,
+                }}
+              >
+                <Text style={{ color: colors.primary, fontWeight: "600", fontSize: 13 }}>
+                  {quickActions.isPending ? "Thinking…" : "Quick actions"}
+                </Text>
+              </Pressable>
             </View>
+            {aiActions.length > 0 ? (
+              <View style={{ marginTop: 10 }}>
+                <Text style={{ color: colors.muted, fontSize: 11, marginBottom: 6 }}>
+                  Suggested actions
+                </Text>
+                {aiActions.map((a, idx) => {
+                  const kindColor =
+                    a.kind === "task"
+                      ? colors.success
+                      : a.kind === "followup"
+                      ? colors.warning
+                      : a.kind === "question"
+                      ? colors.primary
+                      : colors.muted;
+                  return (
+                    <Pressable
+                      key={`${a.kind}-${idx}`}
+                      onPress={async () => {
+                        if (a.kind === "task") {
+                          try {
+                            await createTaskFromAction.mutateAsync({
+                              title: a.label,
+                              description: a.detail ?? undefined,
+                              priority: "medium",
+                            });
+                            setAiActions((prev) => prev.filter((_, i) => i !== idx));
+                            Alert.alert("Task created", a.label);
+                          } catch (err: any) {
+                            Alert.alert("Error", err?.message ?? "Failed to create task.");
+                          }
+                        }
+                      }}
+                      style={{
+                        paddingVertical: 8,
+                        paddingHorizontal: 10,
+                        marginBottom: 6,
+                        borderRadius: 8,
+                        borderWidth: 1,
+                        borderColor: colors.border,
+                        backgroundColor: colors.background,
+                      }}
+                    >
+                      <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
+                        <View
+                          style={{
+                            paddingHorizontal: 6,
+                            paddingVertical: 1,
+                            borderRadius: 999,
+                            backgroundColor: kindColor + "22",
+                          }}
+                        >
+                          <Text
+                            style={{
+                              color: kindColor,
+                              fontSize: 10,
+                              fontWeight: "700",
+                              textTransform: "uppercase",
+                            }}
+                          >
+                            {a.kind}
+                          </Text>
+                        </View>
+                        <Text
+                          style={{ color: colors.foreground, flex: 1, fontSize: 13, fontWeight: "600" }}
+                          numberOfLines={2}
+                        >
+                          {a.label}
+                        </Text>
+                        {a.kind === "task" ? (
+                          <Text style={{ color: colors.primary, fontSize: 11, fontWeight: "700" }}>+ Task</Text>
+                        ) : null}
+                      </View>
+                      {a.detail ? (
+                        <Text
+                          style={{ color: colors.muted, fontSize: 11, marginTop: 4, marginLeft: 2 }}
+                          numberOfLines={2}
+                        >
+                          {a.detail}
+                        </Text>
+                      ) : null}
+                    </Pressable>
+                  );
+                })}
+              </View>
+            ) : null}
             {aiTagSuggestions.length > 0 ? (
               <View style={{ marginTop: 10 }}>
                 <Text style={{ color: colors.muted, fontSize: 12, marginBottom: 6 }}>

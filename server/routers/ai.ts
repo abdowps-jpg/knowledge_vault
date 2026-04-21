@@ -248,6 +248,78 @@ export const aiRouter = router({
       return { summary };
     }),
 
+  quickActions: protectedProcedure
+    .input(z.object({ itemId: z.string() }))
+    .mutation(async ({ input, ctx }) => {
+      enforceLlmQuota(ctx.user.id);
+      const item = await loadItemForUser(input.itemId, ctx.user.id);
+      const text = extractContentText(item.title, item.content, item.url);
+      if (text.trim().length < 20) {
+        return { actions: [] as { kind: 'task' | 'followup' | 'question' | 'note'; label: string; detail?: string }[] };
+      }
+
+      const result = await invokeLLM({
+        messages: [
+          {
+            role: 'system',
+            content:
+              'You suggest concrete next actions a knowledge worker could take based on a captured item. ' +
+              'Return 2-5 actions. Each has a kind: "task" (something actionable), "followup" (something to check later), ' +
+              '"question" (what you still need to learn), or "note" (a linkable related idea). ' +
+              'Be specific and grounded in the content. Short labels (max ~80 chars) plus optional one-line detail.',
+          },
+          { role: 'user', content: text },
+        ],
+        outputSchema: {
+          name: 'quick_actions',
+          schema: {
+            type: 'object',
+            additionalProperties: false,
+            properties: {
+              actions: {
+                type: 'array',
+                minItems: 0,
+                maxItems: 5,
+                items: {
+                  type: 'object',
+                  additionalProperties: false,
+                  properties: {
+                    kind: { type: 'string', enum: ['task', 'followup', 'question', 'note'] },
+                    label: { type: 'string', minLength: 1, maxLength: 120 },
+                    detail: { type: 'string', maxLength: 240 },
+                  },
+                  required: ['kind', 'label'],
+                },
+              },
+            },
+            required: ['actions'],
+          },
+          strict: true,
+        },
+      });
+
+      const raw = result.choices?.[0]?.message?.content ?? '';
+      const body = typeof raw === 'string' ? raw : raw.map((p) => ('text' in p ? p.text : '')).join('');
+      let parsed: { actions?: { kind?: unknown; label?: unknown; detail?: unknown }[] } = {};
+      try {
+        parsed = JSON.parse(body);
+      } catch {
+        parsed = { actions: [] };
+      }
+
+      const allowedKinds = new Set(['task', 'followup', 'question', 'note']);
+      const out: { kind: 'task' | 'followup' | 'question' | 'note'; label: string; detail?: string }[] = [];
+      for (const a of parsed.actions ?? []) {
+        const kind = typeof a.kind === 'string' && allowedKinds.has(a.kind) ? (a.kind as 'task' | 'followup' | 'question' | 'note') : null;
+        const label = typeof a.label === 'string' ? a.label.trim().slice(0, 120) : '';
+        const detail = typeof a.detail === 'string' ? a.detail.trim().slice(0, 240) : undefined;
+        if (!kind || !label) continue;
+        out.push({ kind, label, detail });
+        if (out.length >= 5) break;
+      }
+      return { actions: out };
+    }),
+
   relatedItems: protectedProcedure
     .input(z.object({ itemId: z.string(), limit: z.number().int().min(1).max(10).default(5) }))
     .mutation(async ({ input, ctx }) => {
