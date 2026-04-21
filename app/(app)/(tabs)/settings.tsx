@@ -575,6 +575,7 @@ export default function SettingsScreen() {
   const [pendingEmailChange, setPendingEmailChange] = useState("");
 const [showApiModal, setShowApiModal] = useState(false);
   const [latestApiKey, setLatestApiKey] = useState("");
+  const [newApiKeyScope, setNewApiKeyScope] = useState<"read" | "write" | "admin">("write");
   const [newWebhookUrl, setNewWebhookUrl] = useState("");
   const [newWebhookSecret, setNewWebhookSecret] = useState("");
   const [newWebhookEvent, setNewWebhookEvent] = useState<
@@ -1133,10 +1134,16 @@ const [showApiModal, setShowApiModal] = useState(false);
 
   const handleGenerateApiKey = async () => {
     try {
-      const created = await generateApiKeyMutation.mutateAsync({ name: `Key ${new Date().toLocaleString()}` });
+      const created = await generateApiKeyMutation.mutateAsync({
+        name: `Key ${new Date().toLocaleString()}`,
+        scope: newApiKeyScope,
+      });
       setLatestApiKey(created.key);
       await apiKeysQuery.refetch();
-      Alert.alert("API Key Created", "Copy it now. It will not be shown again.");
+      Alert.alert(
+        "API Key Created",
+        `Scope: ${created.scope}. Copy the key now — it will not be shown again.`
+      );
     } catch (error: any) {
       Alert.alert("Error", error?.message || "Failed to create API key.");
     }
@@ -1702,6 +1709,40 @@ const [showApiModal, setShowApiModal] = useState(false);
             <Text className="text-xs font-semibold mb-2" style={{ color: colors.muted }}>
               API Keys
             </Text>
+            <Text style={{ color: colors.muted, fontSize: 11, marginBottom: 6 }}>
+              Scope for the next key:
+            </Text>
+            <View style={{ flexDirection: "row", gap: 6, marginBottom: 10 }}>
+              {(["read", "write", "admin"] as const).map((scope) => (
+                <Pressable
+                  key={scope}
+                  onPress={() => setNewApiKeyScope(scope)}
+                  style={{
+                    flex: 1,
+                    paddingVertical: 8,
+                    borderRadius: 8,
+                    borderWidth: 1,
+                    borderColor: newApiKeyScope === scope ? colors.primary : colors.border,
+                    backgroundColor: newApiKeyScope === scope ? colors.primary : colors.background,
+                    alignItems: "center",
+                  }}
+                >
+                  <Text
+                    style={{
+                      color: newApiKeyScope === scope ? "#fff" : colors.foreground,
+                      fontWeight: "600",
+                      fontSize: 12,
+                      textTransform: "capitalize",
+                    }}
+                  >
+                    {scope}
+                  </Text>
+                </Pressable>
+              ))}
+            </View>
+            <Text style={{ color: colors.muted, fontSize: 10, marginBottom: 10 }}>
+              read = GET only · write = GET + POST/PUT · admin = all including DELETE
+            </Text>
             <Pressable onPress={handleGenerateApiKey} style={{ marginBottom: 10 }}>
               <View className="bg-primary rounded-lg py-3 items-center">
                 <Text className="text-white font-semibold">Generate API Key</Text>
@@ -1716,8 +1757,24 @@ const [showApiModal, setShowApiModal] = useState(false);
             <ScrollView style={{ maxHeight: 140, marginBottom: 8 }}>
               {(apiKeysQuery.data ?? []).map((key) => (
                 <View key={key.id} className="flex-row items-center justify-between mb-2 border border-border rounded-lg p-2">
-                  <View>
-                    <Text style={{ color: colors.foreground, fontWeight: "600" }}>{key.name}</Text>
+                  <View style={{ flex: 1 }}>
+                    <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
+                      <Text style={{ color: colors.foreground, fontWeight: "600" }}>{key.name}</Text>
+                      <View
+                        style={{
+                          backgroundColor: colors.background,
+                          borderWidth: 1,
+                          borderColor: colors.border,
+                          paddingHorizontal: 6,
+                          paddingVertical: 1,
+                          borderRadius: 999,
+                        }}
+                      >
+                        <Text style={{ color: colors.muted, fontSize: 10, textTransform: "uppercase", fontWeight: "700" }}>
+                          {key.scope ?? "write"}
+                        </Text>
+                      </View>
+                    </View>
                     <Text style={{ color: colors.muted, fontSize: 12 }}>{key.keyPreview}</Text>
                   </View>
                   {key.isActive ? (

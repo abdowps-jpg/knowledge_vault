@@ -39,6 +39,7 @@ import { z } from 'zod';
 
 interface ApiRequest extends Request {
   apiUserId?: string;
+  apiKeyScope?: 'read' | 'write' | 'admin';
 }
 
 const SENTRY_DSN = process.env.SENTRY_DSN ?? '';
@@ -308,11 +309,28 @@ app.use('/api', async (req: ApiRequest, res, next) => {
     if (!key) return res.status(401).json({ success: false, error: 'invalid_api_key' });
     await db.update(apiKeys).set({ lastUsedAt: new Date() }).where(eq(apiKeys.id, key.id));
     req.apiUserId = key.userId;
+    req.apiKeyScope = (key.scope as 'read' | 'write' | 'admin') ?? 'write';
     next();
   } catch (error) {
     console.error('[REST API] API key validation failed:', error);
     return res.status(500).json({ success: false, error: 'internal_error' });
   }
+});
+
+app.use('/api', (req: ApiRequest, res, next) => {
+  const method = req.method.toUpperCase();
+  const scope = req.apiKeyScope ?? 'write';
+  const readOnly = method === 'GET' || method === 'HEAD' || method === 'OPTIONS';
+  const isDelete = method === 'DELETE';
+
+  if (readOnly) return next();
+  if (scope === 'read') {
+    return res.status(403).json({ success: false, error: 'insufficient_scope', required: 'write' });
+  }
+  if (isDelete && scope !== 'admin') {
+    return res.status(403).json({ success: false, error: 'insufficient_scope', required: 'admin' });
+  }
+  next();
 });
 
 app.use('/api', rateLimit);

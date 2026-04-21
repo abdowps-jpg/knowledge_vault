@@ -8,6 +8,7 @@ export const apiKeys = sqliteTable(
     name: text('name').notNull(),
     keyHash: text('key_hash').notNull(),
     keyPreview: text('key_preview').notNull(),
+    scope: text('scope', { enum: ['read', 'write', 'admin'] }).notNull().default('write'),
     isActive: integer('is_active', { mode: 'boolean' }).default(true),
     createdAt: integer('created_at', { mode: 'timestamp' }).$defaultFn(() => new Date()),
     lastUsedAt: integer('last_used_at', { mode: 'timestamp' }),

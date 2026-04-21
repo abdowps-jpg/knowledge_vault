@@ -153,6 +153,7 @@ db.exec(`
     name TEXT NOT NULL,
     key_hash TEXT NOT NULL,
     key_preview TEXT NOT NULL,
+    scope TEXT NOT NULL DEFAULT 'write' CHECK(scope IN ('read', 'write', 'admin')),
     is_active INTEGER DEFAULT 1,
     created_at INTEGER DEFAULT (strftime('%s', 'now')),
     last_used_at INTEGER
@@ -162,6 +163,12 @@ db.exec(`
   CREATE INDEX IF NOT EXISTS idx_api_keys_key_hash ON api_keys(key_hash);
   CREATE INDEX IF NOT EXISTS idx_api_keys_is_active ON api_keys(is_active);
 `);
+
+try {
+  db.exec(`ALTER TABLE api_keys ADD COLUMN scope TEXT NOT NULL DEFAULT 'write';`);
+} catch {
+  // Column already exists.
+}
 
 db.exec(`
   CREATE TABLE IF NOT EXISTS webhook_subscriptions (

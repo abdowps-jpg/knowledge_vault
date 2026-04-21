@@ -17,6 +17,7 @@ export const apiRouter = router({
         id: apiKeys.id,
         name: apiKeys.name,
         keyPreview: apiKeys.keyPreview,
+        scope: apiKeys.scope,
         isActive: apiKeys.isActive,
         createdAt: apiKeys.createdAt,
         lastUsedAt: apiKeys.lastUsedAt,
@@ -31,6 +32,7 @@ export const apiRouter = router({
     .input(
       z.object({
         name: z.string().min(2).max(80).default('Default key'),
+        scope: z.enum(['read', 'write', 'admin']).default('write'),
       })
     )
     .mutation(async ({ input, ctx }) => {
@@ -52,12 +54,13 @@ export const apiRouter = router({
         name: input.name.trim(),
         keyHash,
         keyPreview,
+        scope: input.scope,
         isActive: true,
         createdAt: new Date(),
         lastUsedAt: null,
       });
 
-      return { key: rawKey, keyPreview };
+      return { key: rawKey, keyPreview, scope: input.scope };
     }),
 
   revokeKey: protectedProcedure
