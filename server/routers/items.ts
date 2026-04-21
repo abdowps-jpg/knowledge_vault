@@ -412,4 +412,39 @@ export const itemsRouter = router({
       const metadata = await fetchLinkMetadata(input.url);
       return { metadata, error: null };
     }),
+
+  bulkImport: protectedProcedure
+    .input(
+      z.object({
+        notes: z
+          .array(
+            z.object({
+              title: z.string().min(1).max(500),
+              content: z.string().max(100_000).optional(),
+              url: z.string().url().max(2048).optional(),
+            })
+          )
+          .min(1)
+          .max(200),
+        location: z.enum(['inbox', 'library', 'archive']).default('library'),
+      })
+    )
+    .mutation(async ({ input, ctx }) => {
+      const now = new Date();
+      const rows = input.notes.map((n) => ({
+        id: randomUUID(),
+        userId: ctx.user.id,
+        type: (n.url ? 'link' : 'note') as 'note' | 'link',
+        title: n.title.trim().slice(0, 500),
+        content: n.content?.trim().slice(0, 100_000) ?? null,
+        url: n.url ?? null,
+        location: input.location,
+        isFavorite: false,
+        createdAt: now,
+        updatedAt: now,
+      }));
+
+      await db.insert(items).values(rows);
+      return { success: true as const, imported: rows.length, ids: rows.map((r) => r.id) };
+    }),
 });

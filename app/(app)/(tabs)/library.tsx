@@ -108,6 +108,53 @@ export default function LibraryScreen() {
   const [newTitle, setNewTitle] = React.useState("");
   const [newContent, setNewContent] = React.useState("");
   const [newUrl, setNewUrl] = React.useState("");
+  const [showBulkImportModal, setShowBulkImportModal] = React.useState(false);
+  const [bulkImportText, setBulkImportText] = React.useState("");
+  const bulkImport = trpc.items.bulkImport.useMutation({
+    onSuccess: () => {
+      utils.items.list.invalidate();
+    },
+  });
+
+  const handleBulkImport = async () => {
+    const text = bulkImportText.trim();
+    if (!text) {
+      Alert.alert("Validation", "Paste some markdown first.");
+      return;
+    }
+    // Split by H1 headings or horizontal rule. Each block becomes one note.
+    const blocks = text
+      .split(/\n(?=# [^\n]+)|\n---+\n/g)
+      .map((block) => block.trim())
+      .filter((block) => block.length > 0);
+
+    const notes = blocks
+      .map((block) => {
+        const lines = block.split(/\r?\n/);
+        const firstLine = lines[0] ?? "";
+        const titleMatch = firstLine.match(/^#+\s+(.+)$/);
+        const title = (titleMatch ? titleMatch[1] : firstLine).trim().slice(0, 500) || "Untitled";
+        const content = (titleMatch ? lines.slice(1).join("\n") : block).trim().slice(0, 100_000);
+        return { title, content: content || undefined };
+      })
+      .filter((n) => n.title.length > 0)
+      .slice(0, 200);
+
+    if (notes.length === 0) {
+      Alert.alert("Import", "Could not detect any notes in the pasted text.");
+      return;
+    }
+
+    try {
+      const res = await bulkImport.mutateAsync({ notes, location: "library" });
+      setShowBulkImportModal(false);
+      setBulkImportText("");
+      Alert.alert("Imported", `Created ${res.imported} note${res.imported === 1 ? "" : "s"}.`);
+    } catch (err: any) {
+      console.error("[Library] bulkImport failed:", err);
+      Alert.alert("Error", err?.message ?? "Failed to import.");
+    }
+  };
   const [savedViews, setSavedViews] = React.useState<LibrarySavedView[]>([]);
   const [smartFolder, setSmartFolder] = React.useState<SmartFolderKey>("all");
   const [showCategoryModal, setShowCategoryModal] = React.useState(false);
@@ -1029,24 +1076,99 @@ export default function LibraryScreen() {
       </Modal>
 
       {smartFolder !== "archived" && (
-        <Pressable
-          onPress={() => setShowCreateModal(true)}
-          style={{
-            position: "absolute",
-            right: 18,
-            bottom: 22,
-            width: 56,
-            height: 56,
-            borderRadius: 28,
-            alignItems: "center",
-            justifyContent: "center",
-            backgroundColor: colors.primary,
-            elevation: 8,
-          }}
-        >
-          <MaterialIcons name="add" size={28} color="white" />
-        </Pressable>
+        <>
+          <Pressable
+            onPress={() => setShowBulkImportModal(true)}
+            style={{
+              position: "absolute",
+              right: 18,
+              bottom: 86,
+              width: 44,
+              height: 44,
+              borderRadius: 22,
+              alignItems: "center",
+              justifyContent: "center",
+              backgroundColor: colors.surface,
+              borderWidth: 1,
+              borderColor: colors.border,
+              elevation: 4,
+            }}
+          >
+            <MaterialIcons name="file-download" size={20} color={colors.foreground} />
+          </Pressable>
+          <Pressable
+            onPress={() => setShowCreateModal(true)}
+            style={{
+              position: "absolute",
+              right: 18,
+              bottom: 22,
+              width: 56,
+              height: 56,
+              borderRadius: 28,
+              alignItems: "center",
+              justifyContent: "center",
+              backgroundColor: colors.primary,
+              elevation: 8,
+            }}
+          >
+            <MaterialIcons name="add" size={28} color="white" />
+          </Pressable>
+        </>
       )}
+
+      <Modal
+        visible={showBulkImportModal}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setShowBulkImportModal(false)}
+      >
+        <View className="flex-1 bg-black/50 justify-end">
+          <View className="rounded-t-3xl p-6 max-h-[85%]" style={{ backgroundColor: colors.surface }}>
+            <Text className="text-xl font-bold text-foreground mb-1">Bulk Import Markdown</Text>
+            <Text className="text-xs mb-3" style={{ color: colors.muted }}>
+              Paste markdown. Notes are split on H1 headings (# Title) or --- rules. Up to 200 notes.
+            </Text>
+            <TextInput
+              value={bulkImportText}
+              onChangeText={setBulkImportText}
+              placeholder={"# First note\nbody...\n\n# Second note\nbody..."}
+              placeholderTextColor={colors.muted}
+              multiline
+              numberOfLines={12}
+              style={{
+                backgroundColor: colors.background,
+                borderColor: colors.border,
+                borderWidth: 1,
+                borderRadius: 10,
+                color: colors.foreground,
+                paddingHorizontal: 12,
+                paddingVertical: 10,
+                marginBottom: 14,
+                minHeight: 220,
+                textAlignVertical: "top",
+                fontFamily: "monospace",
+                fontSize: 12,
+              }}
+            />
+            <View className="flex-row gap-3">
+              <Pressable onPress={() => setShowBulkImportModal(false)} style={{ flex: 1 }}>
+                <View className="rounded-lg py-3 items-center" style={{ backgroundColor: colors.border }}>
+                  <Text className="text-foreground font-semibold">Cancel</Text>
+                </View>
+              </Pressable>
+              <Pressable onPress={handleBulkImport} disabled={bulkImport.isPending} style={{ flex: 1 }}>
+                <View className="rounded-lg py-3 items-center" style={{ backgroundColor: colors.primary }}>
+                  {bulkImport.isPending ? (
+                    <ActivityIndicator color="white" />
+                  ) : (
+                    <Text className="text-white font-semibold">Import</Text>
+                  )}
+                </View>
+              </Pressable>
+            </View>
+          </View>
+        </View>
+      </Modal>
     </ScreenContainer>
   );
 }
