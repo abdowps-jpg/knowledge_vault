@@ -540,6 +540,7 @@ export default function SettingsScreen() {
   const confirmEmailChangeMutation = trpc.auth.confirmEmailChange.useMutation();
   const changePasswordMutation = trpc.auth.changePassword.useMutation();
   const deleteAccountMutation = trpc.auth.deleteAccount.useMutation();
+  const signOutEverywhereMutation = trpc.auth.signOutEverywhere.useMutation();
   const generateApiKeyMutation = trpc.api.generateKey.useMutation();
   const revokeApiKeyMutation = trpc.api.revokeKey.useMutation();
   const createWebhookMutation = trpc.api.createWebhook.useMutation();
@@ -588,6 +589,10 @@ const [showApiModal, setShowApiModal] = useState(false);
   );
   const unreadCountQuery = trpc.notifications.unreadCount.useQuery(undefined, {
     refetchInterval: 60_000,
+  });
+  const aiQuotaQuery = trpc.ai.quota.useQuery(undefined, {
+    refetchInterval: 60_000,
+    enabled: settings.aiFeaturesEnabled !== false,
   });
   const markAllRead = trpc.notifications.markAllRead.useMutation({
     onSuccess: () => {
@@ -1350,6 +1355,32 @@ const [showApiModal, setShowApiModal] = useState(false);
           />
           <Row icon="logout" label="Logout" onPress={handleLogout} />
           <Row
+            icon="devices-other"
+            label="Sign out everywhere"
+            description="Stop push notifications on all of your devices"
+            onPress={() => {
+              Alert.alert(
+                "Sign out everywhere",
+                "This deactivates push notifications on every device you signed in from. You will still be logged in on this device.",
+                [
+                  { text: "Cancel", style: "cancel" },
+                  {
+                    text: "Sign out everywhere",
+                    style: "destructive",
+                    onPress: async () => {
+                      try {
+                        await signOutEverywhereMutation.mutateAsync();
+                        Alert.alert("Done", "Push notifications disabled on all devices.");
+                      } catch (err: any) {
+                        Alert.alert("Error", err?.message ?? "Failed to sign out everywhere.");
+                      }
+                    },
+                  },
+                ]
+              );
+            }}
+          />
+          <Row
             icon="lock"
             label="Change Password"
             description="Update your account password"
@@ -1423,7 +1454,11 @@ const [showApiModal, setShowApiModal] = useState(false);
           <Row
             icon="auto-awesome"
             label="AI Features"
-            description="Suggest tags, summarize, search, related items, digests"
+            description={
+              settings.aiFeaturesEnabled && aiQuotaQuery.data
+                ? `${aiQuotaQuery.data.remaining}/${aiQuotaQuery.data.max} calls left this hour`
+                : "Suggest tags, summarize, search, related items, digests"
+            }
             right={
               <Switch
                 value={settings.aiFeaturesEnabled}

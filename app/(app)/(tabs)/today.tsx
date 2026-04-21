@@ -154,6 +154,8 @@ export default function TodayScreen() {
     { getNextPageParam: (lastPage) => lastPage.nextCursor }
   );
   const habitsQuery = trpc.habits.list.useQuery();
+  const recentItemsQuery = trpc.items.recentlyEdited.useQuery({ limit: 5 });
+  const atRiskQuery = trpc.tasks.atRisk.useQuery();
   const journalQuery = trpc.journal.list.useInfiniteQuery(
     { limit: 5 },
     { getNextPageParam: (lastPage) => lastPage.nextCursor }
@@ -398,6 +400,74 @@ export default function TodayScreen() {
               ) : null}
             </View>
           </View>
+          ) : null}
+
+          {recentItemsQuery.data && recentItemsQuery.data.length > 0 ? (
+            <View style={{ paddingHorizontal: 16, paddingTop: 16, paddingBottom: 4 }}>
+              <Text style={{ color: colors.muted, fontSize: 11, marginBottom: 6, fontWeight: "700", textTransform: "uppercase" }}>
+                Pick up where you left off
+              </Text>
+              <View style={{ borderWidth: 1, borderColor: colors.border, borderRadius: 12, backgroundColor: colors.surface }}>
+                {recentItemsQuery.data.map((it, idx) => (
+                  <Pressable
+                    key={it.id}
+                    onPress={() => router.push(`/(app)/item/${it.id}` as any)}
+                    style={{
+                      paddingHorizontal: 12,
+                      paddingVertical: 10,
+                      borderBottomWidth: idx === recentItemsQuery.data.length - 1 ? 0 : 1,
+                      borderBottomColor: colors.border,
+                      flexDirection: "row",
+                      alignItems: "center",
+                    }}
+                  >
+                    <MaterialIcons
+                      name={
+                        it.type === "link" ? "link" : it.type === "quote" ? "format-quote" : it.type === "audio" ? "audiotrack" : "notes"
+                      }
+                      size={16}
+                      color={colors.muted}
+                    />
+                    <Text style={{ color: colors.foreground, fontSize: 13, marginLeft: 8, flex: 1 }} numberOfLines={1}>
+                      {it.title || "Untitled"}
+                    </Text>
+                    <Text style={{ color: colors.muted, fontSize: 10 }}>
+                      {it.updatedAt ? new Date(it.updatedAt).toLocaleDateString() : ""}
+                    </Text>
+                  </Pressable>
+                ))}
+              </View>
+            </View>
+          ) : null}
+
+          {atRiskQuery.data && atRiskQuery.data.overdue.length > 0 ? (
+            <View style={{ paddingHorizontal: 16, paddingTop: 16, paddingBottom: 4 }}>
+              <Text style={{ color: colors.error, fontSize: 11, marginBottom: 6, fontWeight: "700", textTransform: "uppercase" }}>
+                Overdue · {atRiskQuery.data.overdue.length}
+              </Text>
+              <View style={{ borderWidth: 1, borderColor: colors.error + "40", borderRadius: 12, backgroundColor: colors.surface }}>
+                {atRiskQuery.data.overdue.slice(0, 5).map((t: any, idx: number) => (
+                  <View
+                    key={t.id}
+                    style={{
+                      paddingHorizontal: 12,
+                      paddingVertical: 8,
+                      borderBottomWidth: idx === Math.min(4, atRiskQuery.data.overdue.length - 1) ? 0 : 1,
+                      borderBottomColor: colors.border,
+                    }}
+                  >
+                    <Text style={{ color: colors.foreground, fontSize: 13, fontWeight: "600" }} numberOfLines={1}>
+                      {t.title}
+                    </Text>
+                    {t.dueDate ? (
+                      <Text style={{ color: colors.error, fontSize: 10, marginTop: 2 }}>
+                        Was due {new Date(t.dueDate).toLocaleDateString()}
+                      </Text>
+                    ) : null}
+                  </View>
+                ))}
+              </View>
+            </View>
           ) : null}
 
           {!hasTodayJournal ? (
