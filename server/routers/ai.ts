@@ -3,11 +3,16 @@ import { and, desc, eq, gte, isNull } from 'drizzle-orm';
 import { z } from 'zod';
 import { db } from '../db';
 import { invokeLLM } from '../_core/llm';
+import { recordAudit } from '../lib/audit';
 import { items } from '../schema/items';
 import { journal } from '../schema/journal';
 import { tags } from '../schema/tags';
 import { tasks } from '../schema/tasks';
 import { protectedProcedure, router } from '../trpc';
+
+function logAiCall(userId: string, action: string, resourceId?: string) {
+  recordAudit({ userId }, `ai.${action}`, resourceId ? { kind: 'item', id: resourceId } : undefined).catch(() => {});
+}
 
 const LLM_WINDOW_MS = 60 * 60_000;
 const LLM_MAX_PER_WINDOW = 60;
@@ -55,6 +60,7 @@ export const aiRouter = router({
     .input(z.object({ itemId: z.string() }))
     .mutation(async ({ input, ctx }) => {
       enforceLlmQuota(ctx.user.id);
+      logAiCall(ctx.user.id, 'suggestTags', input.itemId);
       const item = await loadItemForUser(input.itemId, ctx.user.id);
       const existingTags = await db.select().from(tags).where(eq(tags.userId, ctx.user.id));
       const existingNames = existingTags.map((t) => t.name).slice(0, 200);
@@ -117,6 +123,7 @@ export const aiRouter = router({
     .input(z.object({ query: z.string().min(2).max(300), limit: z.number().int().min(1).max(20).default(10) }))
     .mutation(async ({ input, ctx }) => {
       enforceLlmQuota(ctx.user.id);
+      logAiCall(ctx.user.id, 'search');
 
       const candidatePool = await db
         .select()
@@ -206,6 +213,7 @@ export const aiRouter = router({
     .input(z.object({ itemId: z.string() }))
     .mutation(async ({ input, ctx }) => {
       enforceLlmQuota(ctx.user.id);
+      logAiCall(ctx.user.id, 'summarize', input.itemId);
       const item = await loadItemForUser(input.itemId, ctx.user.id);
       const text = extractContentText(item.title, item.content, item.url);
       if (text.trim().length < 40) {
@@ -257,6 +265,7 @@ export const aiRouter = router({
     )
     .mutation(async ({ input, ctx }) => {
       enforceLlmQuota(ctx.user.id);
+      logAiCall(ctx.user.id, 'expand', input.itemId);
       const item = await loadItemForUser(input.itemId, ctx.user.id);
       const text = extractContentText(item.title, item.content, item.url);
       if (text.trim().length < 5) {
@@ -312,6 +321,7 @@ export const aiRouter = router({
     .input(z.object({ itemId: z.string() }))
     .mutation(async ({ input, ctx }) => {
       enforceLlmQuota(ctx.user.id);
+      logAiCall(ctx.user.id, 'quickActions', input.itemId);
       const item = await loadItemForUser(input.itemId, ctx.user.id);
       const text = extractContentText(item.title, item.content, item.url);
       if (text.trim().length < 20) {
@@ -384,6 +394,7 @@ export const aiRouter = router({
     .input(z.object({ itemId: z.string(), limit: z.number().int().min(1).max(10).default(5) }))
     .mutation(async ({ input, ctx }) => {
       enforceLlmQuota(ctx.user.id);
+      logAiCall(ctx.user.id, 'relatedItems', input.itemId);
       const source = await loadItemForUser(input.itemId, ctx.user.id);
 
       const pool = await db
@@ -472,6 +483,7 @@ export const aiRouter = router({
 
   weeklyReview: protectedProcedure.mutation(async ({ ctx }) => {
     enforceLlmQuota(ctx.user.id);
+    logAiCall(ctx.user.id, 'weeklyReview');
 
     const weekAgo = new Date();
     weekAgo.setDate(weekAgo.getDate() - 7);
@@ -609,6 +621,7 @@ export const aiRouter = router({
 
   dailyDigest: protectedProcedure.mutation(async ({ ctx }) => {
     enforceLlmQuota(ctx.user.id);
+    logAiCall(ctx.user.id, 'dailyDigest');
 
     const startOfDay = new Date();
     startOfDay.setHours(0, 0, 0, 0);
