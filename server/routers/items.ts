@@ -676,6 +676,29 @@ export const itemsRouter = router({
       return rows;
     }),
 
+  byCategory: protectedProcedure
+    .input(z.object({ categoryId: z.string(), limit: z.number().int().min(1).max(100).default(50) }))
+    .query(async ({ input, ctx }) => {
+      const links = await db
+        .select()
+        .from(itemCategories)
+        .where(eq(itemCategories.categoryId, input.categoryId));
+      const itemIds = links.map((l) => l.itemId);
+      if (itemIds.length === 0) return [];
+      return db
+        .select()
+        .from(items)
+        .where(
+          and(
+            inArray(items.id, itemIds),
+            eq(items.userId, ctx.user.id),
+            isNull(items.deletedAt)
+          )
+        )
+        .orderBy(desc(items.updatedAt))
+        .limit(input.limit);
+    }),
+
   counts: protectedProcedure.query(async ({ ctx }) => {
     const rows = await db
       .select()

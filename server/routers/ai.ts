@@ -4,6 +4,7 @@ import { z } from 'zod';
 import { db } from '../db';
 import { invokeLLM } from '../_core/llm';
 import { recordAudit } from '../lib/audit';
+import { categories } from '../schema/categories';
 import { items } from '../schema/items';
 import { journal } from '../schema/journal';
 import { tags } from '../schema/tags';
@@ -336,6 +337,63 @@ export const aiRouter = router({
       }
       const expanded = typeof parsed.expanded === 'string' ? parsed.expanded.trim().slice(0, 4000) : '';
       return { expanded };
+    }),
+
+  categorize: protectedProcedure
+    .input(z.object({ itemId: z.string() }))
+    .mutation(async ({ input, ctx }) => {
+      enforceLlmQuota(ctx.user.id);
+      logAiCall(ctx.user.id, 'categorize', input.itemId);
+      const item = await loadItemForUser(input.itemId, ctx.user.id);
+      const cats = await db.select().from(categories).where(eq(categories.userId, ctx.user.id));
+      if (cats.length === 0) {
+        return { suggestion: null as { id: string; name: string; reason: string } | null };
+      }
+      const catList = cats.map((c) => `${c.id}\t${c.name}`).join('\n');
+      const text = extractContentText(item.title, item.content, item.url);
+
+      const result = await invokeLLM({
+        messages: [
+          {
+            role: 'system',
+            content:
+              'You pick the single best-fitting category for a knowledge item from the user\'s existing categories. ' +
+              'If nothing fits well, return an empty id. Use only ids present in the catalog.',
+          },
+          {
+            role: 'user',
+            content: `Categories (tab-separated id\\tname):\n${catList}\n\nItem:\n${text}`,
+          },
+        ],
+        outputSchema: {
+          name: 'category_suggestion',
+          schema: {
+            type: 'object',
+            additionalProperties: false,
+            properties: {
+              id: { type: 'string', maxLength: 100 },
+              reason: { type: 'string', maxLength: 200 },
+            },
+            required: ['id', 'reason'],
+          },
+          strict: true,
+        },
+      });
+
+      const raw = result.choices?.[0]?.message?.content ?? '';
+      const body = typeof raw === 'string' ? raw : raw.map((p) => ('text' in p ? p.text : '')).join('');
+      let parsed: { id?: unknown; reason?: unknown } = {};
+      try {
+        parsed = JSON.parse(body);
+      } catch {
+        parsed = {};
+      }
+      const id = typeof parsed.id === 'string' ? parsed.id.trim() : '';
+      const reason = typeof parsed.reason === 'string' ? parsed.reason.trim().slice(0, 200) : '';
+      if (!id) return { suggestion: null };
+      const match = cats.find((c) => c.id === id);
+      if (!match) return { suggestion: null };
+      return { suggestion: { id: match.id, name: match.name, reason } };
     }),
 
   quickActions: protectedProcedure

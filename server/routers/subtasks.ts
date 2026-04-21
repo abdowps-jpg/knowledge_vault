@@ -120,6 +120,23 @@ export const subtasksRouter = router({
       return { success: true as const };
     }),
 
+  progress: protectedProcedure
+    .input(z.object({ taskId: z.string() }))
+    .query(async ({ ctx, input }) => {
+      await ensureSubtasksTable();
+      if (!(await ensureTaskOwner(input.taskId, ctx.user.id))) {
+        return { total: 0, completed: 0, percent: 0 };
+      }
+      const rows = await db
+        .select()
+        .from(subtasks)
+        .where(and(eq(subtasks.taskId, input.taskId), eq(subtasks.userId, ctx.user.id)));
+      const total = rows.length;
+      const completed = rows.filter((r) => r.isCompleted).length;
+      const percent = total === 0 ? 0 : Math.round((completed / total) * 100);
+      return { total, completed, percent };
+    }),
+
   reorder: protectedProcedure
     .input(
       z.object({

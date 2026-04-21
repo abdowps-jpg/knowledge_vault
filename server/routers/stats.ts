@@ -271,6 +271,44 @@ export const statsRouter = router({
     }
   }),
 
+  getWritingTrend: protectedProcedure.query(async ({ ctx }) => {
+    try {
+      const since = new Date();
+      since.setDate(since.getDate() - 30);
+      const rows = await db
+        .select()
+        .from(items)
+        .where(and(eq(items.userId, ctx.user.id), isNull(items.deletedAt), gte(items.createdAt, since)));
+      // Bucket content length by day
+      const byDay = new Map<string, { items: number; chars: number }>();
+      for (const r of rows) {
+        const d = toDate(r.createdAt);
+        if (!d) continue;
+        const key = formatDateKey(d);
+        const entry = byDay.get(key) ?? { items: 0, chars: 0 };
+        entry.items += 1;
+        entry.chars += (r.content ?? '').length;
+        byDay.set(key, entry);
+      }
+      const sorted = Array.from(byDay.entries())
+        .sort((a, b) => a[0].localeCompare(b[0]))
+        .map(([date, v]) => ({ date, items: v.items, chars: v.chars }));
+      const totalChars = sorted.reduce((s, d) => s + d.chars, 0);
+      const totalItems = sorted.reduce((s, d) => s + d.items, 0);
+      const avgCharsPerItem = totalItems > 0 ? Math.round(totalChars / totalItems) : 0;
+      return {
+        last30Days: sorted,
+        totals: { items: totalItems, chars: totalChars, avgCharsPerItem },
+      };
+    } catch (error) {
+      console.error('Error getting writing trend:', error);
+      return {
+        last30Days: [] as { date: string; items: number; chars: number }[],
+        totals: { items: 0, chars: 0, avgCharsPerItem: 0 },
+      };
+    }
+  }),
+
   getAiUsage: protectedProcedure.query(async ({ ctx }) => {
     try {
       const since = new Date();

@@ -166,6 +166,26 @@ export const journalRouter = router({
       }
     }),
 
+  moodStats: protectedProcedure.query(async ({ ctx }) => {
+    const since = new Date();
+    since.setDate(since.getDate() - 30);
+    const rows = await db
+      .select()
+      .from(journal)
+      .where(and(eq(journal.userId, ctx.user.id), isNull(journal.deletedAt), gte(journal.createdAt, since)));
+    const counts = new Map<string, number>();
+    for (const r of rows) {
+      if (!r.mood) continue;
+      const key = r.mood.toLowerCase().trim();
+      if (!key) continue;
+      counts.set(key, (counts.get(key) ?? 0) + 1);
+    }
+    const distribution = Array.from(counts.entries())
+      .map(([mood, count]) => ({ mood, count }))
+      .sort((a, b) => b.count - a.count);
+    return { total: rows.length, distribution };
+  }),
+
   searchFast: protectedProcedure
     .input(
       z.object({
