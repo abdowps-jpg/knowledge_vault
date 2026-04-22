@@ -1,0 +1,63 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=380" />
+  <title>Knowledge Vault</title>
+  <link rel="stylesheet" href="popup.css" />
+</head>
+<body>
+  <div class="kv-app">
+    <header>
+      <div class="logo">KV</div>
+      <h1>Save to Vault</h1>
+    </header>
+
+    <main>
+      <div id="status" class="status hidden" role="status" aria-live="polite"></div>
+
+      <form id="capture-form">
+        <label class="field">
+          <span>Type</span>
+          <div class="pills">
+            <button type="button" class="pill active" data-type="link">Link</button>
+            <button type="button" class="pill" data-type="note">Note</button>
+            <button type="button" class="pill" data-type="quote">Quote</button>
+          </div>
+        </label>
+
+        <label class="field">
+          <span>Title</span>
+          <input id="title" type="text" required maxlength="500" />
+        </label>
+
+        <label class="field">
+          <span>URL</span>
+          <input id="url" type="url" maxlength="2048" />
+        </label>
+
+        <label class="field">
+          <span>Content</span>
+          <textarea id="content" rows="5" maxlength="8000" placeholder="Notes, quote, or selected text..."></textarea>
+        </label>
+
+        <label class="field">
+          <span>Location</span>
+          <select id="location">
+            <option value="inbox">Inbox</option>
+            <option value="library">Library</option>
+            <option value="archive">Archive</option>
+          </select>
+        </label>
+
+        <div class="actions">
+          <button type="submit" id="save-btn" class="primary">Save</button>
+          <button type="button" id="open-settings" class="link">Settings</button>
+        </div>
+      </form>
+    </main>
+  </div>
+
+  <script src="popup.js"></script>
+</body>
+</html>

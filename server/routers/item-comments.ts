@@ -5,6 +5,7 @@ import { z } from 'zod';
 import { db } from '../db';
 import { ensureItemAccess, getItemAccessById } from '../lib/item-access';
 import { sendPushToUser } from '../lib/push-sender';
+import { broadcastToUser } from '../lib/realtime';
 import { itemComments } from '../schema/item_comments';
 import { itemShares } from '../schema/item_shares';
 import { items } from '../schema/items';
@@ -150,6 +151,13 @@ export const itemCommentsRouter = router({
             body,
             data: { type: 'mention', itemId: input.itemId, commentId },
           }).catch(() => {});
+          broadcastToUser(target.id, 'notification', {
+            kind: 'mention',
+            title,
+            body,
+            itemId: input.itemId,
+            commentId,
+          });
         }
       }
 
@@ -171,9 +179,34 @@ export const itemCommentsRouter = router({
           body,
           data: { type: 'item_comment', itemId: input.itemId, commentId },
         }).catch(() => {});
+        broadcastToUser(ensuredAccess.item.userId, 'notification', {
+          kind: 'item_comment',
+          title,
+          body,
+          itemId: input.itemId,
+          commentId,
+        });
       }
 
       return { success: true as const, id: commentId, mentioned: mentionedEchoes };
+    }),
+
+  edit: protectedProcedure
+    .input(z.object({ id: z.string(), content: z.string().min(1).max(4000) }))
+    .mutation(async ({ input, ctx }) => {
+      const rows = await db
+        .select()
+        .from(itemComments)
+        .where(and(eq(itemComments.id, input.id), eq(itemComments.userId, ctx.user.id)))
+        .limit(1);
+      if (rows.length === 0) {
+        throw new TRPCError({ code: 'FORBIDDEN', message: 'Only the author can edit this comment' });
+      }
+      await db
+        .update(itemComments)
+        .set({ content: input.content.trim(), updatedAt: new Date() })
+        .where(eq(itemComments.id, input.id));
+      return { success: true as const };
     }),
 
   delete: protectedProcedure

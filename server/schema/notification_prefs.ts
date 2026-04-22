@@ -10,6 +10,7 @@ export const notificationPrefs = sqliteTable(
     taskDueEnabled: integer('task_due_enabled', { mode: 'boolean' }).notNull().default(true),
     quietStartMinutes: integer('quiet_start_minutes'),
     quietEndMinutes: integer('quiet_end_minutes'),
+    snoozeUntil: integer('snooze_until', { mode: 'timestamp' }),
     updatedAt: integer('updated_at', { mode: 'timestamp' }).$defaultFn(() => new Date()),
   },
   (table) => ({

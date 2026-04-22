@@ -4,6 +4,7 @@ import { TRPCError } from '@trpc/server';
 import { z } from 'zod';
 import { db } from '../db';
 import { sendPushToUser } from '../lib/push-sender';
+import { broadcastToUser } from '../lib/realtime';
 import { itemShares } from '../schema/item_shares';
 import { items } from '../schema/items';
 import { userNotifications } from '../schema/user_notifications';
@@ -117,12 +118,37 @@ export const itemSharesRouter = router({
             body,
             data: { type: 'item_shared', itemId: input.itemId, shareId: newShare.id },
           }).catch(() => {});
+          broadcastToUser(target.id, 'notification', {
+            kind: 'item_shared',
+            title,
+            body,
+            itemId: input.itemId,
+            shareId: newShare.id,
+          });
         }
       } catch (err) {
         console.error('[itemShares.create] recipient notification failed:', err);
       }
 
       return { success: true as const, id: newShare.id };
+    }),
+
+  updatePermission: protectedProcedure
+    .input(z.object({ shareId: z.string(), permission: z.enum(['view', 'edit']) }))
+    .mutation(async ({ input, ctx }) => {
+      const rows = await db.select().from(itemShares).where(eq(itemShares.id, input.shareId)).limit(1);
+      const share = rows[0];
+      if (!share) {
+        throw new TRPCError({ code: 'NOT_FOUND', message: 'Share not found' });
+      }
+      if (share.ownerUserId !== ctx.user.id) {
+        throw new TRPCError({ code: 'FORBIDDEN', message: 'Only owner can change permissions' });
+      }
+      await db
+        .update(itemShares)
+        .set({ permission: input.permission, updatedAt: new Date() })
+        .where(eq(itemShares.id, input.shareId));
+      return { success: true as const };
     }),
 
   revoke: protectedProcedure

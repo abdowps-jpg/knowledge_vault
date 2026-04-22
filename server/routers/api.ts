@@ -63,6 +63,33 @@ export const apiRouter = router({
       return { key: rawKey, keyPreview, scope: input.scope };
     }),
 
+  regenerateKey: protectedProcedure
+    .input(z.object({ id: z.string() }))
+    .mutation(async ({ input, ctx }) => {
+      const rows = await db
+        .select()
+        .from(apiKeys)
+        .where(and(eq(apiKeys.id, input.id), eq(apiKeys.userId, ctx.user.id)))
+        .limit(1);
+      const key = rows[0];
+      if (!key) {
+        throw new TRPCError({ code: 'NOT_FOUND', message: 'Key not found' });
+      }
+      const rawKey = `kv_${randomBytes(24).toString('hex')}`;
+      const keyHash = hashApiKey(rawKey);
+      const keyPreview = `${rawKey.slice(0, 6)}...${rawKey.slice(-4)}`;
+      await db
+        .update(apiKeys)
+        .set({
+          keyHash,
+          keyPreview,
+          isActive: true,
+          lastUsedAt: null,
+        })
+        .where(eq(apiKeys.id, input.id));
+      return { key: rawKey, keyPreview, scope: key.scope };
+    }),
+
   revokeKey: protectedProcedure
     .input(
       z.object({

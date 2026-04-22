@@ -68,6 +68,41 @@ export const savedSearchesRouter = router({
       return { success: true as const };
     }),
 
+  execute: protectedProcedure
+    .input(z.object({ id: z.string(), limit: z.number().int().min(1).max(50).default(20) }))
+    .query(async ({ input, ctx }) => {
+      const rows = await db
+        .select()
+        .from(savedSearches)
+        .where(and(eq(savedSearches.id, input.id), eq(savedSearches.userId, ctx.user.id)))
+        .limit(1);
+      const saved = rows[0];
+      if (!saved) {
+        throw new TRPCError({ code: 'NOT_FOUND', message: 'Saved search not found' });
+      }
+      // Delegate to the search router's global hit via direct DB query
+      const { items } = await import('../schema/items');
+      const { and: andOp, eq: eqOp, isNull: isNullOp, desc: descOp, sql: sqlOp } = await import('drizzle-orm');
+      const needle = `%${saved.query.trim().replace(/[%_\\]/g, (m) => `\\${m}`)}%`;
+      const results = await db
+        .select()
+        .from(items)
+        .where(
+          andOp(
+            eqOp(items.userId, ctx.user.id),
+            isNullOp(items.deletedAt),
+            sqlOp`(lower(${items.title}) LIKE lower(${needle}) OR lower(coalesce(${items.content}, '')) LIKE lower(${needle}))`
+          )
+        )
+        .orderBy(descOp(items.updatedAt))
+        .limit(input.limit);
+      return {
+        name: saved.name,
+        query: saved.query,
+        results,
+      };
+    }),
+
   delete: protectedProcedure
     .input(z.object({ id: z.string() }))
     .mutation(async ({ input, ctx }) => {

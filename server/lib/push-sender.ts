@@ -58,6 +58,9 @@ export async function sendPushToUser(
       if (inQuietWindow(new Date(), prefs.quietStartMinutes ?? null, prefs.quietEndMinutes ?? null)) {
         return;
       }
+      if (prefs.snoozeUntil && new Date(prefs.snoozeUntil).getTime() > Date.now()) {
+        return;
+      }
     }
 
     const tokens = await db

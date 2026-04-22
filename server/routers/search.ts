@@ -27,6 +27,55 @@ export const searchRouter = router({
     recentSearches.delete(ctx.user.id);
     return { success: true as const };
   }),
+  trendingTerms: protectedProcedure
+    .input(z.object({ days: z.number().int().min(7).max(90).default(14) }).optional())
+    .query(async ({ input, ctx }) => {
+      const days = input?.days ?? 14;
+      const since = new Date();
+      since.setDate(since.getDate() - days);
+      const rows = await db
+        .select({ title: items.title, content: items.content })
+        .from(items)
+        .where(and(eq(items.userId, ctx.user.id), isNull(items.deletedAt)))
+        .limit(500);
+      const stop = new Set([
+        'the','and','to','of','a','in','is','it','that','for','on','with','my','me','i','you','be','was','are',
+        'this','from','or','but','an','we','they','if','at','not','have','has','had','by','as','will','so','can',
+      ]);
+      const counts = new Map<string, number>();
+      for (const r of rows) {
+        const text = `${r.title ?? ''} ${r.content ?? ''}`.toLowerCase();
+        const words = text.replace(/[^a-z\u0600-\u06ff\s]/g, ' ').split(/\s+/);
+        for (const w of words) {
+          if (w.length < 4 || stop.has(w)) continue;
+          counts.set(w, (counts.get(w) ?? 0) + 1);
+        }
+      }
+      return Array.from(counts.entries())
+        .sort((a, b) => b[1] - a[1])
+        .slice(0, 25)
+        .map(([term, count]) => ({ term, count }));
+    }),
+
+  suggestCompletions: protectedProcedure
+    .input(z.object({ prefix: z.string().min(1).max(40), limit: z.number().int().min(1).max(10).default(5) }))
+    .query(async ({ input, ctx }) => {
+      const needle = `${input.prefix.trim().replace(/[%_\\]/g, (m) => `\\${m}`)}%`;
+      const rows = await db
+        .select({ title: items.title })
+        .from(items)
+        .where(
+          and(
+            eq(items.userId, ctx.user.id),
+            isNull(items.deletedAt),
+            sql`lower(${items.title}) LIKE lower(${needle})`
+          )
+        )
+        .orderBy(desc(items.updatedAt))
+        .limit(input.limit);
+      return rows.map((r) => r.title).filter(Boolean);
+    }),
+
   global: protectedProcedure
     .input(
       z.object({

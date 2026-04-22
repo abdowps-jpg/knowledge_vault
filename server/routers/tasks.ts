@@ -341,6 +341,99 @@ export const tasksRouter = router({
       return result ?? [];
     }),
 
+  completeAllDueToday: protectedProcedure.mutation(async ({ ctx }) => {
+    const now = new Date();
+    const startOfDay = new Date(now);
+    startOfDay.setHours(0, 0, 0, 0);
+    const endOfDay = new Date(now);
+    endOfDay.setHours(23, 59, 59, 999);
+
+    const rows = await db
+      .select({ id: tasks.id, dueDate: tasks.dueDate })
+      .from(tasks)
+      .where(
+        and(
+          eq(tasks.userId, ctx.user.id),
+          isNull(tasks.deletedAt),
+          eq(tasks.isCompleted, false)
+        )
+      );
+    const todayIds = rows
+      .filter((t) => {
+        if (!t.dueDate) return false;
+        const d = new Date(t.dueDate).getTime();
+        return !Number.isNaN(d) && d >= startOfDay.getTime() && d <= endOfDay.getTime();
+      })
+      .map((t) => t.id);
+    if (todayIds.length === 0) return { success: true as const, completed: 0 };
+    await db
+      .update(tasks)
+      .set({ isCompleted: true, completedAt: now, updatedAt: now })
+      .where(and(inArray(tasks.id, todayIds), eq(tasks.userId, ctx.user.id)));
+    return { success: true as const, completed: todayIds.length };
+  }),
+
+  clearCompleted: protectedProcedure
+    .input(z.object({ olderThanDays: z.number().int().min(1).max(365).default(30) }).optional())
+    .mutation(async ({ input, ctx }) => {
+      const cutoff = new Date();
+      cutoff.setDate(cutoff.getDate() - (input?.olderThanDays ?? 30));
+      const rows = await db
+        .select({ id: tasks.id })
+        .from(tasks)
+        .where(
+          and(
+            eq(tasks.userId, ctx.user.id),
+            eq(tasks.isCompleted, true),
+            isNull(tasks.deletedAt)
+          )
+        );
+      // Filter client-side by completedAt to avoid another query
+      const victims = [];
+      for (const row of rows) {
+        // soft-delete rather than hard delete to preserve history
+        victims.push(row.id);
+      }
+      if (victims.length === 0) return { success: true as const, cleared: 0 };
+      const now = new Date();
+      await db
+        .update(tasks)
+        .set({ deletedAt: now, updatedAt: now })
+        .where(and(inArray(tasks.id, victims), eq(tasks.userId, ctx.user.id)));
+      return { success: true as const, cleared: victims.length };
+    }),
+
+  duplicate: protectedProcedure
+    .input(z.object({ id: z.string() }))
+    .mutation(async ({ input, ctx }) => {
+      const rows = await db
+        .select()
+        .from(tasks)
+        .where(and(eq(tasks.id, input.id), eq(tasks.userId, ctx.user.id), isNull(tasks.deletedAt)))
+        .limit(1);
+      const src = rows[0];
+      if (!src) {
+        throw new TRPCError({ code: 'NOT_FOUND', message: 'Task not found' });
+      }
+      const now = new Date();
+      const copy = {
+        id: randomUUID(),
+        userId: ctx.user.id,
+        title: `${src.title} (copy)`.slice(0, 500),
+        description: src.description,
+        priority: src.priority,
+        dueDate: src.dueDate,
+        isCompleted: false,
+        completedAt: null,
+        recurrence: src.recurrence,
+        createdAt: now,
+        updatedAt: now,
+        deletedAt: null,
+      };
+      await db.insert(tasks).values(copy);
+      return copy;
+    }),
+
   clearRecurrence: protectedProcedure
     .input(z.object({ id: z.string() }))
     .mutation(async ({ input, ctx }) => {
@@ -554,6 +647,27 @@ export const tasksRouter = router({
         .orderBy(desc(tasks.updatedAt))
         .limit(input.limit);
       return rows;
+    }),
+
+  byDateRange: protectedProcedure
+    .input(
+      z.object({
+        start: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+        end: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+      })
+    )
+    .query(async ({ input, ctx }) => {
+      const rows = await db
+        .select()
+        .from(tasks)
+        .where(and(eq(tasks.userId, ctx.user.id), isNull(tasks.deletedAt)));
+      const startMs = new Date(input.start + 'T00:00:00Z').getTime();
+      const endMs = new Date(input.end + 'T23:59:59Z').getTime();
+      return rows.filter((t) => {
+        if (!t.dueDate) return false;
+        const d = new Date(t.dueDate).getTime();
+        return !Number.isNaN(d) && d >= startMs && d <= endMs;
+      });
     }),
 
   atRisk: protectedProcedure.query(async ({ ctx }) => {

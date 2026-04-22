@@ -736,5 +736,44 @@ Use ICE scoring (Impact × Confidence × Ease):
 
 ---
 
-*Last updated: 2026-03-31*
+## Shipped Checkpoint — 2026-04-22
+
+Phase 0 (Stabilization) and Phase 1 (MVP) are both fundamentally complete in
+code; Phase 2 (Intelligence) is 100% shipped as tRPC procedures with UI
+integration; Phase 3 (Collaboration) is ~60% (mentions, comments, shares,
+push delivery, notification prefs — missing realtime WebSocket and multi-
+user vaults); Phase 4 (Platform Expansion) is ~55% (browser extension
+shipped, markdown import/export, server-rendered public pages, /api/v1
+alias, /api/schema docs, /_metrics — missing web app and Zapier); Phase 5
+(Enterprise) is ~35% (audit log, API key scopes, webhook HMAC, activity log
+UI, quiet hours — missing SSO and admin dashboard).
+
+**Shipped tRPC routers (31 total):** auth, items, tasks, journal, tags,
+categories, attachments, export, stats, sync, devices, transcription,
+analytics, taskTime, habits, goals, subtasks, itemShares, itemComments,
+publicLinks, api, itemVersions, ai, pushTokens, notifications,
+savedSearches, templates, feedback, search, reviews, onboarding.
+
+**Shipped tables beyond the original 23:** audit_log, push_tokens,
+saved_searches, templates, feedback, notification_prefs, reviews,
+onboarding (8 new).
+
+**Browser extension:** Chrome/Firefox Manifest V3 at `extension/`, uses
+REST API with X-Api-Key (write scope), supports popup capture, context
+menu (page / selection as quote / link / selection as task), and a
+keyboard shortcut (Alt+Shift+S).
+
+Next big-ticket (unshipped):
+
+- Real-time sync (WebSocket) — replaces the current 30s comment polling
+- Shared vaults (team workspaces) — today's sharing is per-item only
+- Web app / PWA — for desktop capture without the extension
+- SSO (SAML/OIDC)
+- Admin dashboard with per-user usage, quotas, billing state
+- pgvector-backed embeddings (current semantic search is LLM-rerank)
+- PostgreSQL migration (SQLite is fine until ~1000 concurrent users)
+
+---
+
+*Last updated: 2026-04-22*
 *Author: Knowledge Vault Product Team*

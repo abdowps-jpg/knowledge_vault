@@ -216,6 +216,35 @@ export const tagsRouter = router({
       }
     }),
 
+  createMany: protectedProcedure
+    .input(z.object({ names: z.array(z.string().min(1).max(80)).min(1).max(30) }))
+    .mutation(async ({ input, ctx }) => {
+      const normalized = Array.from(
+        new Set(input.names.map((n) => n.trim().toLowerCase()).filter(Boolean))
+      );
+      if (normalized.length === 0) return { success: true as const, created: 0, ids: [] as string[] };
+
+      const existing = await db
+        .select()
+        .from(tags)
+        .where(and(eq(tags.userId, ctx.user.id), inArray(tags.name, normalized)));
+      const existingSet = new Set(existing.map((t) => t.name));
+      const toCreate = normalized.filter((n) => !existingSet.has(n));
+      const rows = toCreate.map((name) => ({
+        id: randomUUID(),
+        userId: ctx.user.id,
+        name,
+        color: null,
+        createdAt: new Date(),
+      }));
+      if (rows.length > 0) await db.insert(tags).values(rows);
+      return {
+        success: true as const,
+        created: rows.length,
+        ids: rows.map((r) => r.id),
+      };
+    }),
+
   merge: protectedProcedure
     .input(z.object({ keepId: z.string(), fromId: z.string() }))
     .mutation(async ({ input, ctx }) => {

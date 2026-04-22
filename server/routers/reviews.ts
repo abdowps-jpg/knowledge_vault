@@ -1,5 +1,6 @@
 import { randomUUID } from 'crypto';
 import { and, desc, eq } from 'drizzle-orm';
+import { TRPCError } from '@trpc/server';
 import { z } from 'zod';
 import { db } from '../db';
 import { reviews } from '../schema/reviews';
@@ -74,6 +75,29 @@ export const reviewsRouter = router({
         updatedAt: now,
       });
       return { id, updated: false as const };
+    }),
+
+  periodKey: protectedProcedure
+    .input(z.object({ kind: z.enum(['daily', 'weekly', 'monthly']), at: z.string().optional() }))
+    .query(({ input }) => {
+      const d = input.at ? new Date(input.at) : new Date();
+      if (Number.isNaN(d.getTime())) {
+        throw new TRPCError({ code: 'BAD_REQUEST', message: 'Invalid date' });
+      }
+      if (input.kind === 'daily') {
+        return { key: d.toISOString().slice(0, 10) };
+      }
+      if (input.kind === 'monthly') {
+        return { key: `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}` };
+      }
+      // weekly: ISO week approximation
+      const start = new Date(d);
+      const day = (start.getDay() + 6) % 7; // 0 = Monday
+      start.setDate(start.getDate() - day);
+      const year = start.getFullYear();
+      const onejan = new Date(year, 0, 1);
+      const week = Math.ceil(((start.getTime() - onejan.getTime()) / 86400000 + onejan.getDay() + 1) / 7);
+      return { key: `${year}-W${String(week).padStart(2, '0')}` };
     }),
 
   delete: protectedProcedure

@@ -1,5 +1,5 @@
 import { createHash, randomUUID } from 'crypto';
-import { and, count, eq, isNull } from 'drizzle-orm';
+import { and, count, eq, isNull, lt, or } from 'drizzle-orm';
 import { TRPCError } from '@trpc/server';
 import { z } from 'zod';
 import { db } from '../db';
@@ -90,6 +90,40 @@ export const publicLinksRouter = router({
 
       return db.select().from(publicLinks).where(eq(publicLinks.itemId, input.itemId));
     }),
+
+  viewStats: protectedProcedure.query(async ({ ctx }) => {
+    const rows = await db
+      .select()
+      .from(publicLinks)
+      .where(eq(publicLinks.ownerUserId, ctx.user.id));
+    const total = rows.length;
+    const active = rows.filter((l) => !l.isRevoked && (!l.expiresAt || l.expiresAt.getTime() > Date.now())).length;
+    const totalViews = rows.reduce((sum, l) => sum + (l.viewCount ?? 0), 0);
+    return { total, active, totalViews };
+  }),
+
+  cleanup: protectedProcedure.mutation(async ({ ctx }) => {
+    const now = new Date();
+    const rows = await db
+      .select({ id: publicLinks.id })
+      .from(publicLinks)
+      .where(
+        and(
+          eq(publicLinks.ownerUserId, ctx.user.id),
+          or(eq(publicLinks.isRevoked, true), lt(publicLinks.expiresAt, now))
+        )
+      );
+    if (rows.length === 0) return { success: true as const, removed: 0 };
+    await db
+      .delete(publicLinks)
+      .where(
+        and(
+          eq(publicLinks.ownerUserId, ctx.user.id),
+          or(eq(publicLinks.isRevoked, true), lt(publicLinks.expiresAt, now))
+        )
+      );
+    return { success: true as const, removed: rows.length };
+  }),
 
   listMine: protectedProcedure.query(async ({ ctx }) => {
     const links = await db

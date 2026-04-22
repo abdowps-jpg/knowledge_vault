@@ -55,6 +55,53 @@ export const exportRouter = router({
     }
   }),
 
+  exportMarkdownBundle: protectedProcedure.query(async ({ ctx }) => {
+    const allItems = await db
+      .select()
+      .from(items)
+      .where(and(eq(items.userId, ctx.user.id), isNull(items.deletedAt)))
+      .orderBy(asc(items.createdAt));
+    const itemIds = allItems.map((i) => i.id);
+    const links = itemIds.length > 0
+      ? await db.select().from(itemTags).where(inArray(itemTags.itemId, itemIds))
+      : [];
+    const allTags = await db.select().from(tags).where(eq(tags.userId, ctx.user.id));
+    const tagNameById = new Map(allTags.map((t) => [t.id, t.name]));
+    const tagsByItem = new Map<string, string[]>();
+    for (const link of links) {
+      const name = tagNameById.get(link.tagId);
+      if (!name) continue;
+      const list = tagsByItem.get(link.itemId) ?? [];
+      list.push(name);
+      tagsByItem.set(link.itemId, list);
+    }
+    const pieces = allItems.map((it) => {
+      const itemTagList = tagsByItem.get(it.id) ?? [];
+      const created = it.createdAt instanceof Date ? it.createdAt.toISOString() : '';
+      return [
+        '---',
+        `title: ${escapeFrontMatterValue(it.title || 'Untitled')}`,
+        `type: ${it.type}`,
+        created ? `createdAt: ${created}` : '',
+        it.url ? `url: ${escapeFrontMatterValue(it.url)}` : '',
+        itemTagList.length ? `tags: [${itemTagList.map((t) => escapeFrontMatterValue(t)).join(', ')}]` : '',
+        '---',
+        '',
+        `# ${it.title || 'Untitled'}`,
+        '',
+        (it.content ?? '').trim(),
+        '',
+      ]
+        .filter(Boolean)
+        .join('\n');
+    });
+    return {
+      count: allItems.length,
+      exportedAt: new Date().toISOString(),
+      markdown: pieces.join('\n\n---\n\n'),
+    };
+  }),
+
   exportMarkdown: protectedProcedure.query(async ({ ctx }) => {
     const [allItems, allTags] = await Promise.all([
       db

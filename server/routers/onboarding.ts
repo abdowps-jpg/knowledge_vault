@@ -14,6 +14,16 @@ const ALL_STEPS = [
   'tryAI',
 ] as const;
 
+const STEP_META: Record<(typeof ALL_STEPS)[number], { title: string; description: string; icon: string }> = {
+  welcome: { title: 'Welcome to Knowledge Vault', description: 'Explore the main tabs and settings.', icon: 'waving_hand' },
+  firstItem: { title: 'Save your first item', description: 'Write a note, save a link, or clip a quote.', icon: 'bookmark_add' },
+  firstTask: { title: 'Create your first task', description: 'Something actionable with a due date.', icon: 'check_circle' },
+  firstJournal: { title: 'Write a journal entry', description: 'A short daily reflection.', icon: 'edit_note' },
+  firstHabit: { title: 'Track a habit', description: 'Pick one small daily habit to start.', icon: 'local_fire_department' },
+  enablePush: { title: 'Enable push notifications', description: 'Stay on top of mentions and reminders.', icon: 'notifications_active' },
+  tryAI: { title: 'Try an AI feature', description: 'Summarize, suggest tags, or ask your vault a question.', icon: 'auto_awesome' },
+};
+
 export const onboardingRouter = router({
   get: protectedProcedure.query(async ({ ctx }) => {
     const rows = await db.select().from(onboarding).where(eq(onboarding.userId, ctx.user.id)).limit(1);
@@ -56,6 +66,29 @@ export const onboardingRouter = router({
       }
       return { success: true as const, completed: allDone };
     }),
+
+  checklist: protectedProcedure.query(async ({ ctx }) => {
+    const rows = await db.select().from(onboarding).where(eq(onboarding.userId, ctx.user.id)).limit(1);
+    const completed = new Set(rows[0] ? rows[0].completedSteps.split(',').filter(Boolean) : []);
+    return ALL_STEPS.map((step) => ({
+      step,
+      done: completed.has(step),
+      ...STEP_META[step],
+    }));
+  }),
+
+  nextStep: protectedProcedure.query(async ({ ctx }) => {
+    const rows = await db.select().from(onboarding).where(eq(onboarding.userId, ctx.user.id)).limit(1);
+    const completed = rows[0] ? rows[0].completedSteps.split(',').filter(Boolean) : [];
+    const next = ALL_STEPS.find((s) => !completed.includes(s));
+    return {
+      nextStep: next ?? null,
+      completedCount: completed.length,
+      totalCount: ALL_STEPS.length,
+      percent: Math.round((completed.length / ALL_STEPS.length) * 100),
+      isDone: next === undefined,
+    };
+  }),
 
   reset: protectedProcedure.mutation(async ({ ctx }) => {
     await db.delete(onboarding).where(eq(onboarding.userId, ctx.user.id));

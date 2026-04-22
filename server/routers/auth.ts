@@ -597,6 +597,7 @@ export const authRouter = router({
       const { notificationPrefs } = await import('../schema/notification_prefs');
       const { reviews } = await import('../schema/reviews');
       const { onboarding } = await import('../schema/onboarding');
+      const { habitLogs } = await import('../schema/habit_logs');
       await db.delete(pushTokens).where(eq(pushTokens.userId, uid));
       await db.delete(savedSearches).where(eq(savedSearches.userId, uid));
       await db.delete(templates).where(eq(templates.userId, uid));
@@ -605,6 +606,7 @@ export const authRouter = router({
       await db.delete(notificationPrefs).where(eq(notificationPrefs.userId, uid));
       await db.delete(reviews).where(eq(reviews.userId, uid));
       await db.delete(onboarding).where(eq(onboarding.userId, uid));
+      await db.delete(habitLogs).where(eq(habitLogs.userId, uid));
 
       // Delete main data tables
       await db.delete(journalTable).where(eq(journalTable.userId, uid));
@@ -664,6 +666,51 @@ export const authRouter = router({
         token,
       };
     }),
+
+  ping: protectedProcedure.query(({ ctx }) => ({
+    ok: true as const,
+    userId: ctx.user.id,
+    at: new Date().toISOString(),
+  })),
+
+  listActiveSessions: protectedProcedure.query(async ({ ctx }) => {
+    const { devices } = await import('../schema/devices');
+    const { pushTokens } = await import('../schema/push_tokens');
+    const [devRows, pushRows] = await Promise.all([
+      db.select().from(devices).where(and(eq(devices.userId, ctx.user.id), eq(devices.isActive, true))),
+      db.select().from(pushTokens).where(and(eq(pushTokens.userId, ctx.user.id), eq(pushTokens.isActive, true))),
+    ]);
+    return {
+      devices: devRows.map((d) => ({
+        id: d.id,
+        name: d.deviceName,
+        platform: d.platform,
+        lastActiveAt: d.lastActiveAt,
+      })),
+      pushTokens: pushRows.map((p) => ({
+        id: p.id,
+        platform: p.platform,
+        deviceName: p.deviceName,
+        lastSeenAt: p.lastSeenAt,
+      })),
+    };
+  }),
+
+  sessionInfo: protectedProcedure.query(({ ctx }) => {
+    const audit = getRequestAudit(ctx.req);
+    return {
+      user: {
+        id: ctx.user.id,
+        email: ctx.user.email,
+        username: ctx.user.username ?? null,
+      },
+      request: {
+        ip: audit.ip,
+        userAgent: audit.userAgent ? audit.userAgent.slice(0, 240) : null,
+      },
+      serverTime: new Date().toISOString(),
+    };
+  }),
 
   signOutEverywhere: protectedProcedure.mutation(async ({ ctx }) => {
     const audit = getRequestAudit(ctx.req);

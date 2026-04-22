@@ -231,6 +231,267 @@ export const aiRouter = router({
       return { results };
     }),
 
+  tagSummary: protectedProcedure
+    .input(z.object({ tagId: z.string() }))
+    .mutation(async ({ input, ctx }) => {
+      enforceLlmQuota(ctx.user.id);
+      logAiCall(ctx.user.id, 'tagSummary');
+
+      const { itemTags, tags: tagsTable } = await import('../schema/tags');
+      const tagRow = await db
+        .select()
+        .from(tagsTable)
+        .where(and(eq(tagsTable.id, input.tagId), eq(tagsTable.userId, ctx.user.id)))
+        .limit(1);
+      if (tagRow.length === 0) {
+        throw new TRPCError({ code: 'NOT_FOUND', message: 'Tag not found' });
+      }
+
+      const links = await db.select().from(itemTags).where(eq(itemTags.tagId, input.tagId));
+      const itemIds = links.map((l) => l.itemId);
+      if (itemIds.length === 0) {
+        return { summary: `No items tagged "${tagRow[0].name}" yet.`, count: 0 };
+      }
+      const tagged = await db
+        .select()
+        .from(items)
+        .where(and(eq(items.userId, ctx.user.id), isNull(items.deletedAt)));
+      const mine = tagged.filter((t) => itemIds.includes(t.id));
+      if (mine.length === 0) return { summary: '', count: 0 };
+
+      const excerpt = mine
+        .slice(0, 20)
+        .map((i) => `- ${i.title}: ${(i.content ?? '').slice(0, 200).replace(/\s+/g, ' ')}`)
+        .join('\n');
+
+      const result = await invokeLLM({
+        messages: [
+          {
+            role: 'system',
+            content:
+              'Summarize what the user has written about this topic across their notes. ' +
+              'Give a 2-4 sentence synthesis, name recurring sub-themes, and flag any unresolved question. ' +
+              'No preamble, no meta commentary.',
+          },
+          { role: 'user', content: `Tag: ${tagRow[0].name}\n\nItems:\n${excerpt}` },
+        ],
+        outputSchema: {
+          name: 'tag_summary',
+          schema: {
+            type: 'object',
+            additionalProperties: false,
+            properties: { summary: { type: 'string', minLength: 1, maxLength: 1200 } },
+            required: ['summary'],
+          },
+          strict: true,
+        },
+      });
+      const raw = result.choices?.[0]?.message?.content ?? '';
+      const body = typeof raw === 'string' ? raw : raw.map((p) => ('text' in p ? p.text : '')).join('');
+      let parsed: { summary?: unknown } = {};
+      try {
+        parsed = JSON.parse(body);
+      } catch {
+        parsed = {};
+      }
+      return {
+        summary: typeof parsed.summary === 'string' ? parsed.summary.trim().slice(0, 1200) : '',
+        count: mine.length,
+      };
+    }),
+
+  compareItems: protectedProcedure
+    .input(z.object({ aId: z.string(), bId: z.string() }))
+    .mutation(async ({ input, ctx }) => {
+      enforceLlmQuota(ctx.user.id);
+      logAiCall(ctx.user.id, 'compareItems');
+      if (input.aId === input.bId) {
+        return { overlap: [], uniqueToA: [], uniqueToB: [], summary: '' };
+      }
+      const [a, b] = await Promise.all([
+        loadItemForUser(input.aId, ctx.user.id),
+        loadItemForUser(input.bId, ctx.user.id),
+      ]);
+      const aText = extractContentText(a.title, a.content, a.url).slice(0, 3000);
+      const bText = extractContentText(b.title, b.content, b.url).slice(0, 3000);
+
+      const result = await invokeLLM({
+        messages: [
+          {
+            role: 'system',
+            content:
+              'Compare two knowledge items. Return a 1-2 sentence summary of how they relate, ' +
+              'plus up to 5 shared points, up to 5 points unique to A, and up to 5 points unique to B. ' +
+              'Use concise phrases.',
+          },
+          {
+            role: 'user',
+            content: `ITEM A:\n${aText}\n\nITEM B:\n${bText}`,
+          },
+        ],
+        outputSchema: {
+          name: 'compare_items',
+          schema: {
+            type: 'object',
+            additionalProperties: false,
+            properties: {
+              summary: { type: 'string', minLength: 1, maxLength: 500 },
+              overlap: { type: 'array', maxItems: 5, items: { type: 'string', minLength: 1, maxLength: 180 } },
+              uniqueToA: { type: 'array', maxItems: 5, items: { type: 'string', minLength: 1, maxLength: 180 } },
+              uniqueToB: { type: 'array', maxItems: 5, items: { type: 'string', minLength: 1, maxLength: 180 } },
+            },
+            required: ['summary', 'overlap', 'uniqueToA', 'uniqueToB'],
+          },
+          strict: true,
+        },
+      });
+      const raw = result.choices?.[0]?.message?.content ?? '';
+      const body = typeof raw === 'string' ? raw : raw.map((p) => ('text' in p ? p.text : '')).join('');
+      let parsed: { summary?: unknown; overlap?: unknown; uniqueToA?: unknown; uniqueToB?: unknown } = {};
+      try {
+        parsed = JSON.parse(body);
+      } catch {
+        parsed = {};
+      }
+      const asArr = (v: unknown, n: number) =>
+        Array.isArray(v)
+          ? v.filter((x): x is string => typeof x === 'string').map((x) => x.trim().slice(0, 180)).filter(Boolean).slice(0, n)
+          : [];
+      return {
+        summary: typeof parsed.summary === 'string' ? parsed.summary.trim().slice(0, 500) : '',
+        overlap: asArr(parsed.overlap, 5),
+        uniqueToA: asArr(parsed.uniqueToA, 5),
+        uniqueToB: asArr(parsed.uniqueToB, 5),
+      };
+    }),
+
+  draftReply: protectedProcedure
+    .input(
+      z.object({
+        incomingMessage: z.string().min(5).max(4000),
+        tone: z.enum(['friendly', 'professional', 'concise', 'warm']).default('professional'),
+        contextItemId: z.string().optional(),
+      })
+    )
+    .mutation(async ({ input, ctx }) => {
+      enforceLlmQuota(ctx.user.id);
+      logAiCall(ctx.user.id, 'draftReply', input.contextItemId);
+
+      let contextText = '';
+      if (input.contextItemId) {
+        try {
+          const item = await loadItemForUser(input.contextItemId, ctx.user.id);
+          contextText = extractContentText(item.title, item.content, item.url).slice(0, 1500);
+        } catch {
+          // context item unavailable — proceed without it
+        }
+      }
+
+      const toneHints: Record<typeof input.tone, string> = {
+        friendly: 'Friendly and personable, first-person, light punctuation.',
+        professional: 'Clear and businesslike, no filler, no emoji.',
+        concise: 'As short as possible while still polite — 2-3 sentences max.',
+        warm: 'Warm and human, acknowledge feelings, no corporate clichés.',
+      };
+
+      const result = await invokeLLM({
+        messages: [
+          {
+            role: 'system',
+            content:
+              'Draft a reply to the incoming message. ' +
+              `${toneHints[input.tone]} ` +
+              'If additional context is provided, ground your reply in it. ' +
+              'Return only the reply body — no salutation templates, no "Here is a reply", nothing extra.',
+          },
+          {
+            role: 'user',
+            content:
+              `Incoming message:\n${input.incomingMessage}\n\n` +
+              (contextText ? `Context from my notes:\n${contextText}` : ''),
+          },
+        ],
+        outputSchema: {
+          name: 'reply_draft',
+          schema: {
+            type: 'object',
+            additionalProperties: false,
+            properties: { body: { type: 'string', minLength: 1, maxLength: 4000 } },
+            required: ['body'],
+          },
+          strict: true,
+        },
+      });
+      const raw = result.choices?.[0]?.message?.content ?? '';
+      const body = typeof raw === 'string' ? raw : raw.map((p) => ('text' in p ? p.text : '')).join('');
+      let parsed: { body?: unknown } = {};
+      try {
+        parsed = JSON.parse(body);
+      } catch {
+        parsed = {};
+      }
+      return { body: typeof parsed.body === 'string' ? parsed.body.trim().slice(0, 4000) : '' };
+    }),
+
+  summarizeTranscript: protectedProcedure
+    .input(z.object({ transcript: z.string().min(30).max(20_000) }))
+    .mutation(async ({ input, ctx }) => {
+      enforceLlmQuota(ctx.user.id);
+      logAiCall(ctx.user.id, 'summarizeTranscript');
+      const result = await invokeLLM({
+        messages: [
+          {
+            role: 'system',
+            content:
+              'Summarize the given voice transcript for a personal knowledge vault. ' +
+              'Output: a 1-2 sentence TL;DR, up to 5 key points as bullets, and up to 3 action items if any. ' +
+              'Preserve speaker voice; do not fabricate details.',
+          },
+          { role: 'user', content: input.transcript.slice(0, 20_000) },
+        ],
+        outputSchema: {
+          name: 'transcript_summary',
+          schema: {
+            type: 'object',
+            additionalProperties: false,
+            properties: {
+              tldr: { type: 'string', minLength: 1, maxLength: 400 },
+              keyPoints: {
+                type: 'array',
+                maxItems: 5,
+                items: { type: 'string', minLength: 1, maxLength: 200 },
+              },
+              actionItems: {
+                type: 'array',
+                maxItems: 3,
+                items: { type: 'string', minLength: 1, maxLength: 200 },
+              },
+            },
+            required: ['tldr', 'keyPoints', 'actionItems'],
+          },
+          strict: true,
+        },
+      });
+
+      const raw = result.choices?.[0]?.message?.content ?? '';
+      const body = typeof raw === 'string' ? raw : raw.map((p) => ('text' in p ? p.text : '')).join('');
+      let parsed: { tldr?: unknown; keyPoints?: unknown; actionItems?: unknown } = {};
+      try {
+        parsed = JSON.parse(body);
+      } catch {
+        parsed = {};
+      }
+      const asArr = (v: unknown, max: number) =>
+        Array.isArray(v)
+          ? v.filter((x): x is string => typeof x === 'string').map((x) => x.trim().slice(0, 200)).filter(Boolean).slice(0, max)
+          : [];
+      return {
+        tldr: typeof parsed.tldr === 'string' ? parsed.tldr.trim().slice(0, 400) : '',
+        keyPoints: asArr(parsed.keyPoints, 5),
+        actionItems: asArr(parsed.actionItems, 3),
+      };
+    }),
+
   summarize: protectedProcedure
     .input(z.object({ itemId: z.string() }))
     .mutation(async ({ input, ctx }) => {
@@ -407,6 +668,180 @@ export const aiRouter = router({
         if (out.length >= 8) break;
       }
       return { tasks: out };
+    }),
+
+  linkToTasks: protectedProcedure
+    .input(z.object({ itemId: z.string(), limit: z.number().int().min(1).max(10).default(5) }))
+    .mutation(async ({ input, ctx }) => {
+      enforceLlmQuota(ctx.user.id);
+      logAiCall(ctx.user.id, 'linkToTasks', input.itemId);
+      const item = await loadItemForUser(input.itemId, ctx.user.id);
+      const openTasks = await db
+        .select()
+        .from(tasks)
+        .where(and(eq(tasks.userId, ctx.user.id), isNull(tasks.deletedAt), eq(tasks.isCompleted, false)))
+        .orderBy(desc(tasks.updatedAt))
+        .limit(100);
+      if (openTasks.length === 0) {
+        return { related: [] as { id: string; title: string; reason: string }[] };
+      }
+
+      const text = extractContentText(item.title, item.content, item.url);
+      const taskLines = openTasks
+        .map((t) => `${t.id}\t${(t.title ?? '').slice(0, 120)}`)
+        .join('\n');
+
+      const result = await invokeLLM({
+        messages: [
+          {
+            role: 'system',
+            content:
+              'Given a knowledge item, find the most relevant OPEN tasks from the catalog. ' +
+              'Return only tasks that would genuinely benefit from the context of this item. ' +
+              'Use only ids present in the catalog. If nothing is relevant, return an empty array.',
+          },
+          {
+            role: 'user',
+            content: `Item:\n${text}\n\nOpen tasks (id\\ttitle):\n${taskLines}\n\nReturn up to ${input.limit} matches.`,
+          },
+        ],
+        outputSchema: {
+          name: 'related_tasks',
+          schema: {
+            type: 'object',
+            additionalProperties: false,
+            properties: {
+              related: {
+                type: 'array',
+                maxItems: 10,
+                items: {
+                  type: 'object',
+                  additionalProperties: false,
+                  properties: {
+                    id: { type: 'string', minLength: 1, maxLength: 100 },
+                    reason: { type: 'string', minLength: 1, maxLength: 200 },
+                  },
+                  required: ['id', 'reason'],
+                },
+              },
+            },
+            required: ['related'],
+          },
+          strict: true,
+        },
+      });
+
+      const raw = result.choices?.[0]?.message?.content ?? '';
+      const body = typeof raw === 'string' ? raw : raw.map((p) => ('text' in p ? p.text : '')).join('');
+      let parsed: { related?: { id?: unknown; reason?: unknown }[] } = {};
+      try {
+        parsed = JSON.parse(body);
+      } catch {
+        parsed = { related: [] };
+      }
+      const byId = new Map(openTasks.map((t) => [t.id, t]));
+      const out: { id: string; title: string; reason: string }[] = [];
+      for (const r of parsed.related ?? []) {
+        const id = typeof r.id === 'string' ? r.id : null;
+        const reason = typeof r.reason === 'string' ? r.reason.slice(0, 200) : '';
+        if (!id) continue;
+        const task = byId.get(id);
+        if (!task) continue;
+        out.push({ id: task.id, title: task.title, reason });
+        if (out.length >= input.limit) break;
+      }
+      return { related: out };
+    }),
+
+  clusterRecent: protectedProcedure
+    .input(z.object({ limit: z.number().int().min(20).max(100).default(60) }).optional())
+    .mutation(async ({ input, ctx }) => {
+      enforceLlmQuota(ctx.user.id);
+      logAiCall(ctx.user.id, 'clusterRecent');
+      const n = input?.limit ?? 60;
+      const pool = await db
+        .select()
+        .from(items)
+        .where(and(eq(items.userId, ctx.user.id), isNull(items.deletedAt)))
+        .orderBy(desc(items.updatedAt))
+        .limit(n);
+
+      if (pool.length < 3) {
+        return { clusters: [] as { label: string; itemIds: string[] }[] };
+      }
+
+      const catalog = pool
+        .map((it) => {
+          const title = (it.title ?? '').slice(0, 120).replace(/\s+/g, ' ');
+          return `${it.id}\t${title}`;
+        })
+        .join('\n');
+
+      const result = await invokeLLM({
+        messages: [
+          {
+            role: 'system',
+            content:
+              'Group the given items into 2-6 thematic clusters. ' +
+              'Each cluster needs a short human-friendly label (2-5 words) and the ids that belong. ' +
+              'Every id you return must exist in the catalog. Items without a clear theme can be omitted.',
+          },
+          { role: 'user', content: `Catalog (tab-separated id\\ttitle):\n${catalog}` },
+        ],
+        outputSchema: {
+          name: 'clusters',
+          schema: {
+            type: 'object',
+            additionalProperties: false,
+            properties: {
+              clusters: {
+                type: 'array',
+                minItems: 1,
+                maxItems: 6,
+                items: {
+                  type: 'object',
+                  additionalProperties: false,
+                  properties: {
+                    label: { type: 'string', minLength: 1, maxLength: 80 },
+                    itemIds: {
+                      type: 'array',
+                      minItems: 2,
+                      maxItems: 20,
+                      items: { type: 'string', minLength: 1, maxLength: 100 },
+                    },
+                  },
+                  required: ['label', 'itemIds'],
+                },
+              },
+            },
+            required: ['clusters'],
+          },
+          strict: true,
+        },
+      });
+
+      const raw = result.choices?.[0]?.message?.content ?? '';
+      const body = typeof raw === 'string' ? raw : raw.map((p) => ('text' in p ? p.text : '')).join('');
+      let parsed: { clusters?: { label?: unknown; itemIds?: unknown }[] } = {};
+      try {
+        parsed = JSON.parse(body);
+      } catch {
+        parsed = { clusters: [] };
+      }
+
+      const validIds = new Set(pool.map((i) => i.id));
+      const clusters: { label: string; itemIds: string[] }[] = [];
+      for (const c of parsed.clusters ?? []) {
+        const label = typeof c.label === 'string' ? c.label.trim().slice(0, 80) : '';
+        const itemIds = Array.isArray(c.itemIds)
+          ? c.itemIds
+              .filter((id): id is string => typeof id === 'string' && validIds.has(id))
+              .slice(0, 20)
+          : [];
+        if (label && itemIds.length >= 2) clusters.push({ label, itemIds });
+        if (clusters.length >= 6) break;
+      }
+      return { clusters };
     }),
 
   focusSuggestions: protectedProcedure.mutation(async ({ ctx }) => {
@@ -973,6 +1408,52 @@ export const aiRouter = router({
       }
       return { related: out };
     }),
+
+  habitsReflection: protectedProcedure.mutation(async ({ ctx }) => {
+    enforceLlmQuota(ctx.user.id);
+    logAiCall(ctx.user.id, 'habitsReflection');
+
+    const { habits } = await import('../schema/habits');
+    const userHabits = await db.select().from(habits).where(eq(habits.userId, ctx.user.id));
+    if (userHabits.length === 0) {
+      return { reflection: '' };
+    }
+    const summaries = userHabits
+      .map((h) => `- ${h.name}: current streak ${h.streak ?? 0}, done today: ${h.doneToday ? 'yes' : 'no'}`)
+      .join('\n');
+
+    const result = await invokeLLM({
+      messages: [
+        {
+          role: 'system',
+          content:
+            'You are a compassionate coach. Look at the user\'s current habits snapshot and write a short 2-3 sentence reflection. ' +
+            'Celebrate what\'s consistent, name what\'s slipping, and suggest one small next step. ' +
+            'Be specific, warm, never preachy. No bullets.',
+        },
+        { role: 'user', content: `Habits:\n${summaries}` },
+      ],
+      outputSchema: {
+        name: 'habits_reflection',
+        schema: {
+          type: 'object',
+          additionalProperties: false,
+          properties: { reflection: { type: 'string', minLength: 5, maxLength: 600 } },
+          required: ['reflection'],
+        },
+        strict: true,
+      },
+    });
+    const raw = result.choices?.[0]?.message?.content ?? '';
+    const body = typeof raw === 'string' ? raw : raw.map((p) => ('text' in p ? p.text : '')).join('');
+    let parsed: { reflection?: unknown } = {};
+    try {
+      parsed = JSON.parse(body);
+    } catch {
+      parsed = {};
+    }
+    return { reflection: typeof parsed.reflection === 'string' ? parsed.reflection.trim().slice(0, 600) : '' };
+  }),
 
   journalPrompt: protectedProcedure.mutation(async ({ ctx }) => {
     enforceLlmQuota(ctx.user.id);

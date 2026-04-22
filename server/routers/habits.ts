@@ -1,8 +1,9 @@
 import { randomUUID } from "crypto";
-import { and, eq } from "drizzle-orm";
+import { and, eq, gte, inArray } from "drizzle-orm";
 import { z } from "zod";
 
 import { db } from "../db";
+import { habitLogs } from "../schema/habit_logs";
 import { habits } from "../schema/habits";
 import { protectedProcedure, router } from "../trpc";
 
@@ -71,6 +72,11 @@ export const habitsRouter = router({
             updatedAt: new Date(),
           })
           .where(eq(habits.id, current.id));
+        // Remove today's log entry
+        await db
+          .delete(habitLogs)
+          .where(and(eq(habitLogs.habitId, current.id), eq(habitLogs.date, today)))
+          .catch(() => {});
         return { success: true as const, doneToday: false, streak: revertedStreak };
       }
 
@@ -84,6 +90,18 @@ export const habitsRouter = router({
           updatedAt: new Date(),
         })
         .where(eq(habits.id, current.id));
+      // Insert log entry (ignore unique-constraint conflicts — same-day repeat)
+      try {
+        await db.insert(habitLogs).values({
+          id: randomUUID(),
+          userId: ctx.user.id,
+          habitId: current.id,
+          date: today,
+          createdAt: new Date(),
+        });
+      } catch {
+        // already logged for today; idempotent
+      }
 
       return { success: true as const, doneToday: true, streak: nextStreak };
     }),
@@ -91,8 +109,65 @@ export const habitsRouter = router({
   delete: protectedProcedure
     .input(z.object({ id: z.string() }))
     .mutation(async ({ ctx, input }) => {
+      await db.delete(habitLogs).where(and(eq(habitLogs.habitId, input.id), eq(habitLogs.userId, ctx.user.id)));
       await db.delete(habits).where(and(eq(habits.id, input.id), eq(habits.userId, ctx.user.id)));
       return { success: true as const };
+    }),
+
+  rename: protectedProcedure
+    .input(z.object({ id: z.string(), name: z.string().min(1).max(120) }))
+    .mutation(async ({ ctx, input }) => {
+      await db
+        .update(habits)
+        .set({ name: input.name.trim(), updatedAt: new Date() })
+        .where(and(eq(habits.id, input.id), eq(habits.userId, ctx.user.id)));
+      return { success: true as const };
+    }),
+
+  resetStreak: protectedProcedure
+    .input(z.object({ id: z.string() }))
+    .mutation(async ({ ctx, input }) => {
+      await db
+        .update(habits)
+        .set({ streak: 0, doneToday: false, lastCompletedDate: null, updatedAt: new Date() })
+        .where(and(eq(habits.id, input.id), eq(habits.userId, ctx.user.id)));
+      return { success: true as const };
+    }),
+
+  heatmap: protectedProcedure
+    .input(z.object({ days: z.number().int().min(7).max(365).default(90) }).optional())
+    .query(async ({ ctx, input }) => {
+      const days = input?.days ?? 90;
+      const cutoff = new Date();
+      cutoff.setDate(cutoff.getDate() - days);
+      const cutoffYmd = cutoff.toISOString().slice(0, 10);
+
+      const userHabits = await db.select().from(habits).where(eq(habits.userId, ctx.user.id));
+      if (userHabits.length === 0) return { days: [] as { date: string; count: number }[], habits: [] };
+
+      const habitIds = userHabits.map((h) => h.id);
+      const logs = await db
+        .select()
+        .from(habitLogs)
+        .where(
+          and(
+            eq(habitLogs.userId, ctx.user.id),
+            inArray(habitLogs.habitId, habitIds),
+            gte(habitLogs.date, cutoffYmd)
+          )
+        );
+
+      const byDay = new Map<string, number>();
+      for (const log of logs) {
+        byDay.set(log.date, (byDay.get(log.date) ?? 0) + 1);
+      }
+      const series = Array.from(byDay.entries())
+        .sort((a, b) => a[0].localeCompare(b[0]))
+        .map(([date, count]) => ({ date, count }));
+      return {
+        days: series,
+        habits: userHabits.map((h) => ({ id: h.id, name: h.name, streak: h.streak ?? 0 })),
+      };
     }),
 
   bulkCompleteToday: protectedProcedure.mutation(async ({ ctx }) => {
@@ -114,6 +189,17 @@ export const habitsRouter = router({
           updatedAt: new Date(),
         })
         .where(eq(habits.id, h.id));
+      try {
+        await db.insert(habitLogs).values({
+          id: randomUUID(),
+          userId: ctx.user.id,
+          habitId: h.id,
+          date: today,
+          createdAt: new Date(),
+        });
+      } catch {
+        // unique-constraint collision; idempotent
+      }
       updated += 1;
     }
     return { success: true as const, updated };

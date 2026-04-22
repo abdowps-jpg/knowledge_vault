@@ -69,6 +69,36 @@ export const templatesRouter = router({
       return { success: true as const };
     }),
 
+  render: protectedProcedure
+    .input(
+      z.object({
+        id: z.string(),
+        vars: z.record(z.string(), z.string()).optional(),
+      })
+    )
+    .query(async ({ input, ctx }) => {
+      const rows = await db
+        .select()
+        .from(templates)
+        .where(and(eq(templates.id, input.id), eq(templates.userId, ctx.user.id)))
+        .limit(1);
+      const tpl = rows[0];
+      if (!tpl) {
+        throw new TRPCError({ code: 'NOT_FOUND', message: 'Template not found' });
+      }
+      const vars = input.vars ?? {};
+      // Built-in variables
+      const now = new Date();
+      vars.today = vars.today ?? now.toISOString().slice(0, 10);
+      vars.time = vars.time ?? now.toTimeString().slice(0, 5);
+      vars.datetime = vars.datetime ?? now.toISOString();
+
+      const rendered = tpl.body.replace(/\{\{\s*([a-zA-Z0-9_.-]+)\s*\}\}/g, (_m, key) => {
+        return Object.prototype.hasOwnProperty.call(vars, key) ? String(vars[key]) : `{{${key}}}`;
+      });
+      return { name: tpl.name, kind: tpl.kind, rendered };
+    }),
+
   delete: protectedProcedure
     .input(z.object({ id: z.string() }))
     .mutation(async ({ input, ctx }) => {

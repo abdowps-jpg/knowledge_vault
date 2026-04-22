@@ -541,6 +541,69 @@ export const itemsRouter = router({
       return copy;
     }),
 
+  removeAllTags: protectedProcedure
+    .input(z.object({ itemId: z.string() }))
+    .mutation(async ({ input, ctx }) => {
+      const ownRow = await db
+        .select({ id: items.id })
+        .from(items)
+        .where(and(eq(items.id, input.itemId), eq(items.userId, ctx.user.id)))
+        .limit(1);
+      if (ownRow.length === 0) {
+        throw new TRPCError({ code: 'NOT_FOUND', message: 'Item not found' });
+      }
+      const removed = await db.delete(itemTags).where(eq(itemTags.itemId, input.itemId));
+      return { success: true as const, removed: Array.isArray(removed) ? removed.length : 0 };
+    }),
+
+  setCategory: protectedProcedure
+    .input(
+      z.object({
+        itemId: z.string(),
+        categoryId: z.string().nullable(),
+      })
+    )
+    .mutation(async ({ input, ctx }) => {
+      // Verify item ownership
+      const itemRow = await db
+        .select()
+        .from(items)
+        .where(and(eq(items.id, input.itemId), eq(items.userId, ctx.user.id), isNull(items.deletedAt)))
+        .limit(1);
+      if (itemRow.length === 0) {
+        throw new TRPCError({ code: 'NOT_FOUND', message: 'Item not found' });
+      }
+      // Clear existing category link
+      await db.delete(itemCategories).where(eq(itemCategories.itemId, input.itemId));
+      if (input.categoryId) {
+        // Verify category ownership before linking
+        const catRow = await db
+          .select()
+          .from(itemCategories)
+          .where(eq(itemCategories.categoryId, input.categoryId))
+          .limit(1);
+        // Ownership of category was not tracked in the link table; fetch from categories
+        const { categories } = await import('../schema/categories');
+        const ownCat = await db
+          .select()
+          .from(categories)
+          .where(and(eq(categories.id, input.categoryId), eq(categories.userId, ctx.user.id)))
+          .limit(1);
+        if (ownCat.length === 0) {
+          throw new TRPCError({ code: 'FORBIDDEN', message: 'Category not found' });
+        }
+        await db.insert(itemCategories).values({
+          id: randomUUID(),
+          itemId: input.itemId,
+          categoryId: input.categoryId,
+          createdAt: new Date().toISOString(),
+        });
+        // satisfy unused variable
+        void catRow;
+      }
+      return { success: true as const, categoryId: input.categoryId };
+    }),
+
   bulkAddTag: protectedProcedure
     .input(
       z.object({
@@ -603,6 +666,17 @@ export const itemsRouter = router({
         .set({ deletedAt: now, updatedAt: now })
         .where(and(inArray(items.id, input.ids), eq(items.userId, ctx.user.id)));
       return { success: true as const, trashed: input.ids.length };
+    }),
+
+  bulkRestore: protectedProcedure
+    .input(z.object({ ids: z.array(z.string()).min(1).max(100) }))
+    .mutation(async ({ input, ctx }) => {
+      const now = new Date();
+      await db
+        .update(items)
+        .set({ deletedAt: null, updatedAt: now })
+        .where(and(inArray(items.id, input.ids), eq(items.userId, ctx.user.id)));
+      return { success: true as const, restored: input.ids.length };
     }),
 
   restore: protectedProcedure
@@ -892,6 +966,120 @@ export const itemsRouter = router({
         prev: idx > 0 ? rows[idx - 1] : null,
         next: idx < rows.length - 1 ? rows[idx + 1] : null,
       };
+    }),
+
+  publishShortcut: protectedProcedure
+    .input(z.object({ itemId: z.string() }))
+    .mutation(async ({ input, ctx }) => {
+      const owned = await db
+        .select()
+        .from(items)
+        .where(and(eq(items.id, input.itemId), eq(items.userId, ctx.user.id), isNull(items.deletedAt)))
+        .limit(1);
+      if (owned.length === 0) {
+        throw new TRPCError({ code: 'NOT_FOUND', message: 'Item not found' });
+      }
+      const { publicLinks } = await import('../schema/public_links');
+      const token = randomUUID().replace(/-/g, '');
+      const linkId = randomUUID();
+      const expiresAt = new Date();
+      expiresAt.setDate(expiresAt.getDate() + 30); // default 30-day expiry
+      await db.insert(publicLinks).values({
+        id: linkId,
+        token,
+        itemId: input.itemId,
+        ownerUserId: ctx.user.id,
+        passwordHash: null,
+        expiresAt,
+        isRevoked: false,
+        viewCount: 0,
+        lastViewedAt: null,
+        createdAt: new Date(),
+      });
+      return {
+        id: linkId,
+        token,
+        urlPath: `/p/${token}`,
+        expiresAt: expiresAt.toISOString(),
+      };
+    }),
+
+  findDuplicates: protectedProcedure.query(async ({ ctx }) => {
+    const rows = await db
+      .select()
+      .from(items)
+      .where(and(eq(items.userId, ctx.user.id), isNull(items.deletedAt)));
+    const byKey = new Map<string, typeof rows>();
+    for (const r of rows) {
+      const normalizedTitle = (r.title ?? '').toLowerCase().replace(/\s+/g, ' ').trim();
+      const normalizedUrl = r.url ? r.url.replace(/[?#].*$/, '').replace(/\/$/, '') : '';
+      const key = normalizedUrl ? `url:${normalizedUrl}` : `title:${normalizedTitle}`;
+      if (!key || key === 'title:') continue;
+      const list = byKey.get(key) ?? [];
+      list.push(r);
+      byKey.set(key, list);
+    }
+    return Array.from(byKey.entries())
+      .filter(([, list]) => list.length >= 2)
+      .slice(0, 50)
+      .map(([key, list]) => ({
+        key,
+        count: list.length,
+        items: list.map((i) => ({
+          id: i.id,
+          title: i.title,
+          type: i.type,
+          createdAt: i.createdAt,
+        })),
+      }));
+  }),
+
+  findOrphans: protectedProcedure
+    .input(z.object({ limit: z.number().int().min(1).max(100).default(50) }).optional())
+    .query(async ({ input, ctx }) => {
+      const allUserItems = await db
+        .select({ id: items.id, title: items.title, type: items.type, createdAt: items.createdAt })
+        .from(items)
+        .where(and(eq(items.userId, ctx.user.id), isNull(items.deletedAt)))
+        .orderBy(desc(items.createdAt))
+        .limit(500);
+      const userItemIds = allUserItems.map((i) => i.id);
+      if (userItemIds.length === 0) return [];
+      const [tagLinks, catLinks] = await Promise.all([
+        db.select().from(itemTags).where(inArray(itemTags.itemId, userItemIds)),
+        db.select().from(itemCategories).where(inArray(itemCategories.itemId, userItemIds)),
+      ]);
+      const hasTag = new Set(tagLinks.map((l) => l.itemId));
+      const hasCat = new Set(catLinks.map((l) => l.itemId));
+      return allUserItems
+        .filter((i) => !hasTag.has(i.id) && !hasCat.has(i.id))
+        .slice(0, input?.limit ?? 50);
+    }),
+
+  byDateRange: protectedProcedure
+    .input(
+      z.object({
+        start: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+        end: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+        limit: z.number().int().min(1).max(200).default(100),
+      })
+    )
+    .query(async ({ input, ctx }) => {
+      const startMs = new Date(input.start + 'T00:00:00Z');
+      const endMs = new Date(input.end + 'T23:59:59Z');
+      return db
+        .select()
+        .from(items)
+        .where(
+          and(
+            eq(items.userId, ctx.user.id),
+            isNull(items.deletedAt),
+            gte(items.createdAt, startMs),
+            lt(items.createdAt, endMs)
+          )
+        )
+        .orderBy(desc(items.createdAt))
+        .limit(input.limit);
     }),
 
   byCategory: protectedProcedure

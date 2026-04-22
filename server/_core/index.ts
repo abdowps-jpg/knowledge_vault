@@ -39,6 +39,7 @@ import { feedbackRouter } from '../routers/feedback';
 import { searchRouter } from '../routers/search';
 import { reviewsRouter } from '../routers/reviews';
 import { onboardingRouter } from '../routers/onboarding';
+import { integrationsRouter } from '../routers/integrations';
 import { apiKeys, webhookSubscriptions } from '../schema/api_keys';
 import { and } from 'drizzle-orm';
 import { items } from '../schema/items';
@@ -248,6 +249,7 @@ const appRouter = router({
   search: searchRouter,
   reviews: reviewsRouter,
   onboarding: onboardingRouter,
+  integrations: integrationsRouter,
   // test endpoint
   hello: publicProcedure.query(() => {
     return { message: 'Hello from tRPC!' };
@@ -293,9 +295,16 @@ app.use((_req, res, next) => {
 // CORS middleware
 app.use((req, res, next) => {
   const origin = req.headers.origin ?? '';
-  const isAllowed = allowedOrigins
-    ? origin !== '' && allowedOrigins.includes(origin)
-    : !isProduction;
+  const isExtension =
+    origin.startsWith('chrome-extension://') ||
+    origin.startsWith('moz-extension://') ||
+    origin.startsWith('safari-web-extension://');
+
+  const isAllowed = isExtension
+    ? true
+    : allowedOrigins
+      ? origin !== '' && allowedOrigins.includes(origin)
+      : !isProduction;
 
   if (isAllowed) {
     res.header('Access-Control-Allow-Origin', origin || '*');
@@ -889,6 +898,42 @@ app.use(
   })
 );
 
+// Server-Sent Events: realtime notification stream
+app.get('/events', (req: Request, res: Response) => {
+  const authHeader = req.headers.authorization;
+  const bearer = typeof authHeader === 'string' && authHeader.startsWith('Bearer ')
+    ? authHeader.slice(7).trim()
+    : '';
+  const queryToken = typeof req.query.token === 'string' ? req.query.token.trim() : '';
+  const token = bearer || queryToken;
+  if (!token) {
+    return res.status(401).json({ error: 'missing_token' });
+  }
+  let payload: { sub?: string } | null = null;
+  try {
+    payload = verifyToken(token) as { sub?: string } | null;
+  } catch {
+    return res.status(401).json({ error: 'invalid_token' });
+  }
+  if (!payload?.sub) {
+    return res.status(401).json({ error: 'invalid_token' });
+  }
+
+  res.setHeader('Content-Type', 'text/event-stream');
+  res.setHeader('Cache-Control', 'no-cache, no-transform');
+  res.setHeader('Connection', 'keep-alive');
+  res.setHeader('X-Accel-Buffering', 'no'); // disable nginx buffering
+
+  void import('../lib/realtime').then(({ addRealtimeClient }) => {
+    const cleanup = addRealtimeClient(payload!.sub!, res);
+    req.on('close', cleanup);
+    req.on('aborted', cleanup);
+  }).catch((err) => {
+    console.error('[SSE] failed to attach client:', err);
+    res.end();
+  });
+});
+
 // Health check for uptime monitors
 app.get('/healthz', (_req, res) => {
   res.json({ status: 'ok', uptime: process.uptime() });
@@ -914,18 +959,99 @@ app.get('/_metrics', (_req, res) => {
   });
 });
 
-// Tell crawlers to stay out of the API surface; /p/:token is also noindex via meta
-app.get('/robots.txt', (_req, res) => {
-  res.type('text/plain').send('User-agent: *\nDisallow: /\n');
+app.get('/sitemap.xml', (req: Request, res: Response) => {
+  const host = `${req.protocol}://${req.get('host') ?? 'localhost'}`;
+  const lastmod = new Date().toISOString();
+  res.type('application/xml').send(
+    `<?xml version="1.0" encoding="UTF-8"?>
+<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+  <url><loc>${host}/</loc><lastmod>${lastmod}</lastmod><priority>1.0</priority></url>
+</urlset>`
+  );
 });
 
-// Minimal landing for accidental browser hits on the API host
+// Allow the landing to be indexed, but block API, auth-sensitive routes,
+// and private share pages (they also carry noindex meta tags).
+app.get('/robots.txt', (_req, res) => {
+  res.type('text/plain').send(
+    [
+      'User-agent: *',
+      'Disallow: /api/',
+      'Disallow: /trpc/',
+      'Disallow: /email/',
+      'Disallow: /events',
+      'Disallow: /p/',
+      'Disallow: /_metrics',
+      'Allow: /',
+      '',
+    ].join('\n')
+  );
+});
+
+// Minimal public landing. Search engines can find this.
 app.get('/', (_req, res) => {
-  res
-    .type('html')
-    .send(
-      `<!doctype html><html><head><meta charset="utf-8"><meta name="robots" content="noindex"><title>Knowledge Vault API</title></head><body style="font-family:system-ui;padding:40px;max-width:560px;margin:auto"><h1>Knowledge Vault</h1><p>This is the API host. Open the Knowledge Vault app.</p></body></html>`
-    );
+  res.type('html').send(`<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="description" content="Knowledge Vault — capture, organize, and act on everything you know. AI-powered, offline-first, mobile-native.">
+  <title>Knowledge Vault</title>
+  <style>
+    :root{color-scheme:light dark}
+    *{box-sizing:border-box}
+    body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;max-width:760px;margin:0 auto;padding:48px 24px;line-height:1.55;color:#111;background:#fafafa}
+    @media (prefers-color-scheme:dark){body{background:#0b0b10;color:#eaeaea}a{color:#9bb6ff}hr{border-color:#222}}
+    header{display:flex;align-items:center;gap:12px;margin-bottom:24px}
+    .logo{width:40px;height:40px;border-radius:10px;background:linear-gradient(135deg,#4f46e5,#7c3aed);display:grid;place-items:center;color:#fff;font-weight:800}
+    h1{margin:0;font-size:1.6rem}
+    h2{font-size:1.15rem;margin-top:2.5rem}
+    .tagline{color:#666;margin-top:4px}
+    @media (prefers-color-scheme:dark){.tagline{color:#9a9a9a}}
+    ul{padding-left:20px}
+    li{margin-bottom:6px}
+    .cta{display:inline-block;background:#4f46e5;color:#fff;padding:10px 16px;border-radius:8px;text-decoration:none;margin-top:12px;font-weight:700}
+    footer{margin-top:48px;padding-top:16px;border-top:1px solid #ddd;color:#888;font-size:.85rem}
+    @media (prefers-color-scheme:dark){footer{border-top-color:#2a2a2a}}
+    code{background:#0001;padding:2px 6px;border-radius:4px;font-size:.88rem}
+    @media (prefers-color-scheme:dark){code{background:#fff1}}
+  </style>
+</head>
+<body>
+  <header>
+    <div class="logo">KV</div>
+    <div>
+      <h1>Knowledge Vault</h1>
+      <div class="tagline">Capture anything. Find everything. Act on what matters.</div>
+    </div>
+  </header>
+
+  <p>A personal knowledge system with built-in AI. Works offline. Mobile-native.</p>
+
+  <a class="cta" href="https://github.com/abdowps-jpg/knowledge_vault">See on GitHub</a>
+
+  <h2>What you get</h2>
+  <ul>
+    <li>Capture notes, links, quotes, and audio — one inbox for everything.</li>
+    <li>AI that summarizes, suggests tags, extracts tasks, and answers questions about your own notes.</li>
+    <li>Tasks, habits, goals, and a daily journal — the "act" half of knowledge work.</li>
+    <li>Share any item via password-protected public link.</li>
+    <li>Browser extension (Chrome / Firefox) for one-click save from anywhere.</li>
+    <li>REST API + webhooks + Markdown import/export — your data stays yours.</li>
+  </ul>
+
+  <h2>For developers</h2>
+  <p>
+    REST docs: <a href="/api/schema"><code>/api/schema</code></a> &middot;
+    Health: <a href="/healthz"><code>/healthz</code></a> &middot;
+    Metrics: <a href="/_metrics"><code>/_metrics</code></a>
+  </p>
+
+  <footer>
+    © Knowledge Vault. This page is the API host landing — install the mobile app or browser extension to use the product.
+  </footer>
+</body>
+</html>`);
 });
 
 function escapeHtml(value: string): string {

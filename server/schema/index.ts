@@ -24,3 +24,4 @@ export * from './feedback';
 export * from './notification_prefs';
 export * from './reviews';
 export * from './onboarding';
+export * from './habit_logs';

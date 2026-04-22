@@ -166,6 +166,62 @@ export const journalRouter = router({
       }
     }),
 
+  byDateRange: protectedProcedure
+    .input(
+      z.object({
+        start: dateString,
+        end: dateString,
+      })
+    )
+    .query(async ({ input, ctx }) => {
+      return db
+        .select()
+        .from(journal)
+        .where(
+          and(
+            eq(journal.userId, ctx.user.id),
+            isNull(journal.deletedAt),
+            gte(journal.entryDate, input.start),
+            lte(journal.entryDate, input.end)
+          )
+        )
+        .orderBy(desc(journal.entryDate));
+    }),
+
+  wordCloud: protectedProcedure
+    .input(z.object({ days: z.number().int().min(7).max(365).default(30) }).optional())
+    .query(async ({ ctx, input }) => {
+      const days = input?.days ?? 30;
+      const since = new Date();
+      since.setDate(since.getDate() - days);
+      const rows = await db
+        .select({ content: journal.content })
+        .from(journal)
+        .where(and(eq(journal.userId, ctx.user.id), isNull(journal.deletedAt), gte(journal.createdAt, since)));
+      const stopwords = new Set([
+        'the', 'and', 'a', 'to', 'of', 'in', 'i', 'is', 'it', 'that', 'this', 'for', 'on', 'with', 'my', 'me',
+        'but', 'was', 'at', 'not', 'be', 'are', 'as', 'you', 'have', 'had', 'has', 'so', 'an', 'or', 'if',
+        'we', 'do', 'just', 'from', 'they', 'he', 'she', 'them', 'by', 'about', 'all', 'were', 'can', 'will',
+        'some', 'more', 'up', 'out', 'what', 'when', 'how', 'there', 'their', 'than', 'then', 'which', 'been',
+        'also', 'any', 'our', 'its', 'his', 'her', 'very', 'even', 'only', 'too', 'now', 'after', 'before',
+        'over', 'still', 'much', 'get', 'got', 'one', 'two', 'like',
+      ]);
+      const counts = new Map<string, number>();
+      for (const r of rows) {
+        if (!r.content) continue;
+        const words = r.content
+          .toLowerCase()
+          .replace(/[^a-z\u0600-\u06ff\s]/g, ' ')
+          .split(/\s+/)
+          .filter((w) => w.length > 3 && !stopwords.has(w));
+        for (const w of words) counts.set(w, (counts.get(w) ?? 0) + 1);
+      }
+      return Array.from(counts.entries())
+        .sort((a, b) => b[1] - a[1])
+        .slice(0, 40)
+        .map(([word, count]) => ({ word, count }));
+    }),
+
   streakStats: protectedProcedure.query(async ({ ctx }) => {
     const rows = await db
       .select({ entryDate: journal.entryDate })

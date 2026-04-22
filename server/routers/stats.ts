@@ -1,4 +1,5 @@
 import { and, eq, gte, inArray, isNull, like } from 'drizzle-orm';
+import { z } from 'zod';
 import { protectedProcedure, router } from '../trpc';
 import { db } from '../db';
 import { auditLog } from '../schema/audit_log';
@@ -268,6 +269,90 @@ export const statsRouter = router({
         mostProductiveDay: 'N/A',
         averageItemsPerDay: 0,
       };
+    }
+  }),
+
+  tagGrowth: protectedProcedure.query(async ({ ctx }) => {
+    try {
+      const userTags = await db.select().from(tags).where(eq(tags.userId, ctx.user.id));
+      if (userTags.length === 0) return { byMonth: [] as { month: string; count: number }[] };
+      const byMonth = new Map<string, number>();
+      for (const t of userTags) {
+        const d = toDate(t.createdAt);
+        if (!d) continue;
+        const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+        byMonth.set(key, (byMonth.get(key) ?? 0) + 1);
+      }
+      return {
+        byMonth: Array.from(byMonth.entries())
+          .sort((a, b) => a[0].localeCompare(b[0]))
+          .map(([month, count]) => ({ month, count })),
+      };
+    } catch (err) {
+      console.error('Error in tagGrowth:', err);
+      return { byMonth: [] };
+    }
+  }),
+
+  timeline: protectedProcedure
+    .input(z.object({ days: z.number().int().min(1).max(30).default(7) }).optional())
+    .query(async ({ input, ctx }) => {
+      const days = input?.days ?? 7;
+      const since = new Date();
+      since.setDate(since.getDate() - days);
+      const [recentItems, completedTasks, recentJournal] = await Promise.all([
+        db
+          .select({ id: items.id, title: items.title, type: items.type, createdAt: items.createdAt })
+          .from(items)
+          .where(and(eq(items.userId, ctx.user.id), isNull(items.deletedAt), gte(items.createdAt, since))),
+        db
+          .select({ id: tasks.id, title: tasks.title, completedAt: tasks.completedAt })
+          .from(tasks)
+          .where(and(eq(tasks.userId, ctx.user.id), isNull(tasks.deletedAt), eq(tasks.isCompleted, true))),
+        db
+          .select({ id: journal.id, title: journal.title, entryDate: journal.entryDate, createdAt: journal.createdAt })
+          .from(journal)
+          .where(and(eq(journal.userId, ctx.user.id), isNull(journal.deletedAt), gte(journal.createdAt, since))),
+      ]);
+
+      type Event = { ts: number; kind: 'item' | 'task' | 'journal'; id: string; label: string };
+      const events: Event[] = [];
+      for (const r of recentItems) {
+        const d = toDate(r.createdAt);
+        if (d) events.push({ ts: d.getTime(), kind: 'item', id: r.id, label: `+${r.type}: ${r.title}` });
+      }
+      for (const t of completedTasks) {
+        const d = toDate(t.completedAt);
+        if (!d || d.getTime() < since.getTime()) continue;
+        events.push({ ts: d.getTime(), kind: 'task', id: t.id, label: `✓ ${t.title}` });
+      }
+      for (const j of recentJournal) {
+        const d = toDate(j.createdAt);
+        if (d) events.push({ ts: d.getTime(), kind: 'journal', id: j.id, label: `📖 ${j.title ?? j.entryDate ?? 'Entry'}` });
+      }
+      events.sort((a, b) => b.ts - a.ts);
+      return events.slice(0, 200).map((e) => ({ ...e, at: new Date(e.ts).toISOString() }));
+    }),
+
+  goalSnapshot: protectedProcedure.query(async ({ ctx }) => {
+    try {
+      const { goals, goalMilestones } = await import('../schema/goals');
+      const goalRows = await db.select().from(goals).where(eq(goals.userId, ctx.user.id));
+      if (goalRows.length === 0) {
+        return { totalGoals: 0, completedGoals: 0, activeGoals: 0, totalMilestones: 0, completedMilestones: 0 };
+      }
+      const goalIds = goalRows.map((g) => g.id);
+      const ms = await db.select().from(goalMilestones).where(inArray(goalMilestones.goalId, goalIds));
+      return {
+        totalGoals: goalRows.length,
+        completedGoals: goalRows.filter((g) => g.isCompleted).length,
+        activeGoals: goalRows.filter((g) => !g.isCompleted).length,
+        totalMilestones: ms.length,
+        completedMilestones: ms.filter((m) => m.isCompleted).length,
+      };
+    } catch (err) {
+      console.error('Error in goalSnapshot:', err);
+      return { totalGoals: 0, completedGoals: 0, activeGoals: 0, totalMilestones: 0, completedMilestones: 0 };
     }
   }),
 

@@ -203,6 +203,54 @@ export const goalsRouter = router({
       return { success: true as const };
     }),
 
+  addMilestone: protectedProcedure
+    .input(z.object({ goalId: z.string(), title: z.string().min(1).max(200) }))
+    .mutation(async ({ ctx, input }) => {
+      const owned = await db
+        .select()
+        .from(goals)
+        .where(and(eq(goals.id, input.goalId), eq(goals.userId, ctx.user.id)))
+        .limit(1);
+      if (owned.length === 0) {
+        return { success: false as const };
+      }
+      const existing = await db.select().from(goalMilestones).where(eq(goalMilestones.goalId, input.goalId));
+      const now = new Date();
+      const id = randomUUID();
+      await db.insert(goalMilestones).values({
+        id,
+        goalId: input.goalId,
+        title: input.title.trim(),
+        isCompleted: false,
+        sortOrder: existing.length,
+        createdAt: now,
+        updatedAt: now,
+      });
+      return { success: true as const, id };
+    }),
+
+  deleteMilestone: protectedProcedure
+    .input(z.object({ milestoneId: z.string() }))
+    .mutation(async ({ ctx, input }) => {
+      // Verify ownership via goal
+      const msRows = await db
+        .select({ id: goalMilestones.id, goalId: goalMilestones.goalId })
+        .from(goalMilestones)
+        .where(eq(goalMilestones.id, input.milestoneId))
+        .limit(1);
+      const ms = msRows[0];
+      if (!ms) return { success: true as const };
+      const goalRows = await db
+        .select()
+        .from(goals)
+        .where(and(eq(goals.id, ms.goalId), eq(goals.userId, ctx.user.id)))
+        .limit(1);
+      if (goalRows.length === 0) return { success: false as const };
+      await db.delete(milestoneTasks).where(eq(milestoneTasks.milestoneId, input.milestoneId));
+      await db.delete(goalMilestones).where(eq(goalMilestones.id, input.milestoneId));
+      return { success: true as const };
+    }),
+
   toggleComplete: protectedProcedure
     .input(z.object({ id: z.string() }))
     .mutation(async ({ input, ctx }) => {

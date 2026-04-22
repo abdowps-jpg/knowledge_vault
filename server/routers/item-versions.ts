@@ -75,4 +75,48 @@ export const itemVersionsRouter = router({
 
       return { success: true as const, itemId: version.itemId };
     }),
+
+  compare: protectedProcedure
+    .input(z.object({ itemId: z.string(), versionId: z.string() }))
+    .query(async ({ input, ctx }) => {
+      const access = await getItemAccessById({
+        itemId: input.itemId,
+        userId: ctx.user.id,
+        userEmail: ctx.user.email,
+      });
+      ensureItemAccess(access, 'view');
+
+      const [currentRows, versionRows] = await Promise.all([
+        db.select().from(items).where(eq(items.id, input.itemId)).limit(1),
+        db.select().from(itemVersions).where(eq(itemVersions.id, input.versionId)).limit(1),
+      ]);
+      const current = currentRows[0];
+      const version = versionRows[0];
+      if (!current || !version || version.itemId !== input.itemId) {
+        throw new TRPCError({ code: 'NOT_FOUND', message: 'Version or item not found' });
+      }
+
+      // Cheap line-level diff: mark lines added/removed/unchanged
+      const a = (version.content ?? '').split('\n');
+      const b = (current.content ?? '').split('\n');
+      const maxLines = 500;
+      const lines: { kind: 'same' | 'added' | 'removed'; text: string }[] = [];
+      const aSet = new Set(a);
+      const bSet = new Set(b);
+
+      for (const line of b.slice(0, maxLines)) {
+        if (aSet.has(line)) lines.push({ kind: 'same', text: line });
+        else lines.push({ kind: 'added', text: line });
+      }
+      for (const line of a.slice(0, maxLines)) {
+        if (!bSet.has(line)) lines.push({ kind: 'removed', text: line });
+      }
+
+      return {
+        titleBefore: version.title,
+        titleAfter: current.title,
+        titleChanged: version.title !== current.title,
+        diffLines: lines,
+      };
+    }),
 });

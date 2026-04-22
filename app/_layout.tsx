@@ -30,6 +30,7 @@ import { SearchProvider } from "@/lib/context/search-context";
 import { requestTaskNotificationPermissions } from "@/lib/notifications/task-notifications";
 import { scheduleReviewPrompts } from "@/lib/notifications/review-notifications";
 import { registerPushTokenOnce } from "@/lib/notifications/push-token";
+import { useRealtime } from "@/hooks/use-realtime";
 import { OfflineSnapshot, offlineManager } from "@/lib/offline-manager";
 
 const DEFAULT_WEB_INSETS: EdgeInsets = { top: 0, right: 0, bottom: 0, left: 0 };
@@ -321,6 +322,17 @@ export default function RootLayout() {
       netUnsub();
     };
   }, [isAuthenticated, trpcClient]);
+
+  // Realtime (SSE) — push updates to notifications UI without polling
+  useRealtime({
+    onNotification: () => {
+      if (!isAuthenticated) return;
+      queryClient.invalidateQueries({ queryKey: [["notifications", "list"]] }).catch(() => undefined);
+      queryClient.invalidateQueries({ queryKey: [["notifications", "unreadCount"]] }).catch(() => undefined);
+      queryClient.invalidateQueries({ queryKey: [["notifications", "digest"]] }).catch(() => undefined);
+      queryClient.invalidateQueries({ queryKey: [["notifications", "previewLatest"]] }).catch(() => undefined);
+    },
+  });
 
   // Ensure minimum 8px padding for top and bottom on mobile
   const providerInitialMetrics = useMemo(() => {

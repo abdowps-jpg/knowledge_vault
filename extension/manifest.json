@@ -1,0 +1,57 @@
+{
+  "manifest_version": 3,
+  "name": "Knowledge Vault Clipper",
+  "short_name": "KV Clipper",
+  "version": "1.0.0",
+  "description": "Save pages, selections, and quotes to your Knowledge Vault in one click.",
+  "permissions": [
+    "activeTab",
+    "contextMenus",
+    "storage",
+    "notifications"
+  ],
+  "host_permissions": [
+    "http://localhost:3000/*",
+    "https://*/*"
+  ],
+  "action": {
+    "default_title": "Save to Knowledge Vault",
+    "default_popup": "popup.html",
+    "default_icon": {
+      "16": "icons/icon-16.png",
+      "32": "icons/icon-32.png",
+      "48": "icons/icon-48.png",
+      "128": "icons/icon-128.png"
+    }
+  },
+  "icons": {
+    "16": "icons/icon-16.png",
+    "32": "icons/icon-32.png",
+    "48": "icons/icon-48.png",
+    "128": "icons/icon-128.png"
+  },
+  "background": {
+    "service_worker": "background.js",
+    "type": "module"
+  },
+  "options_ui": {
+    "page": "options.html",
+    "open_in_tab": true
+  },
+  "content_scripts": [
+    {
+      "matches": ["<all_urls>"],
+      "js": ["content.js"],
+      "run_at": "document_idle"
+    }
+  ],
+  "commands": {
+    "quick-save": {
+      "suggested_key": {
+        "default": "Alt+Shift+S",
+        "mac": "Alt+Shift+S"
+      },
+      "description": "Quick-save current page to Knowledge Vault"
+    }
+  }
+}

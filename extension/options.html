@@ -1,0 +1,48 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>Knowledge Vault — Settings</title>
+  <link rel="stylesheet" href="popup.css" />
+  <style>
+    body { min-width: unset; }
+    .page { max-width: 520px; margin: 32px auto; padding: 20px; }
+    .hint { color: var(--muted); font-size: 12px; margin-top: 4px; }
+    .test-result { margin-top: 8px; font-size: 12px; padding: 8px 10px; border-radius: 6px; }
+    .test-result.ok { background: color-mix(in srgb, var(--success) 15%, transparent); color: var(--success); }
+    .test-result.err { background: color-mix(in srgb, var(--error) 15%, transparent); color: var(--error); }
+    button { cursor: pointer; }
+  </style>
+</head>
+<body>
+  <div class="page">
+    <header>
+      <div class="logo">KV</div>
+      <h1>Knowledge Vault Clipper — Settings</h1>
+    </header>
+
+    <form id="settings-form">
+      <label class="field">
+        <span>API Base URL</span>
+        <input id="api-base" type="url" placeholder="http://localhost:3000" />
+        <span class="hint">The URL where your Knowledge Vault server is running.</span>
+      </label>
+
+      <label class="field">
+        <span>API Key</span>
+        <input id="api-key" type="password" placeholder="kv_…" autocomplete="off" />
+        <span class="hint">Generate one from Settings → API Keys in the app (needs "write" scope).</span>
+      </label>
+
+      <div class="actions">
+        <button type="submit" class="primary">Save</button>
+        <button type="button" id="test-btn" class="link">Test connection</button>
+      </div>
+
+      <div id="test-result" class="test-result hidden"></div>
+    </form>
+  </div>
+
+  <script src="options.js"></script>
+</body>
+</html>

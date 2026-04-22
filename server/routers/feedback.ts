@@ -46,6 +46,18 @@ export const feedbackRouter = router({
       return { success: true as const, id };
     }),
 
+  summary: protectedProcedure.query(async ({ ctx }) => {
+    const rows = await db.select().from(feedback).where(eq(feedback.userId, ctx.user.id));
+    const byKind = new Map<string, number>();
+    for (const r of rows) {
+      byKind.set(r.kind, (byKind.get(r.kind) ?? 0) + 1);
+    }
+    return {
+      total: rows.length,
+      byKind: Array.from(byKind.entries()).map(([kind, count]) => ({ kind, count })),
+    };
+  }),
+
   listMine: protectedProcedure
     .input(z.object({ limit: z.number().int().min(1).max(100).default(30) }).optional())
     .query(async ({ input, ctx }) => {

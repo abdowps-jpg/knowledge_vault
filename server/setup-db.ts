@@ -585,9 +585,15 @@ db.exec(`
     task_due_enabled INTEGER NOT NULL DEFAULT 1,
     quiet_start_minutes INTEGER,
     quiet_end_minutes INTEGER,
+    snooze_until INTEGER,
     updated_at INTEGER DEFAULT (strftime('%s', 'now'))
   );
 `);
+try {
+  db.exec(`ALTER TABLE notification_prefs ADD COLUMN snooze_until INTEGER;`);
+} catch {
+  // Column already exists.
+}
 
 db.exec(`
   CREATE TABLE IF NOT EXISTS reviews (
@@ -615,6 +621,19 @@ db.exec(`
     completed_at INTEGER,
     updated_at INTEGER DEFAULT (strftime('%s', 'now'))
   );
+`);
+
+db.exec(`
+  CREATE TABLE IF NOT EXISTS habit_logs (
+    id TEXT PRIMARY KEY,
+    user_id TEXT NOT NULL,
+    habit_id TEXT NOT NULL,
+    date TEXT NOT NULL,
+    created_at INTEGER DEFAULT (strftime('%s', 'now'))
+  );
+
+  CREATE INDEX IF NOT EXISTS idx_habit_logs_user_id ON habit_logs(user_id);
+  CREATE UNIQUE INDEX IF NOT EXISTS idx_habit_logs_habit_date ON habit_logs(habit_id, date);
 `);
 
 console.log('✅ Database tables created successfully!');
