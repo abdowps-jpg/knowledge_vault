@@ -271,6 +271,64 @@ export const statsRouter = router({
     }
   }),
 
+  getDashboard: protectedProcedure.query(async ({ ctx }) => {
+    try {
+      const [allItems, allTasks, allJournal, allTags] = await Promise.all([
+        db.select().from(items).where(and(eq(items.userId, ctx.user.id), isNull(items.deletedAt))),
+        db.select().from(tasks).where(and(eq(tasks.userId, ctx.user.id), isNull(tasks.deletedAt))),
+        db.select().from(journal).where(and(eq(journal.userId, ctx.user.id), isNull(journal.deletedAt))),
+        db.select().from(tags).where(eq(tags.userId, ctx.user.id)),
+      ]);
+
+      const weekAgo = Date.now() - 7 * 24 * 60 * 60 * 1000;
+
+      const itemsThisWeek = allItems.filter((i) => {
+        const d = toDate(i.createdAt);
+        return d && d.getTime() >= weekAgo;
+      }).length;
+
+      const tasksCompletedThisWeek = allTasks.filter((t) => {
+        if (!t.isCompleted || !t.completedAt) return false;
+        const d = toDate(t.completedAt);
+        return d && d.getTime() >= weekAgo;
+      }).length;
+
+      const journalEntriesThisWeek = allJournal.filter((j) => {
+        const d = toDate(j.createdAt);
+        return d && d.getTime() >= weekAgo;
+      }).length;
+
+      return {
+        counts: {
+          items: allItems.length,
+          tasks: allTasks.length,
+          journal: allJournal.length,
+          tags: allTags.length,
+        },
+        weekly: {
+          items: itemsThisWeek,
+          tasksCompleted: tasksCompletedThisWeek,
+          journalEntries: journalEntriesThisWeek,
+        },
+        taskProgress: {
+          total: allTasks.length,
+          completed: allTasks.filter((t) => t.isCompleted).length,
+          percent:
+            allTasks.length > 0
+              ? Math.round((allTasks.filter((t) => t.isCompleted).length / allTasks.length) * 100)
+              : 0,
+        },
+      };
+    } catch (err) {
+      console.error('Error building dashboard:', err);
+      return {
+        counts: { items: 0, tasks: 0, journal: 0, tags: 0 },
+        weekly: { items: 0, tasksCompleted: 0, journalEntries: 0 },
+        taskProgress: { total: 0, completed: 0, percent: 0 },
+      };
+    }
+  }),
+
   getWritingTrend: protectedProcedure.query(async ({ ctx }) => {
     try {
       const since = new Date();

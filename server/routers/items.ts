@@ -676,6 +676,29 @@ export const itemsRouter = router({
       return rows;
     }),
 
+  neighbors: protectedProcedure
+    .input(
+      z.object({
+        id: z.string(),
+        location: z.enum(['inbox', 'library', 'archive']).optional(),
+      })
+    )
+    .query(async ({ input, ctx }) => {
+      const conditions = [eq(items.userId, ctx.user.id), isNull(items.deletedAt)];
+      if (input.location) conditions.push(eq(items.location, input.location));
+      const rows = await db
+        .select({ id: items.id, title: items.title, createdAt: items.createdAt })
+        .from(items)
+        .where(and(...conditions))
+        .orderBy(desc(items.createdAt));
+      const idx = rows.findIndex((r) => r.id === input.id);
+      if (idx === -1) return { prev: null, next: null };
+      return {
+        prev: idx > 0 ? rows[idx - 1] : null,
+        next: idx < rows.length - 1 ? rows[idx + 1] : null,
+      };
+    }),
+
   byCategory: protectedProcedure
     .input(z.object({ categoryId: z.string(), limit: z.number().int().min(1).max(100).default(50) }))
     .query(async ({ input, ctx }) => {

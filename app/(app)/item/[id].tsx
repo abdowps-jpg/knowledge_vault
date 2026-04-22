@@ -120,7 +120,12 @@ export default function ItemDetailScreen() {
   const relatedItems = trpc.ai.relatedItems.useMutation();
   const quickActions = trpc.ai.quickActions.useMutation();
   const expandDraft = trpc.ai.expand.useMutation();
+  const extractTasks = trpc.ai.extractTasks.useMutation();
+  const bulkCreateTasks = trpc.tasks.bulkCreate.useMutation();
   const createTaskFromAction = trpc.tasks.create.useMutation();
+  const [extractedTasks, setExtractedTasks] = React.useState<
+    { title: string; priority: "low" | "medium" | "high" }[]
+  >([]);
   const [aiSummary, setAiSummary] = React.useState<string>("");
   const [aiTagSuggestions, setAiTagSuggestions] = React.useState<string[]>([]);
   const [aiRelated, setAiRelated] = React.useState<{ id: string; title: string; reason: string }[]>([]);
@@ -821,7 +826,113 @@ export default function ItemDetailScreen() {
                   {expandDraft.isPending ? "Thinking…" : "Expand"}
                 </Text>
               </Pressable>
+              <Pressable
+                onPress={async () => {
+                  try {
+                    const res = await extractTasks.mutateAsync({ itemId: id });
+                    setExtractedTasks(res.tasks);
+                    if (res.tasks.length === 0) {
+                      Alert.alert("AI", "No actionable tasks detected in this content.");
+                    }
+                  } catch (e: any) {
+                    Alert.alert("AI", e?.message ?? "Failed to extract tasks");
+                  }
+                }}
+                disabled={extractTasks.isPending}
+                style={{
+                  backgroundColor: colors.surface,
+                  borderWidth: 1,
+                  borderColor: colors.primary,
+                  paddingHorizontal: 12,
+                  paddingVertical: 8,
+                  borderRadius: 8,
+                  opacity: extractTasks.isPending ? 0.6 : 1,
+                }}
+              >
+                <Text style={{ color: colors.primary, fontWeight: "600", fontSize: 13 }}>
+                  {extractTasks.isPending ? "Thinking…" : "Extract tasks"}
+                </Text>
+              </Pressable>
             </View>
+            {extractedTasks.length > 0 ? (
+              <View style={{ marginTop: 10 }}>
+                <View
+                  style={{
+                    flexDirection: "row",
+                    justifyContent: "space-between",
+                    alignItems: "center",
+                    marginBottom: 6,
+                  }}
+                >
+                  <Text style={{ color: colors.muted, fontSize: 11 }}>
+                    Tasks detected ({extractedTasks.length})
+                  </Text>
+                  <Pressable
+                    onPress={async () => {
+                      try {
+                        const res = await bulkCreateTasks.mutateAsync({ tasks: extractedTasks });
+                        setExtractedTasks([]);
+                        Alert.alert("Tasks created", `${res.created} task${res.created === 1 ? "" : "s"} added.`);
+                      } catch (err: any) {
+                        Alert.alert("Error", err?.message ?? "Failed to create tasks.");
+                      }
+                    }}
+                    disabled={bulkCreateTasks.isPending}
+                    style={{
+                      backgroundColor: colors.primary,
+                      paddingHorizontal: 8,
+                      paddingVertical: 4,
+                      borderRadius: 999,
+                      opacity: bulkCreateTasks.isPending ? 0.5 : 1,
+                    }}
+                  >
+                    <Text style={{ color: "#fff", fontSize: 11, fontWeight: "700" }}>
+                      {bulkCreateTasks.isPending ? "..." : "Create all"}
+                    </Text>
+                  </Pressable>
+                </View>
+                {extractedTasks.map((t, idx) => {
+                  const pColor =
+                    t.priority === "high" ? colors.error : t.priority === "low" ? colors.muted : colors.warning;
+                  return (
+                    <View
+                      key={idx}
+                      style={{
+                        flexDirection: "row",
+                        alignItems: "center",
+                        gap: 8,
+                        paddingVertical: 6,
+                        paddingHorizontal: 10,
+                        borderRadius: 8,
+                        borderWidth: 1,
+                        borderColor: colors.border,
+                        backgroundColor: colors.background,
+                        marginBottom: 4,
+                      }}
+                    >
+                      <View
+                        style={{
+                          width: 6,
+                          height: 6,
+                          borderRadius: 3,
+                          backgroundColor: pColor,
+                        }}
+                      />
+                      <Text style={{ color: colors.foreground, flex: 1, fontSize: 12 }} numberOfLines={2}>
+                        {t.title}
+                      </Text>
+                      <Pressable
+                        onPress={() => {
+                          setExtractedTasks((prev) => prev.filter((_, i) => i !== idx));
+                        }}
+                      >
+                        <Text style={{ color: colors.muted, fontSize: 11 }}>✕</Text>
+                      </Pressable>
+                    </View>
+                  );
+                })}
+              </View>
+            ) : null}
             {aiActions.length > 0 ? (
               <View style={{ marginTop: 10 }}>
                 <Text style={{ color: colors.muted, fontSize: 11, marginBottom: 6 }}>

@@ -18,3 +18,6 @@ export * from './api_keys';
 export * from './item_versions';
 export * from './audit_log';
 export * from './push_tokens';
+export * from './saved_searches';
+export * from './templates';
+export * from './feedback';

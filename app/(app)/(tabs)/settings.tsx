@@ -541,6 +541,35 @@ export default function SettingsScreen() {
   const changePasswordMutation = trpc.auth.changePassword.useMutation();
   const deleteAccountMutation = trpc.auth.deleteAccount.useMutation();
   const signOutEverywhereMutation = trpc.auth.signOutEverywhere.useMutation();
+  const submitFeedback = trpc.feedback.submit.useMutation();
+  const [showFeedbackModal, setShowFeedbackModal] = useState(false);
+  const [feedbackKind, setFeedbackKind] = useState<"bug" | "idea" | "praise" | "other">("idea");
+  const [feedbackSubject, setFeedbackSubject] = useState("");
+  const [feedbackBody, setFeedbackBody] = useState("");
+
+  const handleSubmitFeedback = async () => {
+    const subject = feedbackSubject.trim();
+    const body = feedbackBody.trim();
+    if (!subject || !body) {
+      Alert.alert("Validation", "Subject and body are required.");
+      return;
+    }
+    try {
+      await submitFeedback.mutateAsync({
+        kind: feedbackKind,
+        subject,
+        body,
+        appVersion: appVersion,
+        platform: Platform.OS,
+      });
+      setShowFeedbackModal(false);
+      setFeedbackSubject("");
+      setFeedbackBody("");
+      Alert.alert("Thank you", "Your feedback was received.");
+    } catch (err: any) {
+      Alert.alert("Error", err?.message ?? "Failed to send feedback.");
+    }
+  };
   const generateApiKeyMutation = trpc.api.generateKey.useMutation();
   const revokeApiKeyMutation = trpc.api.revokeKey.useMutation();
   const createWebhookMutation = trpc.api.createWebhook.useMutation();
@@ -1675,6 +1704,12 @@ const [showApiModal, setShowApiModal] = useState(false);
 
         <Section title="About & Legal">
           <Row icon="info" label="App Version" value={appVersion} />
+          <Row
+            icon="feedback"
+            label="Send Feedback"
+            description="Report a bug, suggest an idea, or say hi"
+            onPress={() => setShowFeedbackModal(true)}
+          />
           <Row icon="bar-chart" label="Statistics" onPress={() => router.push("/stats")} />
           <Row icon="insights" label="Advanced Analytics" onPress={() => router.push("/analytics" as any)} />
           <Row icon="devices" label="Device Management" onPress={() => router.push("/devices" as any)} />
@@ -2136,6 +2171,98 @@ const [showApiModal, setShowApiModal] = useState(false);
                 <Text className="text-foreground font-semibold">Close</Text>
               </View>
             </Pressable>
+          </View>
+        </View>
+      </Modal>
+
+      <Modal
+        visible={showFeedbackModal}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setShowFeedbackModal(false)}
+      >
+        <View className="flex-1 bg-black/50 justify-end">
+          <View className="rounded-t-3xl p-6" style={{ backgroundColor: colors.surface }}>
+            <Text className="text-lg font-bold text-foreground mb-3">Send Feedback</Text>
+            <View style={{ flexDirection: "row", gap: 6, marginBottom: 10 }}>
+              {(["bug", "idea", "praise", "other"] as const).map((k) => (
+                <Pressable
+                  key={k}
+                  onPress={() => setFeedbackKind(k)}
+                  style={{
+                    flex: 1,
+                    paddingVertical: 8,
+                    borderRadius: 8,
+                    borderWidth: 1,
+                    borderColor: feedbackKind === k ? colors.primary : colors.border,
+                    backgroundColor: feedbackKind === k ? colors.primary : colors.background,
+                    alignItems: "center",
+                  }}
+                >
+                  <Text
+                    style={{
+                      color: feedbackKind === k ? "#fff" : colors.foreground,
+                      fontSize: 12,
+                      fontWeight: "600",
+                      textTransform: "capitalize",
+                    }}
+                  >
+                    {k}
+                  </Text>
+                </Pressable>
+              ))}
+            </View>
+            <TextInput
+              value={feedbackSubject}
+              onChangeText={setFeedbackSubject}
+              placeholder="Short summary"
+              placeholderTextColor={colors.muted}
+              style={{
+                backgroundColor: colors.background,
+                borderColor: colors.border,
+                borderWidth: 1,
+                borderRadius: 8,
+                color: colors.foreground,
+                paddingHorizontal: 12,
+                paddingVertical: 10,
+                marginBottom: 10,
+              }}
+            />
+            <TextInput
+              value={feedbackBody}
+              onChangeText={setFeedbackBody}
+              placeholder="Tell us more..."
+              placeholderTextColor={colors.muted}
+              multiline
+              style={{
+                backgroundColor: colors.background,
+                borderColor: colors.border,
+                borderWidth: 1,
+                borderRadius: 8,
+                color: colors.foreground,
+                paddingHorizontal: 12,
+                paddingVertical: 10,
+                minHeight: 120,
+                textAlignVertical: "top",
+                marginBottom: 14,
+              }}
+            />
+            <View className="flex-row gap-3">
+              <Pressable onPress={() => setShowFeedbackModal(false)} style={{ flex: 1 }}>
+                <View className="rounded-lg py-3 items-center" style={{ backgroundColor: colors.border }}>
+                  <Text className="text-foreground font-semibold">Cancel</Text>
+                </View>
+              </Pressable>
+              <Pressable onPress={handleSubmitFeedback} disabled={submitFeedback.isPending} style={{ flex: 1 }}>
+                <View className="rounded-lg py-3 items-center" style={{ backgroundColor: colors.primary }}>
+                  {submitFeedback.isPending ? (
+                    <ActivityIndicator color="white" />
+                  ) : (
+                    <Text className="text-white font-semibold">Send</Text>
+                  )}
+                </View>
+              </Pressable>
+            </View>
           </View>
         </View>
       </Modal>

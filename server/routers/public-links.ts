@@ -91,6 +91,25 @@ export const publicLinksRouter = router({
       return db.select().from(publicLinks).where(eq(publicLinks.itemId, input.itemId));
     }),
 
+  listMine: protectedProcedure.query(async ({ ctx }) => {
+    const links = await db
+      .select()
+      .from(publicLinks)
+      .where(eq(publicLinks.ownerUserId, ctx.user.id));
+    if (links.length === 0) return [];
+    // Attach item titles for display
+    const itemIds = links.map((l) => l.itemId);
+    const itemRows = await db
+      .select({ id: items.id, title: items.title })
+      .from(items)
+      .where(eq(items.userId, ctx.user.id));
+    const titleById = new Map(itemRows.map((i) => [i.id, i.title]));
+    return links.map((l) => ({
+      ...l,
+      itemTitle: itemIds.includes(l.itemId) ? titleById.get(l.itemId) ?? null : null,
+    }));
+  }),
+
   rotate: protectedProcedure
     .input(z.object({ linkId: z.string() }))
     .mutation(async ({ input, ctx }) => {

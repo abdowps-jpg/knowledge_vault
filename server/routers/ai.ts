@@ -339,6 +339,130 @@ export const aiRouter = router({
       return { expanded };
     }),
 
+  extractTasks: protectedProcedure
+    .input(z.object({ itemId: z.string() }))
+    .mutation(async ({ input, ctx }) => {
+      enforceLlmQuota(ctx.user.id);
+      logAiCall(ctx.user.id, 'extractTasks', input.itemId);
+      const item = await loadItemForUser(input.itemId, ctx.user.id);
+      const text = extractContentText(item.title, item.content, item.url);
+      if (text.trim().length < 30) {
+        return { tasks: [] as { title: string; priority: 'low' | 'medium' | 'high' }[] };
+      }
+
+      const result = await invokeLLM({
+        messages: [
+          {
+            role: 'system',
+            content:
+              'Extract concrete action items from the given content. ' +
+              'Return 0-8 tasks, each with a short imperative title (e.g. "Email X", "Research Y") ' +
+              'and a priority estimate (low/medium/high). Skip vague ideas that are not actionable. ' +
+              'If the content has no real actions, return an empty list.',
+          },
+          { role: 'user', content: text },
+        ],
+        outputSchema: {
+          name: 'extracted_tasks',
+          schema: {
+            type: 'object',
+            additionalProperties: false,
+            properties: {
+              tasks: {
+                type: 'array',
+                minItems: 0,
+                maxItems: 8,
+                items: {
+                  type: 'object',
+                  additionalProperties: false,
+                  properties: {
+                    title: { type: 'string', minLength: 1, maxLength: 200 },
+                    priority: { type: 'string', enum: ['low', 'medium', 'high'] },
+                  },
+                  required: ['title', 'priority'],
+                },
+              },
+            },
+            required: ['tasks'],
+          },
+          strict: true,
+        },
+      });
+
+      const raw = result.choices?.[0]?.message?.content ?? '';
+      const body = typeof raw === 'string' ? raw : raw.map((p) => ('text' in p ? p.text : '')).join('');
+      let parsed: { tasks?: { title?: unknown; priority?: unknown }[] } = {};
+      try {
+        parsed = JSON.parse(body);
+      } catch {
+        parsed = { tasks: [] };
+      }
+      const out: { title: string; priority: 'low' | 'medium' | 'high' }[] = [];
+      for (const t of parsed.tasks ?? []) {
+        const title = typeof t.title === 'string' ? t.title.trim().slice(0, 200) : '';
+        const p = typeof t.priority === 'string' && ['low', 'medium', 'high'].includes(t.priority)
+          ? (t.priority as 'low' | 'medium' | 'high')
+          : 'medium';
+        if (title) out.push({ title, priority: p });
+        if (out.length >= 8) break;
+      }
+      return { tasks: out };
+    }),
+
+  translate: protectedProcedure
+    .input(
+      z.object({
+        itemId: z.string(),
+        targetLanguage: z.enum(['en', 'ar', 'es', 'fr', 'de', 'it', 'pt', 'ja', 'zh']),
+      })
+    )
+    .mutation(async ({ input, ctx }) => {
+      enforceLlmQuota(ctx.user.id);
+      logAiCall(ctx.user.id, 'translate', input.itemId);
+      const item = await loadItemForUser(input.itemId, ctx.user.id);
+      const text = extractContentText(item.title, item.content, item.url);
+      if (text.trim().length < 5) {
+        return { translated: '' };
+      }
+      const langNames: Record<string, string> = {
+        en: 'English', ar: 'Arabic', es: 'Spanish', fr: 'French',
+        de: 'German', it: 'Italian', pt: 'Portuguese', ja: 'Japanese', zh: 'Chinese',
+      };
+      const result = await invokeLLM({
+        messages: [
+          {
+            role: 'system',
+            content:
+              `Translate the given text to ${langNames[input.targetLanguage]}. ` +
+              'Preserve meaning, tone, and formatting (markdown). ' +
+              'Keep code blocks, URLs, and proper nouns unchanged. ' +
+              'Return only the translation, no preamble.',
+          },
+          { role: 'user', content: text },
+        ],
+        outputSchema: {
+          name: 'translation',
+          schema: {
+            type: 'object',
+            additionalProperties: false,
+            properties: { translated: { type: 'string', minLength: 1, maxLength: 8000 } },
+            required: ['translated'],
+          },
+          strict: true,
+        },
+      });
+      const raw = result.choices?.[0]?.message?.content ?? '';
+      const body = typeof raw === 'string' ? raw : raw.map((p) => ('text' in p ? p.text : '')).join('');
+      let parsed: { translated?: unknown } = {};
+      try {
+        parsed = JSON.parse(body);
+      } catch {
+        parsed = {};
+      }
+      const translated = typeof parsed.translated === 'string' ? parsed.translated.trim().slice(0, 8000) : '';
+      return { translated };
+    }),
+
   categorize: protectedProcedure
     .input(z.object({ itemId: z.string() }))
     .mutation(async ({ input, ctx }) => {
@@ -559,6 +683,64 @@ export const aiRouter = router({
       }
       return { related: out };
     }),
+
+  journalPrompt: protectedProcedure.mutation(async ({ ctx }) => {
+    enforceLlmQuota(ctx.user.id);
+    logAiCall(ctx.user.id, 'journalPrompt');
+
+    const since = new Date();
+    since.setDate(since.getDate() - 14);
+    const recentEntries = await db
+      .select()
+      .from(journal)
+      .where(and(eq(journal.userId, ctx.user.id), isNull(journal.deletedAt), gte(journal.createdAt, since)))
+      .orderBy(desc(journal.createdAt))
+      .limit(10);
+
+    const excerpt = recentEntries
+      .map((j) => `- ${j.entryDate}: ${(j.content ?? '').slice(0, 200).replace(/\s+/g, ' ')}`)
+      .join('\n');
+
+    const result = await invokeLLM({
+      messages: [
+        {
+          role: 'system',
+          content:
+            'Write a single thoughtful, open-ended journal prompt for the user. ' +
+            'If their recent entries (last 14 days) reveal a theme or tension, weave it in gently. ' +
+            'Prompts should be ~1 sentence, invite reflection, and avoid prescriptive advice. ' +
+            'If there are no recent entries, return a general reflective question.',
+        },
+        {
+          role: 'user',
+          content: recentEntries.length > 0 ? `Recent entries:\n${excerpt}` : 'No recent entries.',
+        },
+      ],
+      outputSchema: {
+        name: 'journal_prompt',
+        schema: {
+          type: 'object',
+          additionalProperties: false,
+          properties: {
+            prompt: { type: 'string', minLength: 5, maxLength: 300 },
+          },
+          required: ['prompt'],
+        },
+        strict: true,
+      },
+    });
+
+    const raw = result.choices?.[0]?.message?.content ?? '';
+    const body = typeof raw === 'string' ? raw : raw.map((p) => ('text' in p ? p.text : '')).join('');
+    let parsed: { prompt?: unknown } = {};
+    try {
+      parsed = JSON.parse(body);
+    } catch {
+      parsed = {};
+    }
+    const prompt = typeof parsed.prompt === 'string' ? parsed.prompt.trim().slice(0, 300) : '';
+    return { prompt };
+  }),
 
   weeklyReview: protectedProcedure.mutation(async ({ ctx }) => {
     enforceLlmQuota(ctx.user.id);

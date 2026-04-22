@@ -95,6 +95,20 @@ export const habitsRouter = router({
       return { success: true as const };
     }),
 
+  summary: protectedProcedure.query(async ({ ctx }) => {
+    const rows = await db.select().from(habits).where(eq(habits.userId, ctx.user.id));
+    const activeStreaks = rows.filter((h) => (h.streak ?? 0) > 0).length;
+    const stalled = rows.filter((h) => !h.doneToday && (h.streak ?? 0) > 0).length;
+    const idle = rows.filter((h) => (h.streak ?? 0) === 0 && !h.doneToday).length;
+    return {
+      total: rows.length,
+      activeStreaks,
+      stalled,
+      idle,
+      doneToday: rows.filter((h) => h.doneToday).length,
+    };
+  }),
+
   completionRate: protectedProcedure.query(async ({ ctx }) => {
     const rows = await db.select().from(habits).where(eq(habits.userId, ctx.user.id));
     if (rows.length === 0) {

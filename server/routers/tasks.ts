@@ -341,6 +341,72 @@ export const tasksRouter = router({
       return result ?? [];
     }),
 
+  bulkCreate: protectedProcedure
+    .input(
+      z.object({
+        tasks: z
+          .array(
+            z.object({
+              title: z.string().min(1).max(500),
+              description: z.string().max(4000).optional(),
+              priority: z.enum(['low', 'medium', 'high']).default('medium'),
+              dueDate: z.string().optional(),
+            })
+          )
+          .min(1)
+          .max(50),
+      })
+    )
+    .mutation(async ({ input, ctx }) => {
+      const now = new Date();
+      const rows = input.tasks.map((t) => ({
+        id: randomUUID(),
+        userId: ctx.user.id,
+        title: t.title.trim(),
+        description: t.description?.trim() ?? null,
+        priority: t.priority,
+        dueDate: t.dueDate ?? null,
+        isCompleted: false,
+        completedAt: null,
+        recurrence: null,
+        createdAt: now,
+        updatedAt: now,
+        deletedAt: null,
+      }));
+      await db.insert(tasks).values(rows);
+      return { success: true as const, created: rows.length, ids: rows.map((r) => r.id) };
+    }),
+
+  upcomingDue: protectedProcedure
+    .input(z.object({ days: z.number().int().min(1).max(30).default(7) }).optional())
+    .query(async ({ input, ctx }) => {
+      const days = input?.days ?? 7;
+      const rows = await db
+        .select()
+        .from(tasks)
+        .where(
+          and(
+            eq(tasks.userId, ctx.user.id),
+            isNull(tasks.deletedAt),
+            eq(tasks.isCompleted, false)
+          )
+        );
+      const now = Date.now();
+      const cutoff = now + days * 24 * 60 * 60 * 1000;
+      return rows
+        .filter((t) => {
+          if (!t.dueDate) return false;
+          const d = new Date(t.dueDate).getTime();
+          return !Number.isNaN(d) && d >= now && d <= cutoff;
+        })
+        .sort((a, b) => {
+          const ad = a.dueDate ? new Date(a.dueDate).getTime() : 0;
+          const bd = b.dueDate ? new Date(b.dueDate).getTime() : 0;
+          return ad - bd;
+        })
+        .slice(0, 50);
+    }),
+
   stats: protectedProcedure.query(async ({ ctx }) => {
     const rows = await db
       .select()

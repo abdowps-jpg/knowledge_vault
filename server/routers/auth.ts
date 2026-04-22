@@ -588,6 +588,18 @@ export const authRouter = router({
       await db.delete(webhookSubscriptions).where(eq(webhookSubscriptions.userId, uid));
       await db.delete(goals).where(eq(goals.userId, uid));
 
+      // Later-added tables: push tokens, saved searches, templates, audit log, feedback
+      const { pushTokens } = await import('../schema/push_tokens');
+      const { savedSearches } = await import('../schema/saved_searches');
+      const { templates } = await import('../schema/templates');
+      const { auditLog } = await import('../schema/audit_log');
+      const { feedback } = await import('../schema/feedback');
+      await db.delete(pushTokens).where(eq(pushTokens.userId, uid));
+      await db.delete(savedSearches).where(eq(savedSearches.userId, uid));
+      await db.delete(templates).where(eq(templates.userId, uid));
+      await db.delete(auditLog).where(eq(auditLog.userId, uid));
+      await db.delete(feedback).where(eq(feedback.userId, uid));
+
       // Delete main data tables
       await db.delete(journalTable).where(eq(journalTable.userId, uid));
       await db.delete(tasksTable).where(eq(tasksTable.userId, uid));

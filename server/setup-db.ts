@@ -530,5 +530,51 @@ db.exec(`
   CREATE UNIQUE INDEX IF NOT EXISTS idx_push_tokens_token_unique ON push_tokens(token);
 `);
 
+db.exec(`
+  CREATE TABLE IF NOT EXISTS saved_searches (
+    id TEXT PRIMARY KEY,
+    user_id TEXT NOT NULL,
+    name TEXT NOT NULL,
+    query TEXT NOT NULL,
+    filter_json TEXT,
+    created_at INTEGER DEFAULT (strftime('%s', 'now')),
+    updated_at INTEGER DEFAULT (strftime('%s', 'now'))
+  );
+
+  CREATE INDEX IF NOT EXISTS idx_saved_searches_user_id ON saved_searches(user_id);
+`);
+
+db.exec(`
+  CREATE TABLE IF NOT EXISTS templates (
+    id TEXT PRIMARY KEY,
+    user_id TEXT NOT NULL,
+    name TEXT NOT NULL,
+    kind TEXT NOT NULL CHECK(kind IN ('item', 'task', 'journal')),
+    body TEXT NOT NULL,
+    created_at INTEGER DEFAULT (strftime('%s', 'now')),
+    updated_at INTEGER DEFAULT (strftime('%s', 'now'))
+  );
+
+  CREATE INDEX IF NOT EXISTS idx_templates_user_id ON templates(user_id);
+  CREATE INDEX IF NOT EXISTS idx_templates_kind ON templates(kind);
+`);
+
+db.exec(`
+  CREATE TABLE IF NOT EXISTS feedback (
+    id TEXT PRIMARY KEY,
+    user_id TEXT NOT NULL,
+    kind TEXT NOT NULL CHECK(kind IN ('bug', 'idea', 'praise', 'other')),
+    subject TEXT NOT NULL,
+    body TEXT NOT NULL,
+    app_version TEXT,
+    platform TEXT,
+    created_at INTEGER DEFAULT (strftime('%s', 'now'))
+  );
+
+  CREATE INDEX IF NOT EXISTS idx_feedback_user_id ON feedback(user_id);
+  CREATE INDEX IF NOT EXISTS idx_feedback_kind ON feedback(kind);
+  CREATE INDEX IF NOT EXISTS idx_feedback_created_at ON feedback(created_at);
+`);
+
 console.log('✅ Database tables created successfully!');
 db.close();

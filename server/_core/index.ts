@@ -33,6 +33,9 @@ import { itemVersionsRouter } from '../routers/item-versions';
 import { aiRouter } from '../routers/ai';
 import { pushTokensRouter } from '../routers/push-tokens';
 import { notificationsRouter } from '../routers/notifications';
+import { savedSearchesRouter } from '../routers/saved-searches';
+import { templatesRouter } from '../routers/templates';
+import { feedbackRouter } from '../routers/feedback';
 import { apiKeys, webhookSubscriptions } from '../schema/api_keys';
 import { and } from 'drizzle-orm';
 import { items } from '../schema/items';
@@ -236,6 +239,9 @@ const appRouter = router({
   ai: aiRouter,
   pushTokens: pushTokensRouter,
   notifications: notificationsRouter,
+  savedSearches: savedSearchesRouter,
+  templates: templatesRouter,
+  feedback: feedbackRouter,
   // test endpoint
   hello: publicProcedure.query(() => {
     return { message: 'Hello from tRPC!' };
