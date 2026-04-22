@@ -203,6 +203,23 @@ export const goalsRouter = router({
       return { success: true as const };
     }),
 
+  toggleComplete: protectedProcedure
+    .input(z.object({ id: z.string() }))
+    .mutation(async ({ input, ctx }) => {
+      const rows = await db
+        .select()
+        .from(goals)
+        .where(and(eq(goals.id, input.id), eq(goals.userId, ctx.user.id)))
+        .limit(1);
+      const current = rows[0];
+      if (!current) return { success: false as const };
+      await db
+        .update(goals)
+        .set({ isCompleted: !current.isCompleted, updatedAt: new Date() })
+        .where(eq(goals.id, input.id));
+      return { success: true as const, isCompleted: !current.isCompleted };
+    }),
+
   progress: protectedProcedure.query(async ({ ctx }) => {
     const goalRows = await db.select().from(goals).where(eq(goals.userId, ctx.user.id));
     if (goalRows.length === 0) {

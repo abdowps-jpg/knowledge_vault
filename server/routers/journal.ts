@@ -166,6 +166,47 @@ export const journalRouter = router({
       }
     }),
 
+  streakStats: protectedProcedure.query(async ({ ctx }) => {
+    const rows = await db
+      .select({ entryDate: journal.entryDate })
+      .from(journal)
+      .where(and(eq(journal.userId, ctx.user.id), isNull(journal.deletedAt)));
+    const days = new Set<string>();
+    for (const r of rows) {
+      if (r.entryDate && typeof r.entryDate === 'string') {
+        days.add(r.entryDate.slice(0, 10));
+      }
+    }
+
+    // Current streak: walk back from today while days contain that key
+    const fmt = (d: Date) => d.toISOString().slice(0, 10);
+    let current = 0;
+    const cursor = new Date();
+    cursor.setHours(0, 0, 0, 0);
+    while (days.has(fmt(cursor))) {
+      current += 1;
+      cursor.setDate(cursor.getDate() - 1);
+    }
+
+    // Longest streak: sort and walk
+    let longest = 0;
+    if (days.size > 0) {
+      const sorted = Array.from(days).sort();
+      let run = 1;
+      for (let i = 1; i < sorted.length; i += 1) {
+        const prev = new Date(sorted[i - 1]);
+        const curr = new Date(sorted[i]);
+        if (curr.getTime() - prev.getTime() === 86400000) run += 1;
+        else {
+          longest = Math.max(longest, run);
+          run = 1;
+        }
+      }
+      longest = Math.max(longest, run);
+    }
+    return { current, longest, totalUniqueDays: days.size };
+  }),
+
   stats: protectedProcedure.query(async ({ ctx }) => {
     const rows = await db
       .select()

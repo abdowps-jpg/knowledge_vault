@@ -37,6 +37,8 @@ import { savedSearchesRouter } from '../routers/saved-searches';
 import { templatesRouter } from '../routers/templates';
 import { feedbackRouter } from '../routers/feedback';
 import { searchRouter } from '../routers/search';
+import { reviewsRouter } from '../routers/reviews';
+import { onboardingRouter } from '../routers/onboarding';
 import { apiKeys, webhookSubscriptions } from '../schema/api_keys';
 import { and } from 'drizzle-orm';
 import { items } from '../schema/items';
@@ -244,6 +246,8 @@ const appRouter = router({
   templates: templatesRouter,
   feedback: feedbackRouter,
   search: searchRouter,
+  reviews: reviewsRouter,
+  onboarding: onboardingRouter,
   // test endpoint
   hello: publicProcedure.query(() => {
     return { message: 'Hello from tRPC!' };
@@ -414,7 +418,7 @@ app.get('/api/schema', (_req, res) => {
   res.json({
     info: {
       title: 'Knowledge Vault REST API',
-      version: '1.0.0',
+      version: '1.1.0',
       description: 'Send X-Api-Key header. Scopes: read (GET), write (GET/POST/PUT), admin (+DELETE).',
     },
     basePath: '/api',
@@ -433,6 +437,13 @@ app.get('/api/schema', (_req, res) => {
       { method: 'PUT', path: '/api/journal/:id', scope: 'write' },
       { method: 'DELETE', path: '/api/journal/:id', scope: 'admin' },
     ],
+    trpcRouters: [
+      'auth', 'items', 'tasks', 'journal', 'tags', 'categories', 'attachments',
+      'export', 'stats', 'sync', 'devices', 'transcription', 'analytics',
+      'taskTime', 'habits', 'goals', 'subtasks', 'itemShares', 'itemComments',
+      'publicLinks', 'api', 'itemVersions', 'ai', 'pushTokens', 'notifications',
+      'savedSearches', 'templates', 'feedback', 'search', 'reviews', 'onboarding',
+    ],
     webhookEvents: [
       'items.created',
       'items.updated',
@@ -445,6 +456,12 @@ app.get('/api/schema', (_req, res) => {
       'x-kv-webhook-id': 'Subscription id',
       'x-kv-timestamp': 'Unix seconds',
       'x-kv-signature': 'sha256=<hex HMAC of "<timestamp>.<raw body>" using the subscription secret>',
+    },
+    publicEndpoints: {
+      'GET /p/:token': 'Server-rendered HTML view for a public link',
+      'GET /healthz': 'Uptime probe',
+      'GET /_metrics': 'Process metrics (memory, uptime, rate-limit cardinality)',
+      'GET /robots.txt': 'Disallow everything',
     },
   });
 });
@@ -875,6 +892,26 @@ app.use(
 // Health check for uptime monitors
 app.get('/healthz', (_req, res) => {
   res.json({ status: 'ok', uptime: process.uptime() });
+});
+
+// Lightweight process metrics (no auth — safe because it only exposes counters,
+// not user data). Mount behind an infra-only allowlist in production.
+app.get('/_metrics', (_req, res) => {
+  const mem = process.memoryUsage();
+  res.json({
+    timestamp: new Date().toISOString(),
+    uptimeSeconds: Math.round(process.uptime()),
+    memory: {
+      rssMB: Math.round(mem.rss / 1024 / 1024),
+      heapUsedMB: Math.round(mem.heapUsed / 1024 / 1024),
+      heapTotalMB: Math.round(mem.heapTotal / 1024 / 1024),
+    },
+    rateLimits: {
+      general: rateLimitMap.size,
+      auth: authRateLimitMap.size,
+    },
+    nodeVersion: process.version,
+  });
 });
 
 // Tell crawlers to stay out of the API surface; /p/:token is also noindex via meta

@@ -144,6 +144,14 @@ export const itemSharesRouter = router({
       return { success: true as const };
     }),
 
+  receivedCount: protectedProcedure.query(async ({ ctx }) => {
+    const rows = await db
+      .select()
+      .from(itemShares)
+      .where(eq(itemShares.sharedWithEmail, ctx.user.email.trim().toLowerCase()));
+    return { count: rows.length };
+  }),
+
   sharedWithMe: protectedProcedure.query(async ({ ctx }) => {
     const rows = await db
       .select()

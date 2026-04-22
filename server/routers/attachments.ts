@@ -296,6 +296,41 @@ export const attachmentsRouter = router({
       }
     }),
 
+  listForUser: protectedProcedure
+    .input(
+      z
+        .object({
+          type: z.enum(['image', 'audio']).optional(),
+          limit: z.number().int().min(1).max(200).default(50),
+        })
+        .optional()
+    )
+    .query(async ({ input, ctx }) => {
+      const limit = input?.limit ?? 50;
+      const rows = await db
+        .select({
+          id: attachments.id,
+          itemId: attachments.itemId,
+          type: attachments.type,
+          filename: attachments.filename,
+          fileUrl: attachments.fileUrl,
+          fileSize: attachments.fileSize,
+          duration: attachments.duration,
+          transcription: attachments.transcription,
+          createdAt: attachments.createdAt,
+        })
+        .from(attachments)
+        .innerJoin(items, eq(items.id, attachments.itemId))
+        .where(
+          input?.type
+            ? and(eq(items.userId, ctx.user.id), eq(attachments.type, input.type))
+            : eq(items.userId, ctx.user.id)
+        )
+        .orderBy(desc(attachments.createdAt))
+        .limit(limit);
+      return rows;
+    }),
+
   storageUsage: protectedProcedure.query(async ({ ctx }) => {
     // Join attachments to items to scope by user
     const rows = await db

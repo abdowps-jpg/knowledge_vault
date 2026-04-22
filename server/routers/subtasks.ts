@@ -120,6 +120,42 @@ export const subtasksRouter = router({
       return { success: true as const };
     }),
 
+  addMany: protectedProcedure
+    .input(
+      z.object({
+        taskId: z.string(),
+        titles: z.array(z.string().min(1).max(200)).min(1).max(20),
+      })
+    )
+    .mutation(async ({ ctx, input }) => {
+      await ensureSubtasksTable();
+      if (!(await ensureTaskOwner(input.taskId, ctx.user.id))) {
+        return { success: false as const, created: 0 };
+      }
+      const [existingCount] = await db
+        .select({ total: count() })
+        .from(subtasks)
+        .where(and(eq(subtasks.taskId, input.taskId), eq(subtasks.userId, ctx.user.id)));
+      const current = existingCount?.total ?? 0;
+      const MAX_SUBTASKS = 50;
+      const canInsert = Math.max(0, MAX_SUBTASKS - current);
+      const toInsert = input.titles.slice(0, canInsert);
+      if (toInsert.length === 0) return { success: true as const, created: 0 };
+      const now = new Date();
+      const rows = toInsert.map((title, idx) => ({
+        id: randomUUID(),
+        userId: ctx.user.id,
+        taskId: input.taskId,
+        title: title.trim(),
+        isCompleted: false,
+        sortOrder: current + idx,
+        createdAt: now,
+        updatedAt: now,
+      }));
+      await db.insert(subtasks).values(rows);
+      return { success: true as const, created: rows.length };
+    }),
+
   progress: protectedProcedure
     .input(z.object({ taskId: z.string() }))
     .query(async ({ ctx, input }) => {

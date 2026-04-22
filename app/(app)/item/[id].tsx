@@ -123,6 +123,7 @@ export default function ItemDetailScreen() {
   const extractTasks = trpc.ai.extractTasks.useMutation();
   const bulkCreateTasks = trpc.tasks.bulkCreate.useMutation();
   const proofreadItem = trpc.ai.proofread.useMutation();
+  const suggestTitle = trpc.ai.suggestTitle.useMutation();
   const createTaskFromAction = trpc.tasks.create.useMutation();
   const [extractedTasks, setExtractedTasks] = React.useState<
     { title: string; priority: "low" | "medium" | "high" }[]
@@ -892,6 +893,44 @@ export default function ItemDetailScreen() {
               >
                 <Text style={{ color: colors.primary, fontWeight: "600", fontSize: 13 }}>
                   {proofreadItem.isPending ? "Thinking…" : "Proofread"}
+                </Text>
+              </Pressable>
+              <Pressable
+                onPress={async () => {
+                  try {
+                    const res = await suggestTitle.mutateAsync({ itemId: id });
+                    if (res.titles.length === 0) {
+                      Alert.alert("AI", "Not enough content to propose a title.");
+                      return;
+                    }
+                    Alert.alert(
+                      "Suggested titles",
+                      "",
+                      [
+                        ...res.titles.map((t) => ({
+                          text: t,
+                          onPress: () => setTitle(t),
+                        })),
+                        { text: "Cancel", style: "cancel" },
+                      ]
+                    );
+                  } catch (e: any) {
+                    Alert.alert("AI", e?.message ?? "Failed to suggest titles");
+                  }
+                }}
+                disabled={suggestTitle.isPending}
+                style={{
+                  backgroundColor: colors.surface,
+                  borderWidth: 1,
+                  borderColor: colors.primary,
+                  paddingHorizontal: 12,
+                  paddingVertical: 8,
+                  borderRadius: 8,
+                  opacity: suggestTitle.isPending ? 0.6 : 1,
+                }}
+              >
+                <Text style={{ color: colors.primary, fontWeight: "600", fontSize: 13 }}>
+                  {suggestTitle.isPending ? "Thinking…" : "Suggest title"}
                 </Text>
               </Pressable>
             </View>

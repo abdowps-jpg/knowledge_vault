@@ -22,3 +22,5 @@ export * from './saved_searches';
 export * from './templates';
 export * from './feedback';
 export * from './notification_prefs';
+export * from './reviews';
+export * from './onboarding';

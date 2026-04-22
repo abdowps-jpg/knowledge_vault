@@ -271,6 +271,180 @@ export const statsRouter = router({
     }
   }),
 
+  weekOverWeek: protectedProcedure.query(async ({ ctx }) => {
+    try {
+      const now = Date.now();
+      const weekAgo = now - 7 * 24 * 60 * 60 * 1000;
+      const twoWeeksAgo = now - 14 * 24 * 60 * 60 * 1000;
+
+      const [itemRows, taskRows, journalRows] = await Promise.all([
+        db.select().from(items).where(and(eq(items.userId, ctx.user.id), isNull(items.deletedAt))),
+        db.select().from(tasks).where(and(eq(tasks.userId, ctx.user.id), isNull(tasks.deletedAt))),
+        db.select().from(journal).where(and(eq(journal.userId, ctx.user.id), isNull(journal.deletedAt))),
+      ]);
+
+      const countInWindow = <T,>(
+        rows: T[],
+        getDate: (r: T) => Date | null,
+        start: number,
+        end: number
+      ) =>
+        rows.filter((r) => {
+          const d = getDate(r);
+          return d && d.getTime() >= start && d.getTime() < end;
+        }).length;
+
+      const itemsThis = countInWindow(itemRows, (i) => toDate(i.createdAt), weekAgo, now);
+      const itemsPrev = countInWindow(itemRows, (i) => toDate(i.createdAt), twoWeeksAgo, weekAgo);
+      const tasksThis = countInWindow(
+        taskRows.filter((t) => t.isCompleted),
+        (t) => toDate(t.completedAt),
+        weekAgo,
+        now
+      );
+      const tasksPrev = countInWindow(
+        taskRows.filter((t) => t.isCompleted),
+        (t) => toDate(t.completedAt),
+        twoWeeksAgo,
+        weekAgo
+      );
+      const journalThis = countInWindow(journalRows, (j) => toDate(j.createdAt), weekAgo, now);
+      const journalPrev = countInWindow(journalRows, (j) => toDate(j.createdAt), twoWeeksAgo, weekAgo);
+
+      const pct = (cur: number, prev: number) => {
+        if (prev === 0) return cur === 0 ? 0 : 100;
+        return Math.round(((cur - prev) / prev) * 100);
+      };
+
+      return {
+        items: { thisWeek: itemsThis, prevWeek: itemsPrev, changePct: pct(itemsThis, itemsPrev) },
+        tasksCompleted: { thisWeek: tasksThis, prevWeek: tasksPrev, changePct: pct(tasksThis, tasksPrev) },
+        journal: { thisWeek: journalThis, prevWeek: journalPrev, changePct: pct(journalThis, journalPrev) },
+      };
+    } catch (err) {
+      console.error('Error computing week-over-week:', err);
+      return {
+        items: { thisWeek: 0, prevWeek: 0, changePct: 0 },
+        tasksCompleted: { thisWeek: 0, prevWeek: 0, changePct: 0 },
+        journal: { thisWeek: 0, prevWeek: 0, changePct: 0 },
+      };
+    }
+  }),
+
+  focusScore: protectedProcedure.query(async ({ ctx }) => {
+    try {
+      const weekAgo = Date.now() - 7 * 24 * 60 * 60 * 1000;
+
+      const [itemRows, taskRows, journalRows] = await Promise.all([
+        db.select().from(items).where(and(eq(items.userId, ctx.user.id), isNull(items.deletedAt))),
+        db.select().from(tasks).where(and(eq(tasks.userId, ctx.user.id), isNull(tasks.deletedAt))),
+        db.select().from(journal).where(and(eq(journal.userId, ctx.user.id), isNull(journal.deletedAt))),
+      ]);
+
+      const itemsThisWeek = itemRows.filter((i) => {
+        const d = toDate(i.createdAt);
+        return d && d.getTime() >= weekAgo;
+      }).length;
+      const tasksCompletedThisWeek = taskRows.filter((t) => {
+        if (!t.isCompleted || !t.completedAt) return false;
+        const d = toDate(t.completedAt);
+        return d && d.getTime() >= weekAgo;
+      }).length;
+      const journalThisWeek = journalRows.filter((j) => {
+        const d = toDate(j.createdAt);
+        return d && d.getTime() >= weekAgo;
+      }).length;
+
+      // Components: 0-100 each, weighted
+      const capture = Math.min(100, itemsThisWeek * 10);          // 10 items → 100
+      const execution = Math.min(100, tasksCompletedThisWeek * 15); // 7 done → 100+
+      const reflection = Math.min(100, journalThisWeek * 20);     // 5 entries → 100
+
+      // Weighted average: capture 40%, execution 40%, reflection 20%
+      const score = Math.round(capture * 0.4 + execution * 0.4 + reflection * 0.2);
+      return {
+        score,
+        components: { capture, execution, reflection },
+        counts: { items: itemsThisWeek, tasksCompleted: tasksCompletedThisWeek, journal: journalThisWeek },
+      };
+    } catch (err) {
+      console.error('Error computing focus score:', err);
+      return {
+        score: 0,
+        components: { capture: 0, execution: 0, reflection: 0 },
+        counts: { items: 0, tasksCompleted: 0, journal: 0 },
+      };
+    }
+  }),
+
+  topTagsThisMonth: protectedProcedure.query(async ({ ctx }) => {
+    try {
+      const monthAgo = new Date();
+      monthAgo.setDate(monthAgo.getDate() - 30);
+      const recentItems = await db
+        .select({ id: items.id })
+        .from(items)
+        .where(and(eq(items.userId, ctx.user.id), isNull(items.deletedAt), gte(items.createdAt, monthAgo)));
+      const itemIds = recentItems.map((i) => i.id);
+      if (itemIds.length === 0) return { top: [] as { name: string; count: number }[], itemsConsidered: 0 };
+      const links = await db
+        .select()
+        .from(itemTags)
+        .where(inArray(itemTags.itemId, itemIds));
+      const tagIds = Array.from(new Set(links.map((l) => l.tagId)));
+      const tagRows = tagIds.length > 0
+        ? await db.select().from(tags).where(and(eq(tags.userId, ctx.user.id), inArray(tags.id, tagIds)))
+        : [];
+      const tagNameById = new Map(tagRows.map((t) => [t.id, t.name]));
+      const counts = new Map<string, number>();
+      for (const link of links) {
+        const name = tagNameById.get(link.tagId);
+        if (!name) continue;
+        counts.set(name, (counts.get(name) ?? 0) + 1);
+      }
+      const top = Array.from(counts.entries())
+        .sort((a, b) => b[1] - a[1])
+        .slice(0, 10)
+        .map(([name, count]) => ({ name, count }));
+      return { top, itemsConsidered: itemIds.length };
+    } catch (err) {
+      console.error('Error computing top tags this month:', err);
+      return { top: [], itemsConsidered: 0 };
+    }
+  }),
+
+  getBurndown: protectedProcedure.query(async ({ ctx }) => {
+    try {
+      const since = new Date();
+      since.setDate(since.getDate() - 14);
+      const rows = await db
+        .select()
+        .from(tasks)
+        .where(and(eq(tasks.userId, ctx.user.id), isNull(tasks.deletedAt), gte(tasks.createdAt, since)));
+
+      const byDay = new Map<string, { created: number; completed: number }>();
+      const ensure = (key: string) => {
+        if (!byDay.has(key)) byDay.set(key, { created: 0, completed: 0 });
+        return byDay.get(key)!;
+      };
+      for (const t of rows) {
+        const c = toDate(t.createdAt);
+        if (c) ensure(formatDateKey(c)).created += 1;
+        if (t.isCompleted && t.completedAt) {
+          const cAt = toDate(t.completedAt);
+          if (cAt) ensure(formatDateKey(cAt)).completed += 1;
+        }
+      }
+      const series = Array.from(byDay.entries())
+        .sort((a, b) => a[0].localeCompare(b[0]))
+        .map(([date, v]) => ({ date, created: v.created, completed: v.completed }));
+      return { last14Days: series };
+    } catch (err) {
+      console.error('Error building burndown:', err);
+      return { last14Days: [] as { date: string; created: number; completed: number }[] };
+    }
+  }),
+
   activityHeatmap: protectedProcedure.query(async ({ ctx }) => {
     try {
       const since = new Date();

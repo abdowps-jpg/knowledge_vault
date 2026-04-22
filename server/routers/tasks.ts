@@ -341,6 +341,59 @@ export const tasksRouter = router({
       return result ?? [];
     }),
 
+  clearRecurrence: protectedProcedure
+    .input(z.object({ id: z.string() }))
+    .mutation(async ({ input, ctx }) => {
+      await db
+        .update(tasks)
+        .set({ recurrence: null, updatedAt: new Date() })
+        .where(and(eq(tasks.id, input.id), eq(tasks.userId, ctx.user.id)));
+      return { success: true as const };
+    }),
+
+  setRecurrence: protectedProcedure
+    .input(
+      z.object({
+        id: z.string(),
+        recurrence: z.enum(['daily', 'weekly', 'biweekly', 'monthly', 'yearly']),
+      })
+    )
+    .mutation(async ({ input, ctx }) => {
+      await db
+        .update(tasks)
+        .set({ recurrence: input.recurrence, updatedAt: new Date() })
+        .where(and(eq(tasks.id, input.id), eq(tasks.userId, ctx.user.id)));
+      return { success: true as const };
+    }),
+
+  snooze: protectedProcedure
+    .input(
+      z.object({
+        ids: z.array(z.string()).min(1).max(50),
+        shiftDays: z.number().int().min(-30).max(30),
+      })
+    )
+    .mutation(async ({ input, ctx }) => {
+      // Fetch current due dates, add shift, write back
+      const rows = await db
+        .select()
+        .from(tasks)
+        .where(and(inArray(tasks.id, input.ids), eq(tasks.userId, ctx.user.id), isNull(tasks.deletedAt)));
+      let updated = 0;
+      for (const t of rows) {
+        if (!t.dueDate) continue;
+        const d = new Date(t.dueDate);
+        if (Number.isNaN(d.getTime())) continue;
+        d.setDate(d.getDate() + input.shiftDays);
+        await db
+          .update(tasks)
+          .set({ dueDate: d.toISOString(), updatedAt: new Date() })
+          .where(eq(tasks.id, t.id));
+        updated += 1;
+      }
+      return { success: true as const, updated };
+    }),
+
   fromTemplate: protectedProcedure
     .input(
       z.object({

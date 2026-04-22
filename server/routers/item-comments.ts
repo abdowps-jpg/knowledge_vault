@@ -176,6 +176,31 @@ export const itemCommentsRouter = router({
       return { success: true as const, id: commentId, mentioned: mentionedEchoes };
     }),
 
+  delete: protectedProcedure
+    .input(z.object({ id: z.string() }))
+    .mutation(async ({ input, ctx }) => {
+      const rows = await db
+        .select()
+        .from(itemComments)
+        .where(eq(itemComments.id, input.id))
+        .limit(1);
+      const comment = rows[0];
+      if (!comment) return { success: true as const };
+      if (comment.userId !== ctx.user.id) {
+        // Item owner can also delete any comment on their item
+        const itemRows = await db
+          .select()
+          .from(items)
+          .where(and(eq(items.id, comment.itemId), eq(items.userId, ctx.user.id)))
+          .limit(1);
+        if (itemRows.length === 0) {
+          throw new TRPCError({ code: 'FORBIDDEN', message: 'Only author or item owner can delete' });
+        }
+      }
+      await db.delete(itemComments).where(eq(itemComments.id, input.id));
+      return { success: true as const };
+    }),
+
   listMentionable: protectedProcedure
     .input(z.object({ itemId: z.string() }))
     .query(async ({ input, ctx }) => {

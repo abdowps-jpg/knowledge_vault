@@ -676,6 +676,140 @@ export const itemsRouter = router({
       return rows;
     }),
 
+  convertToJournal: protectedProcedure
+    .input(
+      z.object({
+        id: z.string(),
+        entryDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+        keepItem: z.boolean().default(false),
+      })
+    )
+    .mutation(async ({ input, ctx }) => {
+      const rows = await db
+        .select()
+        .from(items)
+        .where(and(eq(items.id, input.id), eq(items.userId, ctx.user.id), isNull(items.deletedAt)))
+        .limit(1);
+      const item = rows[0];
+      if (!item) {
+        throw new TRPCError({ code: 'NOT_FOUND', message: 'Item not found' });
+      }
+      const { journal } = await import('../schema/journal');
+      const newJournalId = randomUUID();
+      const now = new Date();
+      await db.insert(journal).values({
+        id: newJournalId,
+        userId: ctx.user.id,
+        entryDate: input.entryDate,
+        title: item.title ?? null,
+        content: item.content ?? '',
+        mood: null,
+        location: null,
+        weather: null,
+        isLocked: false,
+        createdAt: now,
+        updatedAt: now,
+        deletedAt: null,
+      });
+      if (!input.keepItem) {
+        await db
+          .update(items)
+          .set({ deletedAt: now })
+          .where(eq(items.id, item.id));
+      }
+      return { success: true as const, journalId: newJournalId };
+    }),
+
+  archiveInboxOlderThan: protectedProcedure
+    .input(z.object({ days: z.number().int().min(1).max(365).default(30) }))
+    .mutation(async ({ input, ctx }) => {
+      const cutoff = new Date();
+      cutoff.setDate(cutoff.getDate() - input.days);
+      const rows = await db
+        .select({ id: items.id })
+        .from(items)
+        .where(
+          and(
+            eq(items.userId, ctx.user.id),
+            isNull(items.deletedAt),
+            eq(items.location, 'inbox'),
+            lt(items.createdAt, cutoff)
+          )
+        );
+      const ids = rows.map((r) => r.id);
+      if (ids.length === 0) return { success: true as const, archived: 0 };
+      await db
+        .update(items)
+        .set({ location: 'archive', updatedAt: new Date() })
+        .where(and(inArray(items.id, ids), eq(items.userId, ctx.user.id)));
+      return { success: true as const, archived: ids.length };
+    }),
+
+  createQuote: protectedProcedure
+    .input(
+      z.object({
+        text: z.string().min(1).max(2000),
+        source: z.string().max(200).optional(),
+      })
+    )
+    .mutation(async ({ input, ctx }) => {
+      const id = randomUUID();
+      const now = new Date();
+      const title = input.text.slice(0, 80).trim() || 'Quote';
+      const content = input.source ? `${input.text}\n\n— ${input.source}` : input.text;
+      await db.insert(items).values({
+        id,
+        userId: ctx.user.id,
+        type: 'quote',
+        title,
+        content,
+        url: null,
+        location: 'inbox',
+        isFavorite: false,
+        createdAt: now,
+        updatedAt: now,
+      });
+      return { id };
+    }),
+
+  exportOneMarkdown: protectedProcedure
+    .input(z.object({ id: z.string() }))
+    .query(async ({ input, ctx }) => {
+      const rows = await db
+        .select()
+        .from(items)
+        .where(and(eq(items.id, input.id), eq(items.userId, ctx.user.id), isNull(items.deletedAt)))
+        .limit(1);
+      const item = rows[0];
+      if (!item) {
+        throw new TRPCError({ code: 'NOT_FOUND', message: 'Item not found' });
+      }
+      const tagRows = await db
+        .select()
+        .from(itemTags)
+        .innerJoin(tags, eq(tags.id, itemTags.tagId))
+        .where(eq(itemTags.itemId, item.id));
+      const tagNames = tagRows.map((r) => r.tags.name);
+      const createdAt = item.createdAt instanceof Date ? item.createdAt.toISOString() : null;
+      const frontMatter = [
+        '---',
+        `title: "${(item.title ?? 'Untitled').replace(/"/g, '\\"')}"`,
+        `type: ${item.type}`,
+        createdAt ? `createdAt: ${createdAt}` : '',
+        item.url ? `url: "${item.url.replace(/"/g, '\\"')}"` : '',
+        tagNames.length ? `tags: [${tagNames.map((t) => `"${t.replace(/"/g, '\\"')}"`).join(', ')}]` : '',
+        '---',
+        '',
+      ]
+        .filter(Boolean)
+        .join('\n');
+      const body = (item.content ?? '').trim();
+      return {
+        filename: `${(item.title ?? 'untitled').replace(/[^a-zA-Z0-9._-]+/g, '_').slice(0, 80) || 'untitled'}.md`,
+        markdown: `${frontMatter}# ${item.title || 'Untitled'}\n\n${body}\n`,
+      };
+    }),
+
   shareStatus: protectedProcedure
     .input(z.object({ itemId: z.string() }))
     .query(async ({ input, ctx }) => {

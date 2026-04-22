@@ -190,4 +190,33 @@ export const categoriesRouter = router({
       itemCount: countByCategory.get(c.id) ?? 0,
     }));
   }),
+
+  rename: protectedProcedure
+    .input(z.object({ id: z.string(), name: z.string().min(1).max(80) }))
+    .mutation(async ({ input, ctx }) => {
+      await db
+        .update(categories)
+        .set({ name: input.name.trim(), updatedAt: new Date().toISOString() })
+        .where(and(eq(categories.id, input.id), eq(categories.userId, ctx.user.id)));
+      return { success: true as const };
+    }),
+
+  clearAllItems: protectedProcedure
+    .input(z.object({ categoryId: z.string() }))
+    .mutation(async ({ input, ctx }) => {
+      // Verify category ownership first
+      const catRow = await db
+        .select()
+        .from(categories)
+        .where(and(eq(categories.id, input.categoryId), eq(categories.userId, ctx.user.id)))
+        .limit(1);
+      if (catRow.length === 0) return { success: false as const, removed: 0 };
+      const links = await db
+        .select()
+        .from(itemCategories)
+        .where(eq(itemCategories.categoryId, input.categoryId));
+      if (links.length === 0) return { success: true as const, removed: 0 };
+      await db.delete(itemCategories).where(eq(itemCategories.categoryId, input.categoryId));
+      return { success: true as const, removed: links.length };
+    }),
 });

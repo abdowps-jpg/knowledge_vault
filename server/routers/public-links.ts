@@ -144,6 +144,21 @@ export const publicLinksRouter = router({
       return { success: true as const };
     }),
 
+  unrevoke: protectedProcedure
+    .input(z.object({ linkId: z.string() }))
+    .mutation(async ({ input, ctx }) => {
+      const rows = await db.select().from(publicLinks).where(eq(publicLinks.id, input.linkId)).limit(1);
+      const link = rows[0];
+      if (!link) {
+        throw new TRPCError({ code: 'NOT_FOUND', message: 'Link not found' });
+      }
+      if (link.ownerUserId !== ctx.user.id) {
+        throw new TRPCError({ code: 'FORBIDDEN', message: 'Only owner can reinstate this link' });
+      }
+      await db.update(publicLinks).set({ isRevoked: false }).where(eq(publicLinks.id, input.linkId));
+      return { success: true as const };
+    }),
+
   getPublic: publicProcedure
     .input(
       z.object({

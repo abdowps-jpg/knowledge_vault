@@ -116,6 +116,51 @@ export const apiRouter = router({
       return { success: true as const, id: newWebhook.id };
     }),
 
+  testWebhook: protectedProcedure
+    .input(z.object({ id: z.string() }))
+    .mutation(async ({ input, ctx }) => {
+      const rows = await db
+        .select()
+        .from(webhookSubscriptions)
+        .where(and(eq(webhookSubscriptions.id, input.id), eq(webhookSubscriptions.userId, ctx.user.id)))
+        .limit(1);
+      const hook = rows[0];
+      if (!hook) {
+        throw new TRPCError({ code: 'NOT_FOUND', message: 'Webhook not found' });
+      }
+      try {
+        const timestamp = String(Math.floor(Date.now() / 1000));
+        const { createHmac } = await import('crypto');
+        const body = JSON.stringify({
+          event: 'test.ping',
+          timestamp: new Date().toISOString(),
+          data: { message: 'Test delivery from Knowledge Vault' },
+        });
+        const signature = hook.secret ? createHmac('sha256', hook.secret).update(`${timestamp}.${body}`).digest('hex') : null;
+        const headers: Record<string, string> = {
+          'content-type': 'application/json',
+          'x-kv-webhook-id': hook.id,
+          'x-kv-timestamp': timestamp,
+          'x-kv-test': 'true',
+        };
+        if (signature) headers['x-kv-signature'] = `sha256=${signature}`;
+
+        const response = await fetch(hook.url, {
+          method: 'POST',
+          headers,
+          body,
+          signal: AbortSignal.timeout(10_000),
+        });
+        await db
+          .update(webhookSubscriptions)
+          .set({ lastDeliveredAt: new Date(), lastStatus: response.status })
+          .where(eq(webhookSubscriptions.id, hook.id));
+        return { success: response.ok, status: response.status };
+      } catch (err: any) {
+        return { success: false, status: 0, error: err?.message ?? 'fetch_failed' };
+      }
+    }),
+
   deleteWebhook: protectedProcedure
     .input(
       z.object({

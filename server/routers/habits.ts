@@ -95,6 +95,30 @@ export const habitsRouter = router({
       return { success: true as const };
     }),
 
+  bulkCompleteToday: protectedProcedure.mutation(async ({ ctx }) => {
+    const today = todayYmd();
+    const yesterday = yesterdayYmd();
+    const rows = await db
+      .select()
+      .from(habits)
+      .where(and(eq(habits.userId, ctx.user.id), eq(habits.doneToday, false)));
+    let updated = 0;
+    for (const h of rows) {
+      const nextStreak = h.lastCompletedDate === yesterday ? (h.streak ?? 0) + 1 : 1;
+      await db
+        .update(habits)
+        .set({
+          doneToday: true,
+          streak: nextStreak,
+          lastCompletedDate: today,
+          updatedAt: new Date(),
+        })
+        .where(eq(habits.id, h.id));
+      updated += 1;
+    }
+    return { success: true as const, updated };
+  }),
+
   summary: protectedProcedure.query(async ({ ctx }) => {
     const rows = await db.select().from(habits).where(eq(habits.userId, ctx.user.id));
     const activeStreaks = rows.filter((h) => (h.streak ?? 0) > 0).length;

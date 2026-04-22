@@ -589,5 +589,33 @@ db.exec(`
   );
 `);
 
+db.exec(`
+  CREATE TABLE IF NOT EXISTS reviews (
+    id TEXT PRIMARY KEY,
+    user_id TEXT NOT NULL,
+    kind TEXT NOT NULL CHECK(kind IN ('daily', 'weekly', 'monthly')),
+    period_key TEXT NOT NULL,
+    wins TEXT,
+    improvements TEXT,
+    next_focus TEXT,
+    ai_summary TEXT,
+    created_at INTEGER DEFAULT (strftime('%s', 'now')),
+    updated_at INTEGER DEFAULT (strftime('%s', 'now'))
+  );
+
+  CREATE INDEX IF NOT EXISTS idx_reviews_user_id ON reviews(user_id);
+  CREATE INDEX IF NOT EXISTS idx_reviews_kind ON reviews(kind);
+  CREATE INDEX IF NOT EXISTS idx_reviews_period ON reviews(period_key);
+`);
+
+db.exec(`
+  CREATE TABLE IF NOT EXISTS onboarding (
+    user_id TEXT PRIMARY KEY,
+    completed_steps TEXT NOT NULL DEFAULT '',
+    completed_at INTEGER,
+    updated_at INTEGER DEFAULT (strftime('%s', 'now'))
+  );
+`);
+
 console.log('✅ Database tables created successfully!');
 db.close();

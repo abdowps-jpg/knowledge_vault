@@ -542,7 +542,14 @@ export default function SettingsScreen() {
   const deleteAccountMutation = trpc.auth.deleteAccount.useMutation();
   const signOutEverywhereMutation = trpc.auth.signOutEverywhere.useMutation();
   const submitFeedback = trpc.feedback.submit.useMutation();
+  const notifPrefsQuery = trpc.notifications.getPrefs.useQuery();
+  const updateNotifPrefs = trpc.notifications.updatePrefs.useMutation({
+    onSuccess: () => {
+      notifPrefsQuery.refetch();
+    },
+  });
   const [showFeedbackModal, setShowFeedbackModal] = useState(false);
+  const [showNotifPrefsModal, setShowNotifPrefsModal] = useState(false);
   const [feedbackKind, setFeedbackKind] = useState<"bug" | "idea" | "praise" | "other">("idea");
   const [feedbackSubject, setFeedbackSubject] = useState("");
   const [feedbackBody, setFeedbackBody] = useState("");
@@ -1694,6 +1701,12 @@ const [showApiModal, setShowApiModal] = useState(false);
             onPress={() => setShowNotificationsModal(true)}
           />
           <Row
+            icon="notifications-off"
+            label="Notification Preferences"
+            description="Per-type toggles and quiet hours"
+            onPress={() => setShowNotifPrefsModal(true)}
+          />
+          <Row
             icon="receipt-long"
             label="Activity Log"
             description="Recent security events on your account"
@@ -2167,6 +2180,125 @@ const [showApiModal, setShowApiModal] = useState(false);
               )}
             </ScrollView>
             <Pressable onPress={() => setShowNotificationsModal(false)}>
+              <View className="bg-border rounded-lg py-3 items-center">
+                <Text className="text-foreground font-semibold">Close</Text>
+              </View>
+            </Pressable>
+          </View>
+        </View>
+      </Modal>
+
+      <Modal
+        visible={showNotifPrefsModal}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setShowNotifPrefsModal(false)}
+      >
+        <View className="flex-1 bg-black/50 justify-end">
+          <View className="rounded-t-3xl p-6 max-h-[85%]" style={{ backgroundColor: colors.surface }}>
+            <Text className="text-lg font-bold text-foreground mb-1">Notification Preferences</Text>
+            <Text className="text-xs mb-3" style={{ color: colors.muted }}>
+              Toggle what triggers a push and set quiet hours
+            </Text>
+            {notifPrefsQuery.data ? (
+              <ScrollView style={{ maxHeight: 420 }}>
+                {(
+                  [
+                    { key: "mentionEnabled", label: "Mentions in comments" },
+                    { key: "itemCommentEnabled", label: "Comments on your items" },
+                    { key: "itemSharedEnabled", label: "Items shared with you" },
+                    { key: "taskDueEnabled", label: "Task due reminders" },
+                  ] as const
+                ).map((row) => {
+                  const value = Boolean((notifPrefsQuery.data as any)?.[row.key]);
+                  return (
+                    <View
+                      key={row.key}
+                      style={{
+                        flexDirection: "row",
+                        alignItems: "center",
+                        justifyContent: "space-between",
+                        paddingVertical: 10,
+                        borderBottomWidth: 1,
+                        borderBottomColor: colors.border,
+                      }}
+                    >
+                      <Text style={{ color: colors.foreground, fontSize: 14 }}>{row.label}</Text>
+                      <Switch
+                        value={value}
+                        onValueChange={(next) =>
+                          updateNotifPrefs.mutate({ [row.key]: next } as any)
+                        }
+                        trackColor={{ false: colors.border, true: colors.primary }}
+                      />
+                    </View>
+                  );
+                })}
+                <View style={{ marginTop: 12 }}>
+                  <Text style={{ color: colors.muted, fontSize: 12, marginBottom: 6 }}>
+                    Quiet hours (24h, minutes from midnight)
+                  </Text>
+                  <View style={{ flexDirection: "row", gap: 8 }}>
+                    <TextInput
+                      value={
+                        typeof (notifPrefsQuery.data as any)?.quietStartMinutes === "number"
+                          ? String((notifPrefsQuery.data as any).quietStartMinutes)
+                          : ""
+                      }
+                      onChangeText={(v) => {
+                        const n = v.trim() === "" ? null : Math.max(0, Math.min(1439, Number(v) || 0));
+                        updateNotifPrefs.mutate({ quietStartMinutes: n });
+                      }}
+                      placeholder="Start (e.g. 1320 = 22:00)"
+                      placeholderTextColor={colors.muted}
+                      keyboardType="number-pad"
+                      style={{
+                        flex: 1,
+                        backgroundColor: colors.background,
+                        borderColor: colors.border,
+                        borderWidth: 1,
+                        borderRadius: 8,
+                        color: colors.foreground,
+                        paddingHorizontal: 10,
+                        paddingVertical: 8,
+                      }}
+                    />
+                    <TextInput
+                      value={
+                        typeof (notifPrefsQuery.data as any)?.quietEndMinutes === "number"
+                          ? String((notifPrefsQuery.data as any).quietEndMinutes)
+                          : ""
+                      }
+                      onChangeText={(v) => {
+                        const n = v.trim() === "" ? null : Math.max(0, Math.min(1439, Number(v) || 0));
+                        updateNotifPrefs.mutate({ quietEndMinutes: n });
+                      }}
+                      placeholder="End (e.g. 420 = 07:00)"
+                      placeholderTextColor={colors.muted}
+                      keyboardType="number-pad"
+                      style={{
+                        flex: 1,
+                        backgroundColor: colors.background,
+                        borderColor: colors.border,
+                        borderWidth: 1,
+                        borderRadius: 8,
+                        color: colors.foreground,
+                        paddingHorizontal: 10,
+                        paddingVertical: 8,
+                      }}
+                    />
+                  </View>
+                  <Text style={{ color: colors.muted, fontSize: 10, marginTop: 6 }}>
+                    Set both to enable a nightly silence window; wraps over midnight.
+                  </Text>
+                </View>
+              </ScrollView>
+            ) : (
+              <View style={{ paddingVertical: 20, alignItems: "center" }}>
+                <ActivityIndicator color={colors.primary} />
+              </View>
+            )}
+            <Pressable onPress={() => setShowNotifPrefsModal(false)} style={{ marginTop: 12 }}>
               <View className="bg-border rounded-lg py-3 items-center">
                 <Text className="text-foreground font-semibold">Close</Text>
               </View>

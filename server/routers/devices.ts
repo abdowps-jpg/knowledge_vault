@@ -78,4 +78,21 @@ export const devicesRouter = router({
       .where(eq(devices.userId, ctx.user.id));
     return { success: true };
   }),
+
+  remove: protectedProcedure
+    .input(z.object({ id: z.string() }))
+    .mutation(async ({ ctx, input }) => {
+      await db.delete(devices).where(and(eq(devices.id, input.id), eq(devices.userId, ctx.user.id)));
+      return { success: true as const };
+    }),
+
+  rename: protectedProcedure
+    .input(z.object({ id: z.string(), name: z.string().min(1).max(80) }))
+    .mutation(async ({ ctx, input }) => {
+      await db
+        .update(devices)
+        .set({ deviceName: input.name.trim(), updatedAt: new Date() })
+        .where(and(eq(devices.id, input.id), eq(devices.userId, ctx.user.id)));
+      return { success: true as const };
+    }),
 });

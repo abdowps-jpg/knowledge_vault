@@ -6,7 +6,27 @@ import { journal } from '../schema/journal';
 import { tasks } from '../schema/tasks';
 import { protectedProcedure, router } from '../trpc';
 
+// Simple per-process recent-search LRU cache (non-persistent, fast)
+const recentSearches = new Map<string, string[]>();
+const MAX_RECENT = 12;
+
+function pushRecent(userId: string, q: string) {
+  const trimmed = q.trim();
+  if (!trimmed) return;
+  const list = recentSearches.get(userId) ?? [];
+  const next = [trimmed, ...list.filter((x) => x.toLowerCase() !== trimmed.toLowerCase())].slice(0, MAX_RECENT);
+  recentSearches.set(userId, next);
+}
+
 export const searchRouter = router({
+  recent: protectedProcedure.query(({ ctx }) => {
+    return { queries: recentSearches.get(ctx.user.id) ?? [] };
+  }),
+
+  clearRecent: protectedProcedure.mutation(({ ctx }) => {
+    recentSearches.delete(ctx.user.id);
+    return { success: true as const };
+  }),
   global: protectedProcedure
     .input(
       z.object({
@@ -15,6 +35,7 @@ export const searchRouter = router({
       })
     )
     .query(async ({ input, ctx }) => {
+      pushRecent(ctx.user.id, input.q);
       const needle = `%${input.q.trim().replace(/[%_\\]/g, (m) => `\\${m}`)}%`;
       const perKind = Math.max(5, Math.floor(input.limit / 3));
 

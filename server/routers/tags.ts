@@ -216,6 +216,38 @@ export const tagsRouter = router({
       }
     }),
 
+  merge: protectedProcedure
+    .input(z.object({ keepId: z.string(), fromId: z.string() }))
+    .mutation(async ({ input, ctx }) => {
+      if (input.keepId === input.fromId) {
+        return { success: true as const, moved: 0 };
+      }
+      const rows = await db
+        .select()
+        .from(tags)
+        .where(and(inArray(tags.id, [input.keepId, input.fromId]), eq(tags.userId, ctx.user.id)));
+      if (rows.length !== 2) {
+        return { success: false as const, moved: 0 };
+      }
+      const links = await db.select().from(itemTags).where(eq(itemTags.tagId, input.fromId));
+      let moved = 0;
+      for (const link of links) {
+        const existing = await db
+          .select()
+          .from(itemTags)
+          .where(and(eq(itemTags.itemId, link.itemId), eq(itemTags.tagId, input.keepId)))
+          .limit(1);
+        if (existing.length === 0) {
+          await db.update(itemTags).set({ tagId: input.keepId }).where(eq(itemTags.id, link.id));
+          moved += 1;
+        } else {
+          await db.delete(itemTags).where(eq(itemTags.id, link.id));
+        }
+      }
+      await db.delete(tags).where(eq(tags.id, input.fromId));
+      return { success: true as const, moved };
+    }),
+
   listWithCounts: protectedProcedure.query(async ({ ctx }) => {
     const tagRows = await db.select().from(tags).where(eq(tags.userId, ctx.user.id));
     if (tagRows.length === 0) return [];

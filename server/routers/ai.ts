@@ -409,6 +409,153 @@ export const aiRouter = router({
       return { tasks: out };
     }),
 
+  focusSuggestions: protectedProcedure.mutation(async ({ ctx }) => {
+    enforceLlmQuota(ctx.user.id);
+    logAiCall(ctx.user.id, 'focusSuggestions');
+
+    const [recentItems, openTasks] = await Promise.all([
+      db
+        .select()
+        .from(items)
+        .where(and(eq(items.userId, ctx.user.id), isNull(items.deletedAt)))
+        .orderBy(desc(items.updatedAt))
+        .limit(20),
+      db
+        .select()
+        .from(tasks)
+        .where(and(eq(tasks.userId, ctx.user.id), isNull(tasks.deletedAt), eq(tasks.isCompleted, false)))
+        .orderBy(desc(tasks.createdAt))
+        .limit(20),
+    ]);
+
+    if (recentItems.length === 0 && openTasks.length === 0) {
+      return { suggestions: [] as { action: string; reason: string }[] };
+    }
+
+    const itemLines = recentItems
+      .slice(0, 15)
+      .map((i) => `- [${i.type}] ${(i.title ?? '').slice(0, 100)}`)
+      .join('\n');
+    const taskLines = openTasks
+      .slice(0, 15)
+      .map((t) => `- ${t.title}${t.priority ? ` [${t.priority}]` : ''}${t.dueDate ? ` (due ${t.dueDate})` : ''}`)
+      .join('\n');
+
+    const result = await invokeLLM({
+      messages: [
+        {
+          role: 'system',
+          content:
+            'Based on the user\'s recent notes and open tasks, suggest 3 concrete focus actions ' +
+            'they could take today. Each action is one short imperative sentence. Include a brief reason. ' +
+            'Prefer unblocking overdue work, making progress on stalled items, or tying related notes together.',
+        },
+        {
+          role: 'user',
+          content: `Recent items:\n${itemLines || '(none)'}\n\nOpen tasks:\n${taskLines || '(none)'}`,
+        },
+      ],
+      outputSchema: {
+        name: 'focus_suggestions',
+        schema: {
+          type: 'object',
+          additionalProperties: false,
+          properties: {
+            suggestions: {
+              type: 'array',
+              minItems: 1,
+              maxItems: 3,
+              items: {
+                type: 'object',
+                additionalProperties: false,
+                properties: {
+                  action: { type: 'string', minLength: 3, maxLength: 200 },
+                  reason: { type: 'string', minLength: 3, maxLength: 200 },
+                },
+                required: ['action', 'reason'],
+              },
+            },
+          },
+          required: ['suggestions'],
+        },
+        strict: true,
+      },
+    });
+
+    const raw = result.choices?.[0]?.message?.content ?? '';
+    const body = typeof raw === 'string' ? raw : raw.map((p) => ('text' in p ? p.text : '')).join('');
+    let parsed: { suggestions?: { action?: unknown; reason?: unknown }[] } = {};
+    try {
+      parsed = JSON.parse(body);
+    } catch {
+      parsed = { suggestions: [] };
+    }
+    const out: { action: string; reason: string }[] = [];
+    for (const s of parsed.suggestions ?? []) {
+      const action = typeof s.action === 'string' ? s.action.trim().slice(0, 200) : '';
+      const reason = typeof s.reason === 'string' ? s.reason.trim().slice(0, 200) : '';
+      if (action && reason) out.push({ action, reason });
+      if (out.length >= 3) break;
+    }
+    return { suggestions: out };
+  }),
+
+  suggestTitle: protectedProcedure
+    .input(z.object({ itemId: z.string() }))
+    .mutation(async ({ input, ctx }) => {
+      enforceLlmQuota(ctx.user.id);
+      logAiCall(ctx.user.id, 'suggestTitle', input.itemId);
+      const item = await loadItemForUser(input.itemId, ctx.user.id);
+      const text = extractContentText(item.title, item.content, item.url);
+      if (text.trim().length < 20) return { titles: [] as string[] };
+
+      const result = await invokeLLM({
+        messages: [
+          {
+            role: 'system',
+            content:
+              'Suggest 3 concise, specific titles for the given note. ' +
+              'Each title should be 3-9 words, capture the concrete subject, no filler words, ' +
+              'no trailing punctuation. Avoid generic titles like "Notes" or "Thoughts".',
+          },
+          { role: 'user', content: text },
+        ],
+        outputSchema: {
+          name: 'title_suggestions',
+          schema: {
+            type: 'object',
+            additionalProperties: false,
+            properties: {
+              titles: {
+                type: 'array',
+                minItems: 1,
+                maxItems: 3,
+                items: { type: 'string', minLength: 3, maxLength: 120 },
+              },
+            },
+            required: ['titles'],
+          },
+          strict: true,
+        },
+      });
+      const raw = result.choices?.[0]?.message?.content ?? '';
+      const body = typeof raw === 'string' ? raw : raw.map((p) => ('text' in p ? p.text : '')).join('');
+      let parsed: { titles?: unknown } = {};
+      try {
+        parsed = JSON.parse(body);
+      } catch {
+        parsed = {};
+      }
+      const titles = Array.isArray(parsed.titles)
+        ? parsed.titles
+            .filter((t): t is string => typeof t === 'string')
+            .map((t) => t.trim().replace(/[.!?]+$/, '').slice(0, 120))
+            .filter((t) => t.length >= 3)
+            .slice(0, 3)
+        : [];
+      return { titles };
+    }),
+
   askVault: protectedProcedure
     .input(z.object({ question: z.string().min(3).max(500) }))
     .mutation(async ({ input, ctx }) => {
