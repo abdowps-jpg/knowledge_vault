@@ -28,6 +28,7 @@ import { useThemeContext } from "@/lib/theme-provider";
 import { ACCENT_THEME_LABELS, ACCENT_THEME_PREVIEW, type AccentTheme } from "@/lib/theme-presets";
 import { clearAllData, exportAllData as exportLocalData, importData } from "@/lib/db/storage";
 import { trpc } from "@/lib/trpc";
+import { useLocale } from "@/lib/i18n";
 import { clearToken, saveStayLoggedIn, saveToken } from "@/lib/auth-storage";
 import { clearSyncQueue, fullSync, getLastSyncTime } from "@/lib/sync-manager";
 import {
@@ -530,6 +531,7 @@ export default function SettingsScreen() {
   const DATA_DELETION_URL = `${API_HOST}/privacy#rights`;
   const SUPPORT_EMAIL = "support@knowledgevault.app";
   const colors = useColors();
+  const { locale, setLocale } = useLocale();
   const router = useRouter();
   const queryClient = useQueryClient();
   const systemScheme = useColorScheme() ?? "light";
@@ -1731,6 +1733,22 @@ const [showApiModal, setShowApiModal] = useState(false);
           <Row icon="group" label="Shared Vaults" description="Workspaces you share with teammates" onPress={() => router.push("/vaults" as any)} />
           <Row icon="school" label="Flashcards" description="Spaced-repetition study session" onPress={() => router.push("/flashcards" as any)} />
           <Row icon="waving-hand" label="Getting Started" description="Onboarding checklist + tour" onPress={() => router.push("/welcome" as any)} />
+          <Row
+            icon="translate"
+            label={locale === "ar" ? "اللغة" : "Language"}
+            value={locale === "ar" ? "العربية" : "English"}
+            onPress={() => {
+              Alert.alert(
+                locale === "ar" ? "اختر اللغة" : "Choose language",
+                undefined,
+                [
+                  { text: "English", onPress: () => void setLocale("en") },
+                  { text: "العربية", onPress: () => void setLocale("ar") },
+                  { text: locale === "ar" ? "إلغاء" : "Cancel", style: "cancel" },
+                ]
+              );
+            }}
+          />
           <Row icon="admin-panel-settings" label="Admin Dashboard" description="Only visible to admins" onPress={() => router.push("/admin" as any)} />
           <Row icon="devices" label="Device Management" onPress={() => router.push("/devices" as any)} />
           <Row icon="merge-type" label="Resolve Conflicts" onPress={() => router.push("/conflicts" as any)} />

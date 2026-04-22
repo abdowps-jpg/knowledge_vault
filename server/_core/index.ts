@@ -1165,6 +1165,175 @@ app.get('/terms', (_req, res) => {
   );
 });
 
+// Minimal standalone web client at /app. Reads the user's API key from
+// localStorage (from the mobile app or browser-extension settings), then
+// exposes a quick inbox viewer + one-tap item creation. This is *not* a
+// full React app replacement — it's a safety net for users who need to
+// read or capture from a desktop without installing anything.
+app.get('/app', (_req, res) => {
+  res.type('html').send(`<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="theme-color" content="#4f46e5">
+  <link rel="manifest" href="/manifest.webmanifest">
+  <link rel="icon" href="/pwa-icon-192.svg" type="image/svg+xml">
+  <title>Knowledge Vault — Web</title>
+  <style>
+    :root{color-scheme:light dark}
+    *{box-sizing:border-box}
+    body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;margin:0;padding:24px;max-width:760px;margin:0 auto;line-height:1.5;color:#111;background:#fafafa}
+    @media (prefers-color-scheme:dark){body{background:#0b0b10;color:#eaeaea}input,textarea,select{background:#16161b;color:#eaeaea;border-color:#27272a}}
+    header{display:flex;align-items:center;gap:10px;margin-bottom:20px}
+    .logo{width:32px;height:32px;border-radius:8px;background:linear-gradient(135deg,#4f46e5,#7c3aed);display:grid;place-items:center;color:#fff;font-weight:800;font-size:13px}
+    h1{margin:0;font-size:1.3rem}
+    h2{font-size:1rem;margin-top:1.6rem}
+    input,textarea,select{width:100%;font:inherit;padding:8px 10px;border:1px solid #ddd;border-radius:6px;background:#fff;color:#111}
+    textarea{min-height:80px;resize:vertical}
+    button{font:inherit;padding:8px 14px;border:0;border-radius:6px;cursor:pointer;background:#4f46e5;color:#fff;font-weight:700}
+    button:disabled{opacity:.5;cursor:wait}
+    .row{display:grid;grid-template-columns:repeat(2,1fr);gap:8px;margin-bottom:8px}
+    .card{padding:12px;border:1px solid #ddd;border-radius:8px;margin-bottom:8px;background:#fff}
+    @media (prefers-color-scheme:dark){.card{background:#16161b;border-color:#27272a}}
+    .muted{color:#888;font-size:.85rem}
+    .toolbar{display:flex;gap:8px;align-items:center;margin-bottom:14px}
+    #status{padding:8px 10px;border-radius:6px;font-size:.85rem;margin-bottom:12px;display:none}
+    #status.ok{background:#16a34a22;color:#16a34a;display:block}
+    #status.err{background:#dc262622;color:#dc2626;display:block}
+  </style>
+</head>
+<body>
+  <header>
+    <div class="logo">KV</div>
+    <h1>Knowledge Vault</h1>
+  </header>
+
+  <div id="status"></div>
+
+  <div class="toolbar">
+    <input id="apiKey" type="password" placeholder="Paste your kv_... API key" />
+    <button id="saveKey" type="button">Save</button>
+    <button id="forgetKey" type="button" style="background:#999">Forget</button>
+  </div>
+
+  <details>
+    <summary>Quick capture</summary>
+    <form id="captureForm" style="margin-top:10px">
+      <div class="row">
+        <input id="cTitle" placeholder="Title" required />
+        <input id="cUrl" type="url" placeholder="URL (optional)" />
+      </div>
+      <textarea id="cContent" placeholder="Notes / content"></textarea>
+      <div style="display:flex;gap:8px;margin-top:6px;align-items:center">
+        <select id="cType">
+          <option value="note">Note</option>
+          <option value="link">Link</option>
+          <option value="quote">Quote</option>
+        </select>
+        <select id="cLocation">
+          <option value="inbox">Inbox</option>
+          <option value="library">Library</option>
+          <option value="archive">Archive</option>
+        </select>
+        <button id="captureBtn" type="submit">Save</button>
+      </div>
+    </form>
+  </details>
+
+  <h2>Inbox <button id="refreshBtn" type="button" style="background:#999;padding:4px 10px;font-size:.8rem">Refresh</button></h2>
+  <div id="itemsList"><p class="muted">Paste an API key and press "Save" to load your inbox.</p></div>
+
+  <script src="/app.js"></script>
+</body>
+</html>`);
+});
+
+app.get('/app.js', (_req, res) => {
+  res.type('application/javascript').send(`
+const BASE = window.location.origin;
+const STATUS = document.getElementById('status');
+const KEY_KEY = 'kv_api_key';
+
+function setStatus(text, ok) {
+  STATUS.textContent = text;
+  STATUS.className = ok ? 'ok' : 'err';
+}
+
+function getKey() { return localStorage.getItem(KEY_KEY) || ''; }
+
+function render(items) {
+  const list = document.getElementById('itemsList');
+  if (!items || items.length === 0) {
+    list.innerHTML = '<p class="muted">No items in your inbox.</p>';
+    return;
+  }
+  list.innerHTML = items.map(function(i) {
+    var title = String(i.title || 'Untitled').replace(/[&<>]/g, function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;'}[c];});
+    var snippet = String(i.content || '').slice(0, 200).replace(/[&<>]/g, function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;'}[c];});
+    return '<div class="card"><strong>' + title + '</strong><div class="muted">' + i.type + ' · ' + (i.createdAt || '') + '</div>' + (snippet ? '<div style="margin-top:6px">' + snippet + '</div>' : '') + (i.url ? '<a href="' + i.url + '" target="_blank" rel="noreferrer" style="font-size:.85rem">open link</a>' : '') + '</div>';
+  }).join('');
+}
+
+async function refresh() {
+  const key = getKey();
+  if (!key) return;
+  try {
+    const r = await fetch(BASE + '/api/items', { headers: { 'x-api-key': key } });
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+    const data = await r.json();
+    render(data.items || []);
+    setStatus('Loaded ' + (data.items || []).length + ' items', true);
+  } catch (e) {
+    setStatus('Load failed: ' + e.message, false);
+  }
+}
+
+document.getElementById('saveKey').addEventListener('click', function() {
+  const val = document.getElementById('apiKey').value.trim();
+  if (!val) { setStatus('Paste an API key first', false); return; }
+  localStorage.setItem(KEY_KEY, val);
+  setStatus('Key saved locally', true);
+  refresh();
+});
+document.getElementById('forgetKey').addEventListener('click', function() {
+  localStorage.removeItem(KEY_KEY);
+  document.getElementById('apiKey').value = '';
+  setStatus('Key cleared', true);
+});
+document.getElementById('refreshBtn').addEventListener('click', refresh);
+document.getElementById('captureForm').addEventListener('submit', async function(e) {
+  e.preventDefault();
+  const key = getKey();
+  if (!key) { setStatus('Save an API key first', false); return; }
+  const body = {
+    title: document.getElementById('cTitle').value.trim(),
+    url: document.getElementById('cUrl').value.trim() || null,
+    content: document.getElementById('cContent').value.trim() || null,
+    type: document.getElementById('cType').value,
+    location: document.getElementById('cLocation').value
+  };
+  try {
+    const r = await fetch(BASE + '/api/items', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', 'x-api-key': key },
+      body: JSON.stringify(body)
+    });
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+    document.getElementById('captureForm').reset();
+    setStatus('Saved', true);
+    refresh();
+  } catch (e) {
+    setStatus('Save failed: ' + e.message, false);
+  }
+});
+
+// Pre-fill the key input for convenience
+const k = getKey();
+if (k) { document.getElementById('apiKey').value = k; refresh(); }
+`);
+});
+
 // PWA manifest — lets the landing page be installable as a web app
 app.get('/manifest.webmanifest', (_req, res) => {
   res.setHeader('Content-Type', 'application/manifest+json');
@@ -1277,7 +1446,8 @@ app.get('/', (_req, res) => {
 
   <p>A personal knowledge system with built-in AI. Works offline. Mobile-native.</p>
 
-  <a class="cta" href="https://github.com/abdowps-jpg/knowledge_vault">See on GitHub</a>
+  <a class="cta" href="/app">Open web app</a>
+  <a class="cta" href="https://github.com/abdowps-jpg/knowledge_vault" style="background:#666;margin-left:8px">See on GitHub</a>
 
   <h2>What you get</h2>
   <ul>

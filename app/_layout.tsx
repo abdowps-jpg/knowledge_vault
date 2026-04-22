@@ -31,6 +31,7 @@ import { requestTaskNotificationPermissions } from "@/lib/notifications/task-not
 import { scheduleReviewPrompts } from "@/lib/notifications/review-notifications";
 import { registerPushTokenOnce } from "@/lib/notifications/push-token";
 import { useRealtime } from "@/hooks/use-realtime";
+import { initLocale } from "@/lib/i18n";
 import { OfflineSnapshot, offlineManager } from "@/lib/offline-manager";
 
 const DEFAULT_WEB_INSETS: EdgeInsets = { top: 0, right: 0, bottom: 0, left: 0 };
@@ -90,6 +91,7 @@ export default function RootLayout() {
   // Initialize Manus runtime for cookie injection from parent container
   useEffect(() => {
     initManusRuntime();
+    initLocale().catch(() => undefined);
   }, []);
 
   const handleSafeAreaUpdate = useCallback((metrics: Metrics) => {
