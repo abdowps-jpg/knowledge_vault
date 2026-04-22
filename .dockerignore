@@ -1,0 +1,16 @@
+node_modules
+.expo
+dist
+web-build
+.git
+.github
+ios
+android
+tests
+*.log
+local.db*
+.env
+.env.*
+!.env.example
+.DS_Store
+Thumbs.db
