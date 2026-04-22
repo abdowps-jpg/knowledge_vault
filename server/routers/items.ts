@@ -676,6 +676,67 @@ export const itemsRouter = router({
       return rows;
     }),
 
+  shareStatus: protectedProcedure
+    .input(z.object({ itemId: z.string() }))
+    .query(async ({ input, ctx }) => {
+      const { itemShares } = await import('../schema/item_shares');
+      const { publicLinks } = await import('../schema/public_links');
+      // Verify ownership
+      const owned = await db
+        .select()
+        .from(items)
+        .where(and(eq(items.id, input.itemId), eq(items.userId, ctx.user.id)))
+        .limit(1);
+      if (owned.length === 0) {
+        return { isOwner: false, shares: [], publicLinks: [] };
+      }
+      const [shares, links] = await Promise.all([
+        db.select().from(itemShares).where(eq(itemShares.itemId, input.itemId)),
+        db.select().from(publicLinks).where(eq(publicLinks.itemId, input.itemId)),
+      ]);
+      return {
+        isOwner: true,
+        shares,
+        publicLinks: links,
+      };
+    }),
+
+  fromTemplate: protectedProcedure
+    .input(
+      z.object({
+        templateId: z.string(),
+        title: z.string().min(1).max(500),
+        location: z.enum(['inbox', 'library', 'archive']).default('inbox'),
+      })
+    )
+    .mutation(async ({ input, ctx }) => {
+      const { templates } = await import('../schema/templates');
+      const tplRows = await db
+        .select()
+        .from(templates)
+        .where(and(eq(templates.id, input.templateId), eq(templates.userId, ctx.user.id)))
+        .limit(1);
+      const tpl = tplRows[0];
+      if (!tpl) {
+        throw new TRPCError({ code: 'NOT_FOUND', message: 'Template not found' });
+      }
+      if (tpl.kind !== 'item') {
+        throw new TRPCError({ code: 'BAD_REQUEST', message: 'Template is not an item template' });
+      }
+      const newItem = {
+        id: randomUUID(),
+        userId: ctx.user.id,
+        type: 'note' as const,
+        title: input.title.trim(),
+        content: tpl.body,
+        url: null,
+        location: input.location,
+        isFavorite: false,
+      };
+      await db.insert(items).values(newItem);
+      return newItem;
+    }),
+
   neighbors: protectedProcedure
     .input(
       z.object({

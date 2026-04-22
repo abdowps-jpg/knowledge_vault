@@ -341,6 +341,48 @@ export const tasksRouter = router({
       return result ?? [];
     }),
 
+  fromTemplate: protectedProcedure
+    .input(
+      z.object({
+        templateId: z.string(),
+        title: z.string().min(1).max(500),
+        priority: z.enum(['low', 'medium', 'high']).default('medium'),
+        dueDate: z.string().optional(),
+      })
+    )
+    .mutation(async ({ input, ctx }) => {
+      const { templates } = await import('../schema/templates');
+      const tplRows = await db
+        .select()
+        .from(templates)
+        .where(and(eq(templates.id, input.templateId), eq(templates.userId, ctx.user.id)))
+        .limit(1);
+      const tpl = tplRows[0];
+      if (!tpl) {
+        throw new TRPCError({ code: 'NOT_FOUND', message: 'Template not found' });
+      }
+      if (tpl.kind !== 'task') {
+        throw new TRPCError({ code: 'BAD_REQUEST', message: 'Template is not a task template' });
+      }
+      const now = new Date();
+      const newTask = {
+        id: randomUUID(),
+        userId: ctx.user.id,
+        title: input.title.trim(),
+        description: tpl.body,
+        priority: input.priority,
+        dueDate: input.dueDate ?? null,
+        isCompleted: false,
+        completedAt: null,
+        recurrence: null,
+        createdAt: now,
+        updatedAt: now,
+        deletedAt: null,
+      };
+      await db.insert(tasks).values(newTask);
+      return newTask;
+    }),
+
   bulkCreate: protectedProcedure
     .input(
       z.object({

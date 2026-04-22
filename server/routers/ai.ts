@@ -409,6 +409,65 @@ export const aiRouter = router({
       return { tasks: out };
     }),
 
+  proofread: protectedProcedure
+    .input(z.object({ itemId: z.string() }))
+    .mutation(async ({ input, ctx }) => {
+      enforceLlmQuota(ctx.user.id);
+      logAiCall(ctx.user.id, 'proofread', input.itemId);
+      const item = await loadItemForUser(input.itemId, ctx.user.id);
+      const text = extractContentText(item.title, item.content, item.url);
+      if (text.trim().length < 10) {
+        return { cleaned: '', changes: [] as string[] };
+      }
+      const result = await invokeLLM({
+        messages: [
+          {
+            role: 'system',
+            content:
+              'Proofread the given text. Fix grammar, typos, punctuation, and unclear phrasing. ' +
+              'Preserve the author\'s voice, meaning, structure, and markdown formatting. ' +
+              'Do not add new ideas or facts. Return the corrected text plus a short list of the ' +
+              'notable changes made.',
+          },
+          { role: 'user', content: text },
+        ],
+        outputSchema: {
+          name: 'proofread_result',
+          schema: {
+            type: 'object',
+            additionalProperties: false,
+            properties: {
+              cleaned: { type: 'string', minLength: 1, maxLength: 8000 },
+              changes: {
+                type: 'array',
+                maxItems: 5,
+                items: { type: 'string', minLength: 1, maxLength: 200 },
+              },
+            },
+            required: ['cleaned', 'changes'],
+          },
+          strict: true,
+        },
+      });
+      const raw = result.choices?.[0]?.message?.content ?? '';
+      const body = typeof raw === 'string' ? raw : raw.map((p) => ('text' in p ? p.text : '')).join('');
+      let parsed: { cleaned?: unknown; changes?: unknown } = {};
+      try {
+        parsed = JSON.parse(body);
+      } catch {
+        parsed = {};
+      }
+      const cleaned = typeof parsed.cleaned === 'string' ? parsed.cleaned.trim().slice(0, 8000) : '';
+      const changes = Array.isArray(parsed.changes)
+        ? parsed.changes
+            .filter((c): c is string => typeof c === 'string')
+            .map((c) => c.trim().slice(0, 200))
+            .filter(Boolean)
+            .slice(0, 5)
+        : [];
+      return { cleaned, changes };
+    }),
+
   translate: protectedProcedure
     .input(
       z.object({

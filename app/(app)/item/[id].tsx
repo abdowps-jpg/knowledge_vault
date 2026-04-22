@@ -122,6 +122,7 @@ export default function ItemDetailScreen() {
   const expandDraft = trpc.ai.expand.useMutation();
   const extractTasks = trpc.ai.extractTasks.useMutation();
   const bulkCreateTasks = trpc.tasks.bulkCreate.useMutation();
+  const proofreadItem = trpc.ai.proofread.useMutation();
   const createTaskFromAction = trpc.tasks.create.useMutation();
   const [extractedTasks, setExtractedTasks] = React.useState<
     { title: string; priority: "low" | "medium" | "high" }[]
@@ -851,6 +852,46 @@ export default function ItemDetailScreen() {
               >
                 <Text style={{ color: colors.primary, fontWeight: "600", fontSize: 13 }}>
                   {extractTasks.isPending ? "Thinking…" : "Extract tasks"}
+                </Text>
+              </Pressable>
+              <Pressable
+                onPress={async () => {
+                  try {
+                    const res = await proofreadItem.mutateAsync({ itemId: id });
+                    if (!res.cleaned) {
+                      Alert.alert("AI", "Not enough content to proofread.");
+                      return;
+                    }
+                    Alert.alert(
+                      "Proofread result",
+                      res.changes.length > 0
+                        ? `Changes:\n• ${res.changes.join("\n• ")}\n\nApply the cleaned version?`
+                        : "No notable issues found. Apply anyway?",
+                      [
+                        { text: "Cancel", style: "cancel" },
+                        {
+                          text: "Apply",
+                          onPress: () => setContent(res.cleaned),
+                        },
+                      ]
+                    );
+                  } catch (e: any) {
+                    Alert.alert("AI", e?.message ?? "Failed to proofread");
+                  }
+                }}
+                disabled={proofreadItem.isPending}
+                style={{
+                  backgroundColor: colors.surface,
+                  borderWidth: 1,
+                  borderColor: colors.primary,
+                  paddingHorizontal: 12,
+                  paddingVertical: 8,
+                  borderRadius: 8,
+                  opacity: proofreadItem.isPending ? 0.6 : 1,
+                }}
+              >
+                <Text style={{ color: colors.primary, fontWeight: "600", fontSize: 13 }}>
+                  {proofreadItem.isPending ? "Thinking…" : "Proofread"}
                 </Text>
               </Pressable>
             </View>
