@@ -1,8 +1,18 @@
 import { and, count, desc, eq, inArray } from 'drizzle-orm';
 import { z } from 'zod';
 import { db } from '../db';
+import { notificationPrefs } from '../schema/notification_prefs';
 import { userNotifications } from '../schema/user_notifications';
 import { protectedProcedure, router } from '../trpc';
+
+const DEFAULT_PREFS = {
+  mentionEnabled: true,
+  itemCommentEnabled: true,
+  itemSharedEnabled: true,
+  taskDueEnabled: true,
+  quietStartMinutes: null as number | null,
+  quietEndMinutes: null as number | null,
+};
 
 export const notificationsRouter = router({
   list: protectedProcedure
@@ -60,6 +70,49 @@ export const notificationsRouter = router({
           )
         );
       return { success: true as const, marked: input.ids.length };
+    }),
+
+  getPrefs: protectedProcedure.query(async ({ ctx }) => {
+    const rows = await db
+      .select()
+      .from(notificationPrefs)
+      .where(eq(notificationPrefs.userId, ctx.user.id))
+      .limit(1);
+    return rows[0] ?? { userId: ctx.user.id, ...DEFAULT_PREFS, updatedAt: new Date() };
+  }),
+
+  updatePrefs: protectedProcedure
+    .input(
+      z.object({
+        mentionEnabled: z.boolean().optional(),
+        itemCommentEnabled: z.boolean().optional(),
+        itemSharedEnabled: z.boolean().optional(),
+        taskDueEnabled: z.boolean().optional(),
+        quietStartMinutes: z.number().int().min(0).max(1439).nullable().optional(),
+        quietEndMinutes: z.number().int().min(0).max(1439).nullable().optional(),
+      })
+    )
+    .mutation(async ({ input, ctx }) => {
+      const existing = await db
+        .select()
+        .from(notificationPrefs)
+        .where(eq(notificationPrefs.userId, ctx.user.id))
+        .limit(1);
+      const now = new Date();
+      if (existing.length > 0) {
+        await db
+          .update(notificationPrefs)
+          .set({ ...input, updatedAt: now })
+          .where(eq(notificationPrefs.userId, ctx.user.id));
+      } else {
+        await db.insert(notificationPrefs).values({
+          userId: ctx.user.id,
+          ...DEFAULT_PREFS,
+          ...input,
+          updatedAt: now,
+        });
+      }
+      return { success: true as const };
     }),
 
   markAllRead: protectedProcedure.mutation(async ({ ctx }) => {

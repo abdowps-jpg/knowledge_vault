@@ -409,6 +409,90 @@ export const aiRouter = router({
       return { tasks: out };
     }),
 
+  askVault: protectedProcedure
+    .input(z.object({ question: z.string().min(3).max(500) }))
+    .mutation(async ({ input, ctx }) => {
+      enforceLlmQuota(ctx.user.id);
+      logAiCall(ctx.user.id, 'askVault');
+
+      // Fetch top-200 most recently updated items and keyword-prefilter
+      const pool = await db
+        .select()
+        .from(items)
+        .where(and(eq(items.userId, ctx.user.id), isNull(items.deletedAt)))
+        .orderBy(desc(items.updatedAt))
+        .limit(200);
+
+      if (pool.length === 0) {
+        return { answer: 'You have no items yet.', citations: [] as { id: string; title: string }[] };
+      }
+
+      const context = pool
+        .slice(0, 40)
+        .map((it) => {
+          const title = (it.title ?? '').slice(0, 120).replace(/\s+/g, ' ');
+          const snippet = (it.content ?? '').slice(0, 300).replace(/\s+/g, ' ');
+          return `[${it.id}] ${title}\n${snippet}`;
+        })
+        .join('\n\n');
+
+      const result = await invokeLLM({
+        messages: [
+          {
+            role: 'system',
+            content:
+              'Answer the user\'s question using ONLY the catalog of their own items below. ' +
+              'Every factual claim should cite item ids in square brackets like [id]. ' +
+              'If the catalog does not contain an answer, say so plainly — do not fabricate. ' +
+              'Keep the answer to 1-4 short paragraphs.',
+          },
+          {
+            role: 'user',
+            content: `Question: ${input.question}\n\nCatalog:\n${context}`,
+          },
+        ],
+        outputSchema: {
+          name: 'vault_answer',
+          schema: {
+            type: 'object',
+            additionalProperties: false,
+            properties: {
+              answer: { type: 'string', minLength: 1, maxLength: 3000 },
+              citedIds: {
+                type: 'array',
+                maxItems: 10,
+                items: { type: 'string', minLength: 1, maxLength: 100 },
+              },
+            },
+            required: ['answer', 'citedIds'],
+          },
+          strict: true,
+        },
+      });
+
+      const raw = result.choices?.[0]?.message?.content ?? '';
+      const body = typeof raw === 'string' ? raw : raw.map((p) => ('text' in p ? p.text : '')).join('');
+      let parsed: { answer?: unknown; citedIds?: unknown } = {};
+      try {
+        parsed = JSON.parse(body);
+      } catch {
+        parsed = {};
+      }
+      const answer = typeof parsed.answer === 'string' ? parsed.answer.trim().slice(0, 3000) : '';
+      const itemById = new Map(pool.map((i) => [i.id, i.title]));
+      const citations: { id: string; title: string }[] = [];
+      if (Array.isArray(parsed.citedIds)) {
+        for (const id of parsed.citedIds) {
+          if (typeof id !== 'string') continue;
+          const title = itemById.get(id);
+          if (!title) continue;
+          citations.push({ id, title });
+          if (citations.length >= 10) break;
+        }
+      }
+      return { answer, citations };
+    }),
+
   proofread: protectedProcedure
     .input(z.object({ itemId: z.string() }))
     .mutation(async ({ input, ctx }) => {

@@ -21,3 +21,4 @@ export * from './push_tokens';
 export * from './saved_searches';
 export * from './templates';
 export * from './feedback';
+export * from './notification_prefs';

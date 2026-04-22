@@ -576,5 +576,18 @@ db.exec(`
   CREATE INDEX IF NOT EXISTS idx_feedback_created_at ON feedback(created_at);
 `);
 
+db.exec(`
+  CREATE TABLE IF NOT EXISTS notification_prefs (
+    user_id TEXT PRIMARY KEY,
+    mention_enabled INTEGER NOT NULL DEFAULT 1,
+    item_comment_enabled INTEGER NOT NULL DEFAULT 1,
+    item_shared_enabled INTEGER NOT NULL DEFAULT 1,
+    task_due_enabled INTEGER NOT NULL DEFAULT 1,
+    quiet_start_minutes INTEGER,
+    quiet_end_minutes INTEGER,
+    updated_at INTEGER DEFAULT (strftime('%s', 'now'))
+  );
+`);
+
 console.log('✅ Database tables created successfully!');
 db.close();

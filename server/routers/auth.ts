@@ -594,11 +594,13 @@ export const authRouter = router({
       const { templates } = await import('../schema/templates');
       const { auditLog } = await import('../schema/audit_log');
       const { feedback } = await import('../schema/feedback');
+      const { notificationPrefs } = await import('../schema/notification_prefs');
       await db.delete(pushTokens).where(eq(pushTokens.userId, uid));
       await db.delete(savedSearches).where(eq(savedSearches.userId, uid));
       await db.delete(templates).where(eq(templates.userId, uid));
       await db.delete(auditLog).where(eq(auditLog.userId, uid));
       await db.delete(feedback).where(eq(feedback.userId, uid));
+      await db.delete(notificationPrefs).where(eq(notificationPrefs.userId, uid));
 
       // Delete main data tables
       await db.delete(journalTable).where(eq(journalTable.userId, uid));

@@ -271,6 +271,53 @@ export const statsRouter = router({
     }
   }),
 
+  activityHeatmap: protectedProcedure.query(async ({ ctx }) => {
+    try {
+      const since = new Date();
+      since.setDate(since.getDate() - 90);
+
+      const [iRows, tRows, jRows] = await Promise.all([
+        db
+          .select({ createdAt: items.createdAt })
+          .from(items)
+          .where(and(eq(items.userId, ctx.user.id), isNull(items.deletedAt), gte(items.createdAt, since))),
+        db
+          .select({ completedAt: tasks.completedAt })
+          .from(tasks)
+          .where(and(eq(tasks.userId, ctx.user.id), isNull(tasks.deletedAt))),
+        db
+          .select({ entryDate: journal.entryDate, createdAt: journal.createdAt })
+          .from(journal)
+          .where(and(eq(journal.userId, ctx.user.id), isNull(journal.deletedAt), gte(journal.createdAt, since))),
+      ]);
+
+      const byDay = new Map<string, number>();
+      const bump = (d: Date | null) => {
+        if (!d) return;
+        const key = formatDateKey(d);
+        byDay.set(key, (byDay.get(key) ?? 0) + 1);
+      };
+      for (const r of iRows) bump(toDate(r.createdAt));
+      for (const r of tRows) {
+        if (!r.completedAt) continue;
+        const d = toDate(r.completedAt);
+        if (!d) continue;
+        if (d.getTime() < since.getTime()) continue;
+        bump(d);
+      }
+      for (const r of jRows) bump(toDate(r.createdAt));
+
+      const series = Array.from(byDay.entries())
+        .sort((a, b) => a[0].localeCompare(b[0]))
+        .map(([date, count]) => ({ date, count }));
+      const maxCount = series.reduce((m, d) => Math.max(m, d.count), 0);
+      return { days: series, maxCount };
+    } catch (error) {
+      console.error('Error building heatmap:', error);
+      return { days: [] as { date: string; count: number }[], maxCount: 0 };
+    }
+  }),
+
   getDashboard: protectedProcedure.query(async ({ ctx }) => {
     try {
       const [allItems, allTasks, allJournal, allTags] = await Promise.all([
