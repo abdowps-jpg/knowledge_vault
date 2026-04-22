@@ -2,6 +2,7 @@ import express, { type Request, type Response, type NextFunction } from 'express
 import { createExpressMiddleware } from '@trpc/server/adapters/express';
 import { createTRPCContext, router, publicProcedure } from '../trpc';
 import { verifyToken } from '../lib/auth';
+import { printValidation, validateEnv } from './validate-env';
 import { db } from '../db';
 import { users } from '../schema/users';
 import { tasks } from '../schema/tasks';
@@ -1018,6 +1019,152 @@ app.get('/robots.txt', (_req, res) => {
   );
 });
 
+function legalPage(title: string, body: string): string {
+  return `<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="theme-color" content="#4f46e5">
+  <title>${title} — Knowledge Vault</title>
+  <style>
+    :root{color-scheme:light dark}
+    body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;max-width:760px;margin:0 auto;padding:40px 24px;line-height:1.6;color:#111;background:#fafafa}
+    @media (prefers-color-scheme:dark){body{background:#0b0b10;color:#eaeaea}a{color:#9bb6ff}hr{border-color:#222}}
+    h1{font-size:1.7rem}
+    h2{font-size:1.15rem;margin-top:2rem}
+    nav{margin-bottom:24px;color:#666;font-size:.9rem}
+    @media (prefers-color-scheme:dark){nav{color:#9a9a9a}}
+    nav a{color:inherit;text-decoration:underline}
+    ul{padding-left:20px}
+    footer{margin-top:48px;padding-top:16px;border-top:1px solid #ddd;color:#888;font-size:.85rem}
+    @media (prefers-color-scheme:dark){footer{border-top-color:#2a2a2a}}
+  </style>
+</head>
+<body>
+  <nav><a href="/">← Back</a> &middot; <a href="/privacy">Privacy</a> &middot; <a href="/terms">Terms</a></nav>
+  <h1>${title}</h1>
+  ${body}
+  <footer>Last updated: ${new Date().toISOString().slice(0, 10)}</footer>
+</body>
+</html>`;
+}
+
+app.get('/privacy', (_req, res) => {
+  res.type('html').send(
+    legalPage(
+      'Privacy Policy',
+      `
+<p>This Privacy Policy describes how Knowledge Vault ("we", "us") collects, uses, and protects the information you provide when you use our mobile app, browser extension, and API.</p>
+
+<h2>1. What we collect</h2>
+<ul>
+  <li><strong>Account data:</strong> email address, hashed password (bcrypt), optional username, and a cryptographically random user id.</li>
+  <li><strong>Your content:</strong> the notes, links, quotes, audio attachments, tasks, habits, goals, journal entries, tags, categories, comments, and flashcards you create. This content is private to your account unless you explicitly share it.</li>
+  <li><strong>Usage metadata:</strong> timestamps on every record, last-login IP and user agent (for the security activity log), notification preferences, device push tokens, and audit events for AI feature usage.</li>
+  <li><strong>AI request content:</strong> when you invoke an AI feature (suggest tags, summarize, search, etc.), the relevant text is sent to our LLM provider (currently Google's Gemini via the Forge API) to generate a response. We do not retain your text at the LLM provider beyond the duration of a request.</li>
+  <li><strong>Optional external data:</strong> if you paste a URL, we fetch the page server-side to extract a title/description. We never execute page scripts and we never follow private-network addresses.</li>
+</ul>
+
+<h2>2. How we use your data</h2>
+<ul>
+  <li>To operate the product: authentication, sync across devices, AI features you opt into, push notifications you opt into, public shares you create.</li>
+  <li>To detect abuse and enforce rate limits.</li>
+  <li>To respond to you when you send feedback.</li>
+  <li>We do <strong>not</strong> sell your data, and we do not use it for behavioral advertising.</li>
+</ul>
+
+<h2>3. Where your data is stored</h2>
+<p>Your data is stored in the database you (or your self-hosted deployment) controls. When you use the hosted service, data is stored on servers operated by our hosting provider. Passwords are hashed with bcrypt (12 rounds). API keys are stored only as SHA-256 hashes.</p>
+
+<h2>4. Who sees your data</h2>
+<ul>
+  <li>You, on any device logged in to your account.</li>
+  <li>People you explicitly share items with (via email invitation or public link).</li>
+  <li>Our LLM provider, at the moment of an AI request, for the request content only.</li>
+  <li>Our operations team, when investigating security incidents.</li>
+</ul>
+
+<h2>5. Your rights</h2>
+<ul>
+  <li><strong>Export:</strong> download everything you've written as JSON or Markdown from Settings → Export. An <code>auth.exportPersonalData</code> API endpoint also returns a full dump.</li>
+  <li><strong>Delete:</strong> Settings → Delete account permanently erases your content, sessions, audit log, and every auxiliary row we keep about you.</li>
+  <li><strong>Correct:</strong> you can edit or remove any item you create.</li>
+</ul>
+
+<h2>6. Retention</h2>
+<ul>
+  <li>Audit log events older than 90 days are automatically purged.</li>
+  <li>Soft-deleted items are permanently removed 30 days after they enter the trash.</li>
+  <li>Email provider logs (if configured) follow that provider's retention policy.</li>
+</ul>
+
+<h2>7. Children</h2>
+<p>Knowledge Vault is not directed at children under 13 and we do not knowingly collect data from anyone under 13.</p>
+
+<h2>8. Contact</h2>
+<p>For privacy questions or data-access requests, submit feedback from Settings → Send Feedback and pick "other", or write to the contact address listed on the repository.</p>
+      `
+    )
+  );
+});
+
+app.get('/terms', (_req, res) => {
+  res.type('html').send(
+    legalPage(
+      'Terms of Service',
+      `
+<p>By using Knowledge Vault ("the service"), you agree to these terms.</p>
+
+<h2>1. The service</h2>
+<p>Knowledge Vault is a personal knowledge management app: capture, organize, retrieve, and act on notes, tasks, habits, goals, and journal entries, with built-in AI assistance.</p>
+
+<h2>2. Your account</h2>
+<ul>
+  <li>You are responsible for keeping your password and API keys confidential.</li>
+  <li>You must provide a valid email for recovery and verification.</li>
+  <li>You must be at least 13 years old.</li>
+  <li>You agree not to impersonate others or create accounts for people without their consent.</li>
+</ul>
+
+<h2>3. Your content</h2>
+<ul>
+  <li>You keep ownership of what you create. We claim no rights in it.</li>
+  <li>You grant us a limited license to store, transmit, and display your content for the purpose of running the service for you.</li>
+  <li>If you share an item publicly, you are responsible for ensuring you have the right to share it.</li>
+</ul>
+
+<h2>4. Acceptable use</h2>
+<p>You agree not to:</p>
+<ul>
+  <li>Use the service to store or share illegal content, malware, child exploitation material, or content that violates intellectual property rights.</li>
+  <li>Attempt to bypass rate limits, permission scopes, or access other users' data.</li>
+  <li>Abuse AI features to generate mass content that violates third-party terms (e.g. spam, platform manipulation).</li>
+  <li>Resell the service, the API, or AI capacity without a written agreement.</li>
+</ul>
+
+<h2>5. AI features</h2>
+<p>AI output is generated by machine learning models. It may be inaccurate or misleading. You should verify important facts before acting on AI output. We do not guarantee the correctness, completeness, or fitness for any particular purpose of AI results.</p>
+
+<h2>6. Availability and changes</h2>
+<p>We aim for high availability but do not guarantee uninterrupted service. We may change or discontinue features, with reasonable notice for substantial changes.</p>
+
+<h2>7. Termination</h2>
+<p>You may delete your account at any time from the app. We may suspend or terminate accounts that violate these terms, after reasonable attempts to notify where practical.</p>
+
+<h2>8. Liability</h2>
+<p>The service is provided "as is" without warranties of any kind. To the maximum extent permitted by law, we are not liable for indirect, incidental, or consequential damages arising from your use of the service.</p>
+
+<h2>9. Governing law</h2>
+<p>These terms are governed by the laws of the jurisdiction where the operating entity is incorporated. Disputes should first be raised through Settings → Send Feedback before any formal process.</p>
+
+<h2>10. Changes to these terms</h2>
+<p>We will post updates here with a new "Last updated" date. Material changes will be announced in-app when practical.</p>
+      `
+    )
+  );
+});
+
 // PWA manifest — lets the landing page be installable as a web app
 app.get('/manifest.webmanifest', (_req, res) => {
   res.setHeader('Content-Type', 'application/manifest+json');
@@ -1308,6 +1455,15 @@ process.on('unhandledRejection', (reason) => {
 process.on('uncaughtException', (err) => {
   reportError(err, { source: 'uncaughtException' });
 });
+
+// Validate env vars before listening. In production, hard-fail on errors so
+// we never serve traffic with a broken configuration.
+const envReport = validateEnv();
+printValidation(envReport);
+if (!envReport.ok && process.env.NODE_ENV === 'production') {
+  console.error('[env] Refusing to start: fix the errors above before running in production.');
+  process.exit(1);
+}
 
 app.listen(Number(port), host, () => {
   console.log(`Server running on http://${host}:${port}`);

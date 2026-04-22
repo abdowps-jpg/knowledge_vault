@@ -1,21 +1,29 @@
-import { mysqlTable, varchar, timestamp, index } from 'drizzle-orm/mysql-core';
+import { index, integer, sqliteTable, text } from 'drizzle-orm/sqlite-core';
 
-export const tags = mysqlTable('tags', {
-  id: varchar('id', { length: 36 }).primaryKey(),
-  userId: varchar('user_id', { length: 36 }).notNull(),
-  name: varchar('name', { length: 100 }).notNull(),
-  color: varchar('color', { length: 7 }),
-  createdAt: timestamp('created_at').defaultNow(),
-}, (table) => ({
-  userIdx: index('user_idx').on(table.userId),
-}));
+export const tags = sqliteTable(
+  'tags',
+  {
+    id: text('id').primaryKey(),
+    userId: text('user_id').notNull(),
+    name: text('name').notNull(),
+    color: text('color'),
+    createdAt: integer('created_at', { mode: 'timestamp' }).$defaultFn(() => new Date()),
+  },
+  (table) => ({
+    userIdx: index('tags_user_idx').on(table.userId),
+  })
+);
 
-export const itemTags = mysqlTable('item_tags', {
-  id: varchar('id', { length: 36 }).primaryKey(),
-  itemId: varchar('item_id', { length: 36 }).notNull(),
-  tagId: varchar('tag_id', { length: 36 }).notNull(),
-  createdAt: timestamp('created_at').defaultNow(),
-}, (table) => ({
-  itemIdx: index('item_idx').on(table.itemId),
-  tagIdx: index('tag_idx').on(table.tagId),
-}));
+export const itemTags = sqliteTable(
+  'item_tags',
+  {
+    id: text('id').primaryKey(),
+    itemId: text('item_id').notNull(),
+    tagId: text('tag_id').notNull(),
+    createdAt: integer('created_at', { mode: 'timestamp' }).$defaultFn(() => new Date()),
+  },
+  (table) => ({
+    itemIdx: index('item_tags_item_idx').on(table.itemId),
+    tagIdx: index('item_tags_tag_idx').on(table.tagId),
+  })
+);

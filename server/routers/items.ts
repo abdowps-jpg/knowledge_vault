@@ -1109,8 +1109,8 @@ export const itemsRouter = router({
       const userItemIds = allUserItems.map((i) => i.id);
       if (userItemIds.length === 0) return [];
       const [tagLinks, catLinks] = await Promise.all([
-        db.select().from(itemTags).where(inArray(itemTags.itemId, userItemIds)),
-        db.select().from(itemCategories).where(inArray(itemCategories.itemId, userItemIds)),
+        db.select({ itemId: itemTags.itemId }).from(itemTags).where(inArray(itemTags.itemId, userItemIds)),
+        db.select({ itemId: itemCategories.itemId }).from(itemCategories).where(inArray(itemCategories.itemId, userItemIds)),
       ]);
       const hasTag = new Set(tagLinks.map((l) => l.itemId));
       const hasCat = new Set(catLinks.map((l) => l.itemId));

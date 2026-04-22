@@ -522,9 +522,12 @@ function convertEnexToBackup(text: string, sourceName: string): ImportValidation
 }
 
 export default function SettingsScreen() {
-  const PRIVACY_URL = "https://knowledgevault.app/privacy";
-  const TERMS_URL = "https://knowledgevault.app/terms";
-  const DATA_DELETION_URL = "https://knowledgevault.app/data-deletion";
+  // Point at our own server so legal pages always match the running version
+  // and work for self-hosted deployments as well.
+  const API_HOST = (process.env.EXPO_PUBLIC_API_URL ?? "").replace(/\/+$/, "") || "https://knowledgevault.app";
+  const PRIVACY_URL = `${API_HOST}/privacy`;
+  const TERMS_URL = `${API_HOST}/terms`;
+  const DATA_DELETION_URL = `${API_HOST}/privacy#rights`;
   const SUPPORT_EMAIL = "support@knowledgevault.app";
   const colors = useColors();
   const router = useRouter();
