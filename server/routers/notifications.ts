@@ -58,6 +58,17 @@ export const notificationsRouter = router({
       return { success: true as const };
     }),
 
+  byType: protectedProcedure
+    .input(z.object({ type: z.string().min(1).max(40), limit: z.number().int().min(1).max(50).default(20) }))
+    .query(async ({ input, ctx }) => {
+      return db
+        .select()
+        .from(userNotifications)
+        .where(and(eq(userNotifications.userId, ctx.user.id), eq(userNotifications.type, input.type)))
+        .orderBy(desc(userNotifications.createdAt))
+        .limit(input.limit);
+    }),
+
   realtimeStatus: protectedProcedure.query(async ({ ctx }) => {
     const { connectedClientCount, listConnectedUsers } = await import('../lib/realtime');
     const connectedUsers = listConnectedUsers();

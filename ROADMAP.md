@@ -736,6 +736,32 @@ Use ICE scoring (Impact × Confidence × Ease):
 
 ---
 
+## Shipped Checkpoint — 2026-04-22 (phases 3/4/5 rounded out)
+
+### Phase 3 — Collaboration (now ~85%)
+- `vaults` + `vault_members` + `vault_activity` tables
+- `vaultsRouter`: listMine / create / update / delete / listMembers / invite /
+  removeMember / leave / feed / logEvent. Roles: owner / editor / viewer.
+- Still TODO: plumb vaultId through item/task queries for per-vault filtering
+  (additive, non-breaking)
+
+### Phase 4 — Platform Expansion (now ~80%)
+- Browser extension (shipped earlier)
+- PWA: `/manifest.webmanifest`, `/sw.js` service worker (offline landing),
+  `/pwa-icon-*.svg`, theme-color meta, installable from the landing page
+- Zapier integration: `zapierRouter` with authTest / recentItems /
+  recentTasks / recipes + REST `/api/me` for key verification
+- Still TODO: a full interactive web app (flashcards/items UI beyond landing)
+
+### Phase 5 — Enterprise (now ~60%)
+- `users.isAdmin` column + idempotent ALTER TABLE
+- `adminRouter`: whoami / systemStats / listUsers / setUserActive /
+  grantAdmin / listFeedback / recentAuditEvents
+- `ssoRouter`: listProviders / allProviders / discovery (OIDC .well-known)
+  driven by env vars (Google, GitHub, Apple, Microsoft, Okta, custom OIDC)
+- Still TODO: actual OAuth callback handlers, data residency policy,
+  SLA tiers (operational — not code)
+
 ## Shipped Checkpoint — 2026-04-22
 
 Phase 0 (Stabilization) and Phase 1 (MVP) are both fundamentally complete in

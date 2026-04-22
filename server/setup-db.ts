@@ -57,6 +57,12 @@ try {
   // Column already exists.
 }
 
+try {
+  db.exec(`ALTER TABLE users ADD COLUMN is_admin INTEGER NOT NULL DEFAULT 0;`);
+} catch {
+  // Column already exists.
+}
+
 db.exec(`CREATE INDEX IF NOT EXISTS idx_users_email_verified ON users(email_verified);`);
 
 // إنشاء جدول العناصر
@@ -634,6 +640,72 @@ db.exec(`
 
   CREATE INDEX IF NOT EXISTS idx_habit_logs_user_id ON habit_logs(user_id);
   CREATE UNIQUE INDEX IF NOT EXISTS idx_habit_logs_habit_date ON habit_logs(habit_id, date);
+`);
+
+db.exec(`
+  CREATE TABLE IF NOT EXISTS vaults (
+    id TEXT PRIMARY KEY,
+    owner_user_id TEXT NOT NULL,
+    name TEXT NOT NULL,
+    description TEXT,
+    is_personal INTEGER NOT NULL DEFAULT 0,
+    created_at INTEGER DEFAULT (strftime('%s', 'now')),
+    updated_at INTEGER DEFAULT (strftime('%s', 'now'))
+  );
+
+  CREATE INDEX IF NOT EXISTS idx_vaults_owner_user_id ON vaults(owner_user_id);
+`);
+
+db.exec(`
+  CREATE TABLE IF NOT EXISTS vault_members (
+    id TEXT PRIMARY KEY,
+    vault_id TEXT NOT NULL,
+    user_id TEXT NOT NULL,
+    role TEXT NOT NULL DEFAULT 'viewer' CHECK(role IN ('owner', 'editor', 'viewer')),
+    invited_by_user_id TEXT,
+    joined_at INTEGER DEFAULT (strftime('%s', 'now'))
+  );
+
+  CREATE INDEX IF NOT EXISTS idx_vault_members_vault_id ON vault_members(vault_id);
+  CREATE INDEX IF NOT EXISTS idx_vault_members_user_id ON vault_members(user_id);
+  CREATE UNIQUE INDEX IF NOT EXISTS idx_vault_members_unique ON vault_members(vault_id, user_id);
+`);
+
+db.exec(`
+  CREATE TABLE IF NOT EXISTS vault_activity (
+    id TEXT PRIMARY KEY,
+    vault_id TEXT NOT NULL,
+    actor_user_id TEXT NOT NULL,
+    action TEXT NOT NULL,
+    resource_kind TEXT,
+    resource_id TEXT,
+    meta TEXT,
+    created_at INTEGER DEFAULT (strftime('%s', 'now'))
+  );
+
+  CREATE INDEX IF NOT EXISTS idx_vault_activity_vault_id ON vault_activity(vault_id);
+  CREATE INDEX IF NOT EXISTS idx_vault_activity_created_at ON vault_activity(created_at);
+`);
+
+db.exec(`
+  CREATE TABLE IF NOT EXISTS flashcards (
+    id TEXT PRIMARY KEY,
+    user_id TEXT NOT NULL,
+    item_id TEXT,
+    question TEXT NOT NULL,
+    answer TEXT NOT NULL,
+    ease REAL NOT NULL DEFAULT 2.5,
+    interval INTEGER NOT NULL DEFAULT 1,
+    repetitions INTEGER NOT NULL DEFAULT 0,
+    next_review_date TEXT NOT NULL,
+    last_reviewed_at INTEGER,
+    created_at INTEGER DEFAULT (strftime('%s', 'now')),
+    updated_at INTEGER DEFAULT (strftime('%s', 'now'))
+  );
+
+  CREATE INDEX IF NOT EXISTS idx_flashcards_user_id ON flashcards(user_id);
+  CREATE INDEX IF NOT EXISTS idx_flashcards_next_review ON flashcards(next_review_date);
+  CREATE INDEX IF NOT EXISTS idx_flashcards_item_id ON flashcards(item_id);
 `);
 
 console.log('✅ Database tables created successfully!');

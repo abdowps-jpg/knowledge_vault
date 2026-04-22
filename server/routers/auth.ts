@@ -598,6 +598,8 @@ export const authRouter = router({
       const { reviews } = await import('../schema/reviews');
       const { onboarding } = await import('../schema/onboarding');
       const { habitLogs } = await import('../schema/habit_logs');
+      const { flashcards } = await import('../schema/flashcards');
+      const { vaultMembers, vaultActivity, vaults: vaultsTable } = await import('../schema/vaults');
       await db.delete(pushTokens).where(eq(pushTokens.userId, uid));
       await db.delete(savedSearches).where(eq(savedSearches.userId, uid));
       await db.delete(templates).where(eq(templates.userId, uid));
@@ -607,6 +609,19 @@ export const authRouter = router({
       await db.delete(reviews).where(eq(reviews.userId, uid));
       await db.delete(onboarding).where(eq(onboarding.userId, uid));
       await db.delete(habitLogs).where(eq(habitLogs.userId, uid));
+      await db.delete(flashcards).where(eq(flashcards.userId, uid));
+
+      // Vaults: remove memberships, plus any personal vaults they own
+      await db.delete(vaultMembers).where(eq(vaultMembers.userId, uid));
+      const ownedVaults = await db
+        .select({ id: vaultsTable.id })
+        .from(vaultsTable)
+        .where(eq(vaultsTable.ownerUserId, uid));
+      for (const v of ownedVaults) {
+        await db.delete(vaultMembers).where(eq(vaultMembers.vaultId, v.id));
+        await db.delete(vaultActivity).where(eq(vaultActivity.vaultId, v.id));
+      }
+      await db.delete(vaultsTable).where(eq(vaultsTable.ownerUserId, uid));
 
       // Delete main data tables
       await db.delete(journalTable).where(eq(journalTable.userId, uid));
@@ -672,6 +687,90 @@ export const authRouter = router({
     userId: ctx.user.id,
     at: new Date().toISOString(),
   })),
+
+  exportPersonalData: protectedProcedure.query(async ({ ctx }) => {
+    const { items: itemsTable } = await import('../schema/items');
+    const { tasks: tasksTable } = await import('../schema/tasks');
+    const { journal: journalTable } = await import('../schema/journal');
+    const { habits } = await import('../schema/habits');
+    const { goals } = await import('../schema/goals');
+    const { tags, itemTags } = await import('../schema/tags');
+    const { categories, itemCategories } = await import('../schema/categories');
+    const { itemComments } = await import('../schema/item_comments');
+    const { itemShares } = await import('../schema/item_shares');
+    const { publicLinks } = await import('../schema/public_links');
+    const { feedback } = await import('../schema/feedback');
+    const { reviews } = await import('../schema/reviews');
+
+    const uid = ctx.user.id;
+    const [
+      userItems, userTasks, userJournal, userHabits, userGoals,
+      userTags, userCategories, userComments, userShares, userPublicLinks,
+      userFeedback, userReviews,
+    ] = await Promise.all([
+      db.select().from(itemsTable).where(eq(itemsTable.userId, uid)),
+      db.select().from(tasksTable).where(eq(tasksTable.userId, uid)),
+      db.select().from(journalTable).where(eq(journalTable.userId, uid)),
+      db.select().from(habits).where(eq(habits.userId, uid)),
+      db.select().from(goals).where(eq(goals.userId, uid)),
+      db.select().from(tags).where(eq(tags.userId, uid)),
+      db.select().from(categories).where(eq(categories.userId, uid)),
+      db.select().from(itemComments).where(eq(itemComments.userId, uid)),
+      db.select().from(itemShares).where(eq(itemShares.ownerUserId, uid)),
+      db.select().from(publicLinks).where(eq(publicLinks.ownerUserId, uid)),
+      db.select().from(feedback).where(eq(feedback.userId, uid)),
+      db.select().from(reviews).where(eq(reviews.userId, uid)),
+    ]);
+
+    const userItemIds = userItems.map((i) => i.id);
+    const [allItemTags, allItemCategories] = await Promise.all([
+      userItemIds.length > 0
+        ? db.select().from(itemTags).where(inArray(itemTags.itemId, userItemIds))
+        : Promise.resolve([] as typeof itemTags.$inferSelect[]),
+      userItemIds.length > 0
+        ? db.select().from(itemCategories).where(inArray(itemCategories.itemId, userItemIds))
+        : Promise.resolve([] as typeof itemCategories.$inferSelect[]),
+    ]);
+
+    return {
+      exportedAt: new Date().toISOString(),
+      user: {
+        id: ctx.user.id,
+        email: ctx.user.email,
+        username: ctx.user.username ?? null,
+      },
+      counts: {
+        items: userItems.length,
+        tasks: userTasks.length,
+        journal: userJournal.length,
+        habits: userHabits.length,
+        goals: userGoals.length,
+        tags: userTags.length,
+        categories: userCategories.length,
+        comments: userComments.length,
+        shares: userShares.length,
+        publicLinks: userPublicLinks.length,
+        feedback: userFeedback.length,
+        reviews: userReviews.length,
+      },
+      data: {
+        items: userItems,
+        tasks: userTasks,
+        journal: userJournal,
+        habits: userHabits,
+        goals: userGoals,
+        tags: userTags,
+        categories: userCategories,
+        comments: userComments,
+        shares: userShares,
+        publicLinks: userPublicLinks,
+        feedback: userFeedback,
+        reviews: userReviews,
+        itemTags: allItemTags,
+        itemCategories: allItemCategories,
+      },
+    };
+  }),
 
   listActiveSessions: protectedProcedure.query(async ({ ctx }) => {
     const { devices } = await import('../schema/devices');

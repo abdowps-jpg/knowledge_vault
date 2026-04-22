@@ -294,6 +294,60 @@ export const statsRouter = router({
     }
   }),
 
+  flashcardsOverview: protectedProcedure.query(async ({ ctx }) => {
+    try {
+      const { flashcards } = await import('../schema/flashcards');
+      const rows = await db.select().from(flashcards).where(eq(flashcards.userId, ctx.user.id));
+      const today = new Date().toISOString().slice(0, 10);
+      const due = rows.filter((r) => r.nextReviewDate <= today).length;
+      const reviewedLast7 = rows.filter((r) => {
+        if (!r.lastReviewedAt) return false;
+        const t = toDate(r.lastReviewedAt);
+        return t && Date.now() - t.getTime() < 7 * 24 * 60 * 60 * 1000;
+      }).length;
+      return {
+        total: rows.length,
+        due,
+        reviewedLast7,
+        mature: rows.filter((r) => r.interval >= 21).length,
+      };
+    } catch (err) {
+      console.error('Error in flashcardsOverview:', err);
+      return { total: 0, due: 0, reviewedLast7: 0, mature: 0 };
+    }
+  }),
+
+  selfHealth: protectedProcedure.query(async ({ ctx }) => {
+    try {
+      const [userItems, userTasks, userJournal] = await Promise.all([
+        db.select().from(items).where(and(eq(items.userId, ctx.user.id), isNull(items.deletedAt))),
+        db.select().from(tasks).where(and(eq(tasks.userId, ctx.user.id), isNull(tasks.deletedAt))),
+        db.select().from(journal).where(and(eq(journal.userId, ctx.user.id), isNull(journal.deletedAt))),
+      ]);
+      const totalChars = userItems.reduce((s, i) => s + (i.content?.length ?? 0), 0) +
+        userJournal.reduce((s, j) => s + (j.content?.length ?? 0), 0);
+      return {
+        healthy: true as const,
+        storage: {
+          items: userItems.length,
+          tasks: userTasks.length,
+          journal: userJournal.length,
+          estimatedKBWritten: Math.round(totalChars / 1024),
+        },
+        usage: {
+          incompleteTasks: userTasks.filter((t) => !t.isCompleted).length,
+          itemsLastWeek: userItems.filter((i) => {
+            const d = toDate(i.createdAt);
+            return d && Date.now() - d.getTime() < 7 * 24 * 60 * 60 * 1000;
+          }).length,
+        },
+      };
+    } catch (err) {
+      console.error('Error in selfHealth:', err);
+      return { healthy: false as const, error: 'internal' };
+    }
+  }),
+
   timeline: protectedProcedure
     .input(z.object({ days: z.number().int().min(1).max(30).default(7) }).optional())
     .query(async ({ input, ctx }) => {

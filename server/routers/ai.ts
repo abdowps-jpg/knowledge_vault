@@ -231,6 +231,137 @@ export const aiRouter = router({
       return { results };
     }),
 
+  autoTagSuggestions: protectedProcedure
+    .input(z.object({ itemIds: z.array(z.string()).min(1).max(10) }))
+    .mutation(async ({ input, ctx }) => {
+      enforceLlmQuota(ctx.user.id);
+      logAiCall(ctx.user.id, 'autoTagSuggestions');
+      const results: { id: string; suggestions: string[] }[] = [];
+      const existingTags = await db.select().from(tags).where(eq(tags.userId, ctx.user.id));
+      const existingNames = existingTags.map((t) => t.name).slice(0, 200);
+
+      for (const id of input.itemIds) {
+        try {
+          const item = await loadItemForUser(id, ctx.user.id);
+          const text = extractContentText(item.title, item.content, item.url);
+          const result = await invokeLLM({
+            messages: [
+              {
+                role: 'system',
+                content:
+                  'Suggest 2-4 lowercase tags for this item. Prefer reusing existing tags when relevant. ' +
+                  'Each tag: 1-3 words, lowercase, hyphen-separated, no punctuation.',
+              },
+              {
+                role: 'user',
+                content: `Existing tags: ${existingNames.length ? existingNames.join(', ') : '(none)'}\n\nItem:\n${text}`,
+              },
+            ],
+            outputSchema: {
+              name: 'tags',
+              schema: {
+                type: 'object',
+                additionalProperties: false,
+                properties: {
+                  tags: {
+                    type: 'array',
+                    minItems: 1,
+                    maxItems: 4,
+                    items: { type: 'string', minLength: 1, maxLength: 40 },
+                  },
+                },
+                required: ['tags'],
+              },
+              strict: true,
+            },
+          });
+          const raw = result.choices?.[0]?.message?.content ?? '';
+          const body = typeof raw === 'string' ? raw : raw.map((p) => ('text' in p ? p.text : '')).join('');
+          let parsed: { tags?: unknown } = {};
+          try {
+            parsed = JSON.parse(body);
+          } catch {
+            parsed = { tags: [] };
+          }
+          const suggestions = Array.isArray(parsed.tags)
+            ? parsed.tags
+                .filter((t): t is string => typeof t === 'string')
+                .map((t) => t.trim().toLowerCase().replace(/[^a-z0-9\s-]/g, '').replace(/\s+/g, '-'))
+                .filter((t) => t.length > 0 && t.length <= 40)
+                .slice(0, 4)
+            : [];
+          results.push({ id, suggestions });
+        } catch {
+          results.push({ id, suggestions: [] });
+        }
+      }
+      return { results };
+    }),
+
+  generateQuestions: protectedProcedure
+    .input(z.object({ itemId: z.string() }))
+    .mutation(async ({ input, ctx }) => {
+      enforceLlmQuota(ctx.user.id);
+      logAiCall(ctx.user.id, 'generateQuestions', input.itemId);
+      const item = await loadItemForUser(input.itemId, ctx.user.id);
+      const text = extractContentText(item.title, item.content, item.url);
+      if (text.trim().length < 40) {
+        return { cards: [] as { question: string; answer: string }[] };
+      }
+      const result = await invokeLLM({
+        messages: [
+          {
+            role: 'system',
+            content:
+              'From the given note, produce 3-6 flashcard-style recall questions with short answers. ' +
+              'Questions should test understanding, not trivia. Answers are 1-2 sentences. ' +
+              'If the content is too thin, return an empty array.',
+          },
+          { role: 'user', content: text },
+        ],
+        outputSchema: {
+          name: 'recall_cards',
+          schema: {
+            type: 'object',
+            additionalProperties: false,
+            properties: {
+              cards: {
+                type: 'array',
+                maxItems: 6,
+                items: {
+                  type: 'object',
+                  additionalProperties: false,
+                  properties: {
+                    question: { type: 'string', minLength: 5, maxLength: 300 },
+                    answer: { type: 'string', minLength: 1, maxLength: 500 },
+                  },
+                  required: ['question', 'answer'],
+                },
+              },
+            },
+            required: ['cards'],
+          },
+          strict: true,
+        },
+      });
+      const raw = result.choices?.[0]?.message?.content ?? '';
+      const body = typeof raw === 'string' ? raw : raw.map((p) => ('text' in p ? p.text : '')).join('');
+      let parsed: { cards?: { question?: unknown; answer?: unknown }[] } = {};
+      try {
+        parsed = JSON.parse(body);
+      } catch {
+        parsed = { cards: [] };
+      }
+      const cards: { question: string; answer: string }[] = [];
+      for (const c of parsed.cards ?? []) {
+        const q = typeof c.question === 'string' ? c.question.trim().slice(0, 300) : '';
+        const a = typeof c.answer === 'string' ? c.answer.trim().slice(0, 500) : '';
+        if (q && a) cards.push({ question: q, answer: a });
+        if (cards.length >= 6) break;
+      }
+      return { cards };
+    }),
+
   tagSummary: protectedProcedure
     .input(z.object({ tagId: z.string() }))
     .mutation(async ({ input, ctx }) => {

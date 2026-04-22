@@ -649,6 +649,34 @@ export const tasksRouter = router({
       return rows;
     }),
 
+  listOverdue: protectedProcedure
+    .input(z.object({ limit: z.number().int().min(1).max(100).default(50) }).optional())
+    .query(async ({ input, ctx }) => {
+      const rows = await db
+        .select()
+        .from(tasks)
+        .where(
+          and(
+            eq(tasks.userId, ctx.user.id),
+            isNull(tasks.deletedAt),
+            eq(tasks.isCompleted, false)
+          )
+        );
+      const now = Date.now();
+      return rows
+        .filter((t) => {
+          if (!t.dueDate) return false;
+          const d = new Date(t.dueDate).getTime();
+          return !Number.isNaN(d) && d < now;
+        })
+        .sort((a, b) => {
+          const ad = a.dueDate ? new Date(a.dueDate).getTime() : 0;
+          const bd = b.dueDate ? new Date(b.dueDate).getTime() : 0;
+          return ad - bd;
+        })
+        .slice(0, input?.limit ?? 50);
+    }),
+
   byDateRange: protectedProcedure
     .input(
       z.object({

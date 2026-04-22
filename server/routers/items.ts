@@ -846,6 +846,46 @@ export const itemsRouter = router({
       return { id };
     }),
 
+  snapshot: protectedProcedure
+    .input(z.object({ id: z.string() }))
+    .query(async ({ input, ctx }) => {
+      const rows = await db
+        .select()
+        .from(items)
+        .where(and(eq(items.id, input.id), eq(items.userId, ctx.user.id), isNull(items.deletedAt)))
+        .limit(1);
+      const item = rows[0];
+      if (!item) {
+        throw new TRPCError({ code: 'NOT_FOUND', message: 'Item not found' });
+      }
+      const { attachments } = await import('../schema/attachments');
+      const { itemShares } = await import('../schema/item_shares');
+      const { publicLinks } = await import('../schema/public_links');
+      const { itemComments } = await import('../schema/item_comments');
+      const { flashcards } = await import('../schema/flashcards');
+
+      const [tagRows, categoryLinks, shares, links, comments, attachmentsRows, cardRows] = await Promise.all([
+        db.select().from(itemTags).innerJoin(tags, eq(tags.id, itemTags.tagId)).where(eq(itemTags.itemId, input.id)),
+        db.select().from(itemCategories).where(eq(itemCategories.itemId, input.id)),
+        db.select().from(itemShares).where(eq(itemShares.itemId, input.id)),
+        db.select().from(publicLinks).where(eq(publicLinks.itemId, input.id)),
+        db.select().from(itemComments).where(eq(itemComments.itemId, input.id)).orderBy(asc(itemComments.createdAt)),
+        db.select().from(attachments).where(eq(attachments.itemId, input.id)),
+        db.select().from(flashcards).where(and(eq(flashcards.userId, ctx.user.id), eq(flashcards.itemId, input.id))),
+      ]);
+
+      return {
+        item,
+        tags: tagRows.map((r) => ({ id: r.tags.id, name: r.tags.name, color: r.tags.color })),
+        categoryId: categoryLinks[0]?.categoryId ?? null,
+        shares,
+        publicLinks: links,
+        comments,
+        attachments: attachmentsRows,
+        flashcards: cardRows,
+      };
+    }),
+
   exportOneMarkdown: protectedProcedure
     .input(z.object({ id: z.string() }))
     .query(async ({ input, ctx }) => {
@@ -966,6 +1006,29 @@ export const itemsRouter = router({
         prev: idx > 0 ? rows[idx - 1] : null,
         next: idx < rows.length - 1 ? rows[idx + 1] : null,
       };
+    }),
+
+  topDomains: protectedProcedure
+    .input(z.object({ limit: z.number().int().min(1).max(20).default(10) }).optional())
+    .query(async ({ input, ctx }) => {
+      const rows = await db
+        .select({ url: items.url })
+        .from(items)
+        .where(and(eq(items.userId, ctx.user.id), isNull(items.deletedAt), eq(items.type, 'link')));
+      const counts = new Map<string, number>();
+      for (const r of rows) {
+        if (!r.url) continue;
+        try {
+          const host = new URL(r.url).hostname.replace(/^www\./, '');
+          if (host) counts.set(host, (counts.get(host) ?? 0) + 1);
+        } catch {
+          // malformed URL — skip
+        }
+      }
+      return Array.from(counts.entries())
+        .sort((a, b) => b[1] - a[1])
+        .slice(0, input?.limit ?? 10)
+        .map(([domain, count]) => ({ domain, count }));
     }),
 
   publishShortcut: protectedProcedure

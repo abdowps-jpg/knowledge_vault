@@ -40,6 +40,11 @@ import { searchRouter } from '../routers/search';
 import { reviewsRouter } from '../routers/reviews';
 import { onboardingRouter } from '../routers/onboarding';
 import { integrationsRouter } from '../routers/integrations';
+import { flashcardsRouter } from '../routers/flashcards';
+import { vaultsRouter } from '../routers/vaults';
+import { adminRouter } from '../routers/admin';
+import { ssoRouter } from '../routers/sso';
+import { zapierRouter } from '../routers/zapier';
 import { apiKeys, webhookSubscriptions } from '../schema/api_keys';
 import { and } from 'drizzle-orm';
 import { items } from '../schema/items';
@@ -250,6 +255,11 @@ const appRouter = router({
   reviews: reviewsRouter,
   onboarding: onboardingRouter,
   integrations: integrationsRouter,
+  flashcards: flashcardsRouter,
+  vaults: vaultsRouter,
+  admin: adminRouter,
+  sso: ssoRouter,
+  zapier: zapierRouter,
   // test endpoint
   hello: publicProcedure.query(() => {
     return { message: 'Hello from tRPC!' };
@@ -558,6 +568,26 @@ const updateJournalSchema = z.object({
   mood: z.string().optional(),
   location: z.string().optional(),
   weather: z.string().optional(),
+});
+
+// Zapier "Authentication" test endpoint — returns minimal user context so
+// Zapier's app-setup flow can confirm the API key is valid. Uses the same
+// X-Api-Key middleware as every /api/* route.
+app.get('/api/me', async (req: ApiRequest, res) => {
+  const userId = req.apiUserId;
+  if (!userId) return res.status(401).json({ success: false });
+  const userRows = await db.select().from(users).where(eq(users.id, userId)).limit(1);
+  const user = userRows[0];
+  if (!user) return res.status(404).json({ success: false });
+  return res.json({
+    success: true,
+    user: {
+      id: user.id,
+      email: user.email,
+      username: user.username ?? null,
+    },
+    scope: req.apiKeyScope ?? 'write',
+  });
 });
 
 app.get('/api/items', async (req: ApiRequest, res) => {
@@ -988,6 +1018,75 @@ app.get('/robots.txt', (_req, res) => {
   );
 });
 
+// PWA manifest — lets the landing page be installable as a web app
+app.get('/manifest.webmanifest', (_req, res) => {
+  res.setHeader('Content-Type', 'application/manifest+json');
+  res.send(
+    JSON.stringify({
+      name: 'Knowledge Vault',
+      short_name: 'Vault',
+      description: 'Capture anything. Find everything. Act on what matters.',
+      start_url: '/',
+      display: 'standalone',
+      background_color: '#0d0d10',
+      theme_color: '#4f46e5',
+      icons: [
+        { src: '/pwa-icon-192.svg', sizes: '192x192', type: 'image/svg+xml', purpose: 'any' },
+        { src: '/pwa-icon-512.svg', sizes: '512x512', type: 'image/svg+xml', purpose: 'any' },
+      ],
+    })
+  );
+});
+
+// Placeholder SVG icons for the PWA; production should upload proper PNGs.
+const PWA_ICON_SVG = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 192 192" width="192" height="192"><defs><linearGradient id="g" x1="0" y1="0" x2="1" y2="1"><stop offset="0%" stop-color="#4f46e5"/><stop offset="100%" stop-color="#7c3aed"/></linearGradient></defs><rect width="192" height="192" rx="36" fill="url(#g)"/><text x="96" y="118" font-size="72" text-anchor="middle" fill="#fff" font-family="system-ui,Helvetica,Arial,sans-serif" font-weight="800">KV</text></svg>`;
+app.get('/pwa-icon-192.svg', (_req, res) => {
+  res.type('image/svg+xml').send(PWA_ICON_SVG);
+});
+app.get('/pwa-icon-512.svg', (_req, res) => {
+  res.type('image/svg+xml').send(PWA_ICON_SVG.replace(/width="192" height="192"/, 'width="512" height="512"'));
+});
+
+// Small bootstrap script that registers the service worker.
+app.get('/init.js', (_req, res) => {
+  res
+    .type('application/javascript')
+    .send(
+      `if ('serviceWorker' in navigator) { navigator.serviceWorker.register('/sw.js').catch(function(){}); }\n`
+    );
+});
+
+// Minimal service worker for offline landing + install prompts.
+app.get('/sw.js', (_req, res) => {
+  res.type('application/javascript').send(`
+const CACHE = 'kv-landing-v1';
+const ASSETS = ['/', '/manifest.webmanifest'];
+self.addEventListener('install', (event) => {
+  event.waitUntil(caches.open(CACHE).then((c) => c.addAll(ASSETS)));
+  self.skipWaiting();
+});
+self.addEventListener('activate', (event) => {
+  event.waitUntil(self.clients.claim());
+});
+self.addEventListener('fetch', (event) => {
+  const url = new URL(event.request.url);
+  if (event.request.method !== 'GET') return;
+  // Never cache API or SSE or public share pages — they must stay fresh
+  if (
+    url.pathname.startsWith('/api/') ||
+    url.pathname.startsWith('/trpc/') ||
+    url.pathname.startsWith('/events') ||
+    url.pathname.startsWith('/p/')
+  ) {
+    return;
+  }
+  event.respondWith(
+    caches.match(event.request).then((hit) => hit || fetch(event.request))
+  );
+});
+`);
+});
+
 // Minimal public landing. Search engines can find this.
 app.get('/', (_req, res) => {
   res.type('html').send(`<!doctype html>
@@ -996,6 +1095,9 @@ app.get('/', (_req, res) => {
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <meta name="description" content="Knowledge Vault — capture, organize, and act on everything you know. AI-powered, offline-first, mobile-native.">
+  <meta name="theme-color" content="#4f46e5">
+  <link rel="manifest" href="/manifest.webmanifest">
+  <link rel="icon" href="/pwa-icon-192.svg" type="image/svg+xml">
   <title>Knowledge Vault</title>
   <style>
     :root{color-scheme:light dark}
@@ -1050,6 +1152,7 @@ app.get('/', (_req, res) => {
   <footer>
     © Knowledge Vault. This page is the API host landing — install the mobile app or browser extension to use the product.
   </footer>
+  <script src="/init.js"></script>
 </body>
 </html>`);
 });
@@ -1062,6 +1165,52 @@ function escapeHtml(value: string): string {
     .replace(/"/g, '&quot;')
     .replace(/'/g, '&#39;');
 }
+
+// JSON variant of the public link — useful for embedding from third-party tools
+app.get('/p/:token.json', async (req: Request, res: Response) => {
+  try {
+    const { publicLinks } = await import('../schema/public_links');
+    const tokenRaw = String(req.params.token ?? '').trim();
+    if (!tokenRaw || tokenRaw.length < 8) {
+      return res.status(400).json({ error: 'invalid_token' });
+    }
+    const rows = await db.select().from(publicLinks).where(eq(publicLinks.token, tokenRaw)).limit(1);
+    const link = rows[0];
+    if (!link || link.isRevoked) return res.status(404).json({ error: 'not_found' });
+    if (link.expiresAt && link.expiresAt.getTime() < Date.now()) {
+      return res.status(410).json({ error: 'expired' });
+    }
+    if (link.passwordHash) {
+      return res.status(401).json({ error: 'password_required' });
+    }
+    const itemRows = await db
+      .select()
+      .from(items)
+      .where(and(eq(items.id, link.itemId), isNull(items.deletedAt)))
+      .limit(1);
+    const item = itemRows[0];
+    if (!item) return res.status(404).json({ error: 'item_not_found' });
+    // Fire-and-forget view bump
+    db.update(publicLinks)
+      .set({ viewCount: (link.viewCount ?? 0) + 1, lastViewedAt: new Date() })
+      .where(eq(publicLinks.id, link.id))
+      .catch(() => {});
+    return res.json({
+      item: {
+        id: item.id,
+        type: item.type,
+        title: item.title,
+        content: item.content,
+        url: item.url,
+        createdAt: item.createdAt,
+      },
+      expiresAt: link.expiresAt,
+    });
+  } catch (err) {
+    reportError(err instanceof Error ? err : new Error(String(err)), { source: 'public-link-json' });
+    res.status(500).json({ error: 'internal' });
+  }
+});
 
 app.get('/p/:token', async (req: Request, res: Response) => {
   try {

@@ -143,6 +143,46 @@ export const apiRouter = router({
       return { success: true as const, id: newWebhook.id };
     }),
 
+  verifyWebhookUrl: protectedProcedure
+    .input(z.object({ url: z.url() }))
+    .mutation(async ({ input }) => {
+      try {
+        const urlObj = new URL(input.url);
+        // SSRF-lite: block private / loopback
+        const host = urlObj.hostname.toLowerCase();
+        const isBlocked =
+          host === 'localhost' ||
+          /^127\./.test(host) ||
+          /^10\./.test(host) ||
+          /^169\.254\./.test(host) ||
+          /^192\.168\./.test(host) ||
+          /^172\.(1[6-9]|2\d|3[01])\./.test(host);
+        if (isBlocked) {
+          return { reachable: false, status: 0, error: 'private_host_blocked' };
+        }
+        const response = await fetch(input.url, {
+          method: 'POST',
+          headers: { 'content-type': 'application/json', 'x-kv-test': 'preflight' },
+          body: JSON.stringify({ event: 'test.preflight', timestamp: new Date().toISOString() }),
+          signal: AbortSignal.timeout(5000),
+        });
+        return { reachable: true, status: response.status, error: null };
+      } catch (err: any) {
+        return { reachable: false, status: 0, error: err?.message ?? 'fetch_failed' };
+      }
+    }),
+
+  availableWebhookEvents: protectedProcedure.query(() => {
+    return [
+      { id: 'items.created', label: 'Item created', description: 'A new note/link/quote/audio was saved.' },
+      { id: 'items.updated', label: 'Item updated', description: 'Title, content, or metadata changed.' },
+      { id: 'items.deleted', label: 'Item deleted', description: 'Item permanently removed.' },
+      { id: 'tasks.created', label: 'Task created', description: 'A new task was created.' },
+      { id: 'tasks.updated', label: 'Task updated', description: 'Task title, completion state, or due date changed.' },
+      { id: 'tasks.deleted', label: 'Task deleted', description: 'Task permanently removed.' },
+    ];
+  }),
+
   testWebhook: protectedProcedure
     .input(z.object({ id: z.string() }))
     .mutation(async ({ input, ctx }) => {

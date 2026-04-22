@@ -8,6 +8,7 @@ export const users = sqliteTable(
     password: text('password').notNull(),
     username: text('username'),
     isActive: integer('is_active', { mode: 'boolean' }).default(true),
+    isAdmin: integer('is_admin', { mode: 'boolean' }).notNull().default(false),
     emailVerified: integer('email_verified', { mode: 'boolean' }).default(false),
     emailVerifiedAt: integer('email_verified_at', { mode: 'timestamp' }),
     pendingEmail: text('pending_email'),
