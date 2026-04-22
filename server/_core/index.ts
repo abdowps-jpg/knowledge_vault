@@ -1183,30 +1183,51 @@ app.get('/app', (_req, res) => {
   <style>
     :root{color-scheme:light dark}
     *{box-sizing:border-box}
-    body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;margin:0;padding:24px;max-width:760px;margin:0 auto;line-height:1.5;color:#111;background:#fafafa}
+    body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;margin:0;padding:24px;max-width:820px;margin:0 auto;line-height:1.5;color:#111;background:#fafafa}
     @media (prefers-color-scheme:dark){body{background:#0b0b10;color:#eaeaea}input,textarea,select{background:#16161b;color:#eaeaea;border-color:#27272a}}
-    header{display:flex;align-items:center;gap:10px;margin-bottom:20px}
+    header{display:flex;align-items:center;gap:10px;margin-bottom:16px}
     .logo{width:32px;height:32px;border-radius:8px;background:linear-gradient(135deg,#4f46e5,#7c3aed);display:grid;place-items:center;color:#fff;font-weight:800;font-size:13px}
     h1{margin:0;font-size:1.3rem}
-    h2{font-size:1rem;margin-top:1.6rem}
+    h2{font-size:1rem;margin-top:1.4rem;display:flex;align-items:center;gap:8px}
     input,textarea,select{width:100%;font:inherit;padding:8px 10px;border:1px solid #ddd;border-radius:6px;background:#fff;color:#111}
     textarea{min-height:80px;resize:vertical}
     button{font:inherit;padding:8px 14px;border:0;border-radius:6px;cursor:pointer;background:#4f46e5;color:#fff;font-weight:700}
+    button.ghost{background:#999}
+    button.sm{padding:4px 10px;font-size:.8rem}
+    button.danger{background:#dc2626}
     button:disabled{opacity:.5;cursor:wait}
     .row{display:grid;grid-template-columns:repeat(2,1fr);gap:8px;margin-bottom:8px}
     .card{padding:12px;border:1px solid #ddd;border-radius:8px;margin-bottom:8px;background:#fff}
     @media (prefers-color-scheme:dark){.card{background:#16161b;border-color:#27272a}}
+    .card .actions{display:flex;gap:6px;margin-top:8px}
     .muted{color:#888;font-size:.85rem}
-    .toolbar{display:flex;gap:8px;align-items:center;margin-bottom:14px}
+    .toolbar{display:flex;gap:8px;align-items:center;margin-bottom:14px;flex-wrap:wrap}
+    .who{font-size:.85rem;color:#888;margin-left:auto}
     #status{padding:8px 10px;border-radius:6px;font-size:.85rem;margin-bottom:12px;display:none}
     #status.ok{background:#16a34a22;color:#16a34a;display:block}
     #status.err{background:#dc262622;color:#dc2626;display:block}
+    nav.tabs{display:flex;gap:4px;margin-bottom:16px;border-bottom:1px solid #ddd}
+    @media (prefers-color-scheme:dark){nav.tabs{border-bottom-color:#27272a}}
+    nav.tabs button{background:transparent;color:inherit;border-radius:6px 6px 0 0;padding:8px 14px;font-weight:600;border-bottom:2px solid transparent}
+    nav.tabs button.active{border-bottom-color:#4f46e5;color:#4f46e5}
+    .search-row{display:flex;gap:8px;margin-bottom:10px}
+    .task-row{display:flex;align-items:flex-start;gap:10px}
+    .task-row input[type=checkbox]{width:18px;height:18px;margin-top:3px;flex-shrink:0}
+    .task-row.done .t-title{text-decoration:line-through;opacity:.6}
+    .pill{display:inline-block;padding:2px 8px;border-radius:12px;font-size:.7rem;background:#eee;color:#333;margin-right:4px}
+    @media (prefers-color-scheme:dark){.pill{background:#27272a;color:#ccc}}
+    .pill.p-high{background:#dc262622;color:#dc2626}
+    .pill.p-medium{background:#f59e0b22;color:#f59e0b}
+    .pill.p-low{background:#16a34a22;color:#16a34a}
+    .hidden{display:none}
+    details summary{cursor:pointer;font-weight:600}
   </style>
 </head>
 <body>
   <header>
     <div class="logo">KV</div>
     <h1>Knowledge Vault</h1>
+    <span id="who" class="who"></span>
   </header>
 
   <div id="status"></div>
@@ -1214,12 +1235,49 @@ app.get('/app', (_req, res) => {
   <div class="toolbar">
     <input id="apiKey" type="password" placeholder="Paste your kv_... API key" />
     <button id="saveKey" type="button">Save</button>
-    <button id="forgetKey" type="button" style="background:#999">Forget</button>
+    <button id="forgetKey" type="button" class="ghost">Forget</button>
   </div>
 
-  <details>
-    <summary>Quick capture</summary>
-    <form id="captureForm" style="margin-top:10px">
+  <nav class="tabs">
+    <button id="tab-inbox" type="button" class="active" data-tab="inbox">Inbox</button>
+    <button id="tab-tasks" type="button" data-tab="tasks">Tasks</button>
+    <button id="tab-capture" type="button" data-tab="capture">Capture</button>
+  </nav>
+
+  <section id="view-inbox">
+    <div class="search-row">
+      <input id="searchBox" placeholder="Filter items by title, content, tag…" />
+      <button id="refreshBtn" type="button" class="ghost sm">Refresh</button>
+    </div>
+    <div id="itemsList"><p class="muted">Paste an API key and press "Save" to load your inbox.</p></div>
+  </section>
+
+  <section id="view-tasks" class="hidden">
+    <form id="taskForm" class="card">
+      <div class="row">
+        <input id="tTitle" placeholder="New task title" required />
+        <select id="tPriority">
+          <option value="medium">Medium</option>
+          <option value="high">High</option>
+          <option value="low">Low</option>
+        </select>
+      </div>
+      <div style="display:flex;gap:8px;align-items:center">
+        <input id="tDue" type="date" />
+        <button type="submit">Add task</button>
+      </div>
+    </form>
+    <div style="display:flex;gap:8px;margin:10px 0">
+      <button id="tShowAll" type="button" class="ghost sm active">All</button>
+      <button id="tShowOpen" type="button" class="ghost sm">Open</button>
+      <button id="tShowDone" type="button" class="ghost sm">Done</button>
+      <button id="tRefresh" type="button" class="ghost sm" style="margin-left:auto">Refresh</button>
+    </div>
+    <div id="tasksList"><p class="muted">Save an API key to load tasks.</p></div>
+  </section>
+
+  <section id="view-capture" class="hidden">
+    <form id="captureForm" class="card">
       <div class="row">
         <input id="cTitle" placeholder="Title" required />
         <input id="cUrl" type="url" placeholder="URL (optional)" />
@@ -1236,13 +1294,10 @@ app.get('/app', (_req, res) => {
           <option value="library">Library</option>
           <option value="archive">Archive</option>
         </select>
-        <button id="captureBtn" type="submit">Save</button>
+        <button id="captureBtn" type="submit" style="margin-left:auto">Save</button>
       </div>
     </form>
-  </details>
-
-  <h2>Inbox <button id="refreshBtn" type="button" style="background:#999;padding:4px 10px;font-size:.8rem">Refresh</button></h2>
-  <div id="itemsList"><p class="muted">Paste an API key and press "Save" to load your inbox.</p></div>
+  </section>
 
   <script src="/app.js"></script>
 </body>
@@ -1254,58 +1309,180 @@ app.get('/app.js', (_req, res) => {
 const BASE = window.location.origin;
 const STATUS = document.getElementById('status');
 const KEY_KEY = 'kv_api_key';
+let _items = [];
+let _tasks = [];
+let _taskFilter = 'all';
+let _searchQuery = '';
 
 function setStatus(text, ok) {
   STATUS.textContent = text;
   STATUS.className = ok ? 'ok' : 'err';
+  if (ok) setTimeout(function(){ STATUS.className = ''; }, 2500);
 }
 
 function getKey() { return localStorage.getItem(KEY_KEY) || ''; }
 
-function render(items) {
+function esc(s) {
+  return String(s == null ? '' : s).replace(/[&<>"]/g, function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c];});
+}
+
+function api(path, opts) {
+  const key = getKey();
+  if (!key) return Promise.reject(new Error('missing_key'));
+  return fetch(BASE + path, Object.assign({}, opts || {}, {
+    headers: Object.assign({ 'x-api-key': key, 'content-type': 'application/json' }, (opts && opts.headers) || {})
+  })).then(function(r){
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+    return r.json();
+  });
+}
+
+function matchesSearch(item, q) {
+  if (!q) return true;
+  q = q.toLowerCase();
+  return String(item.title || '').toLowerCase().indexOf(q) !== -1
+      || String(item.content || '').toLowerCase().indexOf(q) !== -1
+      || String(item.url || '').toLowerCase().indexOf(q) !== -1;
+}
+
+function renderItems() {
   const list = document.getElementById('itemsList');
-  if (!items || items.length === 0) {
-    list.innerHTML = '<p class="muted">No items in your inbox.</p>';
+  const visible = _items.filter(function(i){ return matchesSearch(i, _searchQuery); });
+  if (visible.length === 0) {
+    list.innerHTML = '<p class="muted">' + (_items.length ? 'No items match the filter.' : 'No items in your inbox.') + '</p>';
     return;
   }
-  list.innerHTML = items.map(function(i) {
-    var title = String(i.title || 'Untitled').replace(/[&<>]/g, function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;'}[c];});
-    var snippet = String(i.content || '').slice(0, 200).replace(/[&<>]/g, function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;'}[c];});
-    return '<div class="card"><strong>' + title + '</strong><div class="muted">' + i.type + ' · ' + (i.createdAt || '') + '</div>' + (snippet ? '<div style="margin-top:6px">' + snippet + '</div>' : '') + (i.url ? '<a href="' + i.url + '" target="_blank" rel="noreferrer" style="font-size:.85rem">open link</a>' : '') + '</div>';
+  list.innerHTML = visible.map(function(i) {
+    const snippet = String(i.content || '').slice(0, 280);
+    const date = i.createdAt ? new Date(i.createdAt).toLocaleDateString() : '';
+    return '<div class="card" data-id="' + esc(i.id) + '">' +
+      '<strong>' + esc(i.title || 'Untitled') + '</strong>' +
+      '<div class="muted"><span class="pill">' + esc(i.type) + '</span><span class="pill">' + esc(i.location || 'inbox') + '</span>' + esc(date) + '</div>' +
+      (snippet ? '<div style="margin-top:6px">' + esc(snippet) + '</div>' : '') +
+      (i.url ? '<div style="margin-top:6px"><a href="' + esc(i.url) + '" target="_blank" rel="noreferrer">Open link</a></div>' : '') +
+      '<div class="actions"><button type="button" class="ghost sm" data-action="archive">Archive</button>' +
+      '<button type="button" class="danger sm" data-action="delete">Delete</button></div>' +
+      '</div>';
   }).join('');
 }
 
-async function refresh() {
-  const key = getKey();
-  if (!key) return;
+function renderTasks() {
+  const list = document.getElementById('tasksList');
+  let visible = _tasks.slice();
+  if (_taskFilter === 'open') visible = visible.filter(function(t){ return !t.isCompleted; });
+  if (_taskFilter === 'done') visible = visible.filter(function(t){ return t.isCompleted; });
+  visible.sort(function(a,b){
+    if (a.isCompleted !== b.isCompleted) return a.isCompleted ? 1 : -1;
+    return String(a.dueDate || 'z').localeCompare(String(b.dueDate || 'z'));
+  });
+  if (visible.length === 0) {
+    list.innerHTML = '<p class="muted">No tasks.</p>';
+    return;
+  }
+  list.innerHTML = visible.map(function(t) {
+    const pri = t.priority || 'medium';
+    const due = t.dueDate ? new Date(t.dueDate).toLocaleDateString() : '';
+    return '<div class="card task-row' + (t.isCompleted ? ' done' : '') + '" data-id="' + esc(t.id) + '">' +
+      '<input type="checkbox" data-action="toggle"' + (t.isCompleted ? ' checked' : '') + '>' +
+      '<div style="flex:1">' +
+        '<div class="t-title"><strong>' + esc(t.title) + '</strong></div>' +
+        '<div class="muted"><span class="pill p-' + esc(pri) + '">' + esc(pri) + '</span>' + (due ? 'Due ' + esc(due) : '') + '</div>' +
+        (t.description ? '<div style="margin-top:4px">' + esc(t.description) + '</div>' : '') +
+      '</div>' +
+      '<button type="button" class="danger sm" data-action="delete">×</button>' +
+      '</div>';
+  }).join('');
+}
+
+async function loadMe() {
   try {
-    const r = await fetch(BASE + '/api/items', { headers: { 'x-api-key': key } });
-    if (!r.ok) throw new Error('HTTP ' + r.status);
-    const data = await r.json();
-    render(data.items || []);
-    setStatus('Loaded ' + (data.items || []).length + ' items', true);
+    const r = await api('/api/me');
+    const who = document.getElementById('who');
+    who.textContent = r.user ? (r.user.email || r.user.username || '') : '';
+  } catch (_) { /* ignore */ }
+}
+
+async function loadItems() {
+  try {
+    const data = await api('/api/items');
+    _items = (data.items || []).filter(function(i){ return !i.deletedAt; })
+      .sort(function(a,b){ return String(b.createdAt || '').localeCompare(String(a.createdAt || '')); });
+    renderItems();
   } catch (e) {
-    setStatus('Load failed: ' + e.message, false);
+    if (e.message !== 'missing_key') setStatus('Load items failed: ' + e.message, false);
   }
 }
 
+async function loadTasks() {
+  try {
+    const data = await api('/api/tasks');
+    _tasks = (data.tasks || []).filter(function(t){ return !t.deletedAt; });
+    renderTasks();
+  } catch (e) {
+    if (e.message !== 'missing_key') setStatus('Load tasks failed: ' + e.message, false);
+  }
+}
+
+function switchTab(name) {
+  ['inbox','tasks','capture'].forEach(function(n){
+    document.getElementById('tab-' + n).classList.toggle('active', n === name);
+    document.getElementById('view-' + n).classList.toggle('hidden', n !== name);
+  });
+  if (name === 'tasks' && _tasks.length === 0) loadTasks();
+}
+
+// Tab wiring
+Array.prototype.forEach.call(document.querySelectorAll('nav.tabs button'), function(b){
+  b.addEventListener('click', function(){ switchTab(b.getAttribute('data-tab')); });
+});
+
+// Key management
 document.getElementById('saveKey').addEventListener('click', function() {
   const val = document.getElementById('apiKey').value.trim();
   if (!val) { setStatus('Paste an API key first', false); return; }
   localStorage.setItem(KEY_KEY, val);
   setStatus('Key saved locally', true);
-  refresh();
+  loadMe(); loadItems(); loadTasks();
 });
 document.getElementById('forgetKey').addEventListener('click', function() {
   localStorage.removeItem(KEY_KEY);
   document.getElementById('apiKey').value = '';
+  document.getElementById('who').textContent = '';
+  _items = []; _tasks = [];
+  renderItems(); renderTasks();
   setStatus('Key cleared', true);
 });
-document.getElementById('refreshBtn').addEventListener('click', refresh);
+
+// Inbox interactions
+document.getElementById('refreshBtn').addEventListener('click', loadItems);
+document.getElementById('searchBox').addEventListener('input', function(e){
+  _searchQuery = e.target.value.trim();
+  renderItems();
+});
+document.getElementById('itemsList').addEventListener('click', async function(e){
+  const btn = e.target.closest('[data-action]'); if (!btn) return;
+  const card = e.target.closest('.card'); if (!card) return;
+  const id = card.getAttribute('data-id');
+  const action = btn.getAttribute('data-action');
+  try {
+    if (action === 'delete') {
+      if (!confirm('Delete this item?')) return;
+      await api('/api/items/' + encodeURIComponent(id), { method: 'DELETE' });
+      setStatus('Deleted', true);
+    } else if (action === 'archive') {
+      await api('/api/items/' + encodeURIComponent(id), { method: 'PUT', body: JSON.stringify({ location: 'archive' }) });
+      setStatus('Archived', true);
+    }
+    await loadItems();
+  } catch (err) {
+    setStatus(action + ' failed: ' + err.message, false);
+  }
+});
+
+// Capture
 document.getElementById('captureForm').addEventListener('submit', async function(e) {
   e.preventDefault();
-  const key = getKey();
-  if (!key) { setStatus('Save an API key first', false); return; }
+  if (!getKey()) { setStatus('Save an API key first', false); return; }
   const body = {
     title: document.getElementById('cTitle').value.trim(),
     url: document.getElementById('cUrl').value.trim() || null,
@@ -1314,23 +1491,78 @@ document.getElementById('captureForm').addEventListener('submit', async function
     location: document.getElementById('cLocation').value
   };
   try {
-    const r = await fetch(BASE + '/api/items', {
-      method: 'POST',
-      headers: { 'content-type': 'application/json', 'x-api-key': key },
-      body: JSON.stringify(body)
-    });
-    if (!r.ok) throw new Error('HTTP ' + r.status);
+    await api('/api/items', { method: 'POST', body: JSON.stringify(body) });
     document.getElementById('captureForm').reset();
     setStatus('Saved', true);
-    refresh();
-  } catch (e) {
-    setStatus('Save failed: ' + e.message, false);
+    switchTab('inbox');
+    loadItems();
+  } catch (err) {
+    setStatus('Save failed: ' + err.message, false);
   }
 });
 
-// Pre-fill the key input for convenience
+// Tasks
+document.getElementById('taskForm').addEventListener('submit', async function(e){
+  e.preventDefault();
+  if (!getKey()) { setStatus('Save an API key first', false); return; }
+  const body = {
+    title: document.getElementById('tTitle').value.trim(),
+    priority: document.getElementById('tPriority').value,
+    dueDate: document.getElementById('tDue').value || null
+  };
+  try {
+    await api('/api/tasks', { method: 'POST', body: JSON.stringify(body) });
+    document.getElementById('taskForm').reset();
+    setStatus('Task added', true);
+    loadTasks();
+  } catch (err) {
+    setStatus('Add task failed: ' + err.message, false);
+  }
+});
+document.getElementById('tRefresh').addEventListener('click', loadTasks);
+['tShowAll','tShowOpen','tShowDone'].forEach(function(id){
+  document.getElementById(id).addEventListener('click', function(){
+    _taskFilter = id === 'tShowAll' ? 'all' : id === 'tShowOpen' ? 'open' : 'done';
+    ['tShowAll','tShowOpen','tShowDone'].forEach(function(x){
+      document.getElementById(x).classList.toggle('active', x === id);
+    });
+    renderTasks();
+  });
+});
+document.getElementById('tasksList').addEventListener('click', async function(e){
+  const btn = e.target.closest('[data-action]'); if (!btn) return;
+  const card = e.target.closest('.card'); if (!card) return;
+  const id = card.getAttribute('data-id');
+  const action = btn.getAttribute('data-action');
+  try {
+    if (action === 'toggle') {
+      await api('/api/tasks/' + encodeURIComponent(id), { method: 'PUT', body: JSON.stringify({ isCompleted: btn.checked }) });
+    } else if (action === 'delete') {
+      if (!confirm('Delete this task?')) return;
+      await api('/api/tasks/' + encodeURIComponent(id), { method: 'DELETE' });
+      setStatus('Deleted', true);
+    }
+    await loadTasks();
+  } catch (err) {
+    setStatus(action + ' failed: ' + err.message, false);
+  }
+});
+
+// Keyboard shortcuts
+document.addEventListener('keydown', function(e){
+  if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA' || e.target.tagName === 'SELECT') return;
+  if (e.key === '1') switchTab('inbox');
+  else if (e.key === '2') switchTab('tasks');
+  else if (e.key === '3') switchTab('capture');
+  else if (e.key === '/') { e.preventDefault(); document.getElementById('searchBox').focus(); }
+});
+
+// Bootstrap
 const k = getKey();
-if (k) { document.getElementById('apiKey').value = k; refresh(); }
+if (k) {
+  document.getElementById('apiKey').value = k;
+  loadMe(); loadItems(); loadTasks();
+}
 `);
 });
 
