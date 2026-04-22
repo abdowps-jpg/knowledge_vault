@@ -1730,6 +1730,7 @@ const [showApiModal, setShowApiModal] = useState(false);
           <Row icon="insights" label="Advanced Analytics" onPress={() => router.push("/analytics" as any)} />
           <Row icon="group" label="Shared Vaults" description="Workspaces you share with teammates" onPress={() => router.push("/vaults" as any)} />
           <Row icon="school" label="Flashcards" description="Spaced-repetition study session" onPress={() => router.push("/flashcards" as any)} />
+          <Row icon="waving-hand" label="Getting Started" description="Onboarding checklist + tour" onPress={() => router.push("/welcome" as any)} />
           <Row icon="admin-panel-settings" label="Admin Dashboard" description="Only visible to admins" onPress={() => router.push("/admin" as any)} />
           <Row icon="devices" label="Device Management" onPress={() => router.push("/devices" as any)} />
           <Row icon="merge-type" label="Resolve Conflicts" onPress={() => router.push("/conflicts" as any)} />
