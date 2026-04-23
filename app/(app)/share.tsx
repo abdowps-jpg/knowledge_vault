@@ -1,10 +1,11 @@
 import React from "react";
-import { ActivityIndicator, Alert, Pressable, ScrollView, Text, TextInput, View } from "react-native";
+import { ActivityIndicator, Pressable, ScrollView, Text, TextInput, View } from "react-native";
 import { useLocalSearchParams, useRouter } from "expo-router";
 
 import { ScreenContainer } from "@/components/screen-container";
 import { useColors } from "@/hooks/use-colors";
 import { trpc } from "@/lib/trpc";
+import { toast } from "@/hooks/use-toast";
 
 type ItemLocation = "inbox" | "library" | "archive";
 
@@ -33,7 +34,7 @@ export default function ShareScreen() {
     try {
       const finalTitle = title.trim() || sharedTitle || sharedUrl || "Shared item";
       if (!finalTitle) {
-        Alert.alert("Validation", "Title is required.");
+        toast.warning("Title is required.");
         return;
       }
 
@@ -49,7 +50,7 @@ export default function ShareScreen() {
       router.replace({ pathname: "/(app)/item/[id]", params: { id: created.id } });
     } catch (error) {
       console.error("[Share] Failed creating shared item:", error);
-      Alert.alert("Error", "Failed to save shared item.");
+      toast.error("Failed to save shared item.");
     }
   };
 
@@ -156,7 +157,7 @@ export default function ShareScreen() {
           disabled={createItem.isPending}
           style={{
             backgroundColor: colors.primary,
-            borderRadius: 10,
+            borderRadius: 8,
             paddingVertical: 14,
             alignItems: "center",
             opacity: createItem.isPending ? 0.7 : 1,

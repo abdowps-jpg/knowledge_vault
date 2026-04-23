@@ -37,6 +37,7 @@ function applyMigrations(sqlite: Database.Database): void {
     CREATE TABLE IF NOT EXISTS items (
       id TEXT PRIMARY KEY,
       user_id TEXT NOT NULL,
+      vault_id TEXT,
       type TEXT NOT NULL,
       title TEXT NOT NULL,
       content TEXT,
@@ -51,6 +52,7 @@ function applyMigrations(sqlite: Database.Database): void {
     CREATE TABLE IF NOT EXISTS tasks (
       id TEXT PRIMARY KEY,
       user_id TEXT NOT NULL,
+      vault_id TEXT,
       title TEXT NOT NULL,
       description TEXT,
       priority TEXT DEFAULT 'medium',

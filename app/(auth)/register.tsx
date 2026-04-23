@@ -1,7 +1,6 @@
 import React, { useState } from "react";
 import {
   ActivityIndicator,
-  Alert,
   Pressable,
   Text,
   TextInput,
@@ -15,6 +14,7 @@ import { VoiceInputButton } from "@/components/voice-input-button";
 import { clearToken, saveStayLoggedIn } from "@/lib/auth-storage";
 import { clearAllData } from "@/lib/db/storage";
 import { clearSyncQueue } from "@/lib/sync-manager";
+import { toast } from "@/hooks/use-toast";
 
 function isValidEmail(email: string): boolean {
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
@@ -39,14 +39,14 @@ export default function RegisterScreen() {
       await clearSyncQueue();
 
       if (result?.requiresVerification) {
-        Alert.alert("Check your email", "We sent a 6-digit verification code to your email.");
+        toast.info("We sent a 6-digit verification code to your email.");
         router.replace({
           pathname: "/(auth)/verify-email" as any,
           params: { email: email.trim().toLowerCase() },
         });
         return;
       }
-      Alert.alert("Success", "Account created. Please login.");
+      toast.success("Account created. Please login.");
       router.replace("/(auth)/login");
     },
     onError: (error) => {
@@ -66,19 +66,19 @@ export default function RegisterScreen() {
     const normalizedEmail = email.trim().toLowerCase();
 
     if (!normalizedUsername) {
-      Alert.alert("Validation", "Username is required.");
+      toast.warning("Username is required.");
       return;
     }
     if (!isValidEmail(normalizedEmail)) {
-      Alert.alert("Validation", "Please enter a valid email.");
+      toast.warning("Please enter a valid email.");
       return;
     }
     if (password.length < 8) {
-      Alert.alert("Validation", "Password must be at least 8 characters.");
+      toast.warning("Password must be at least 8 characters.");
       return;
     }
     if (password !== confirmPassword) {
-      Alert.alert("Validation", "Passwords do not match.");
+      toast.warning("Passwords do not match.");
       return;
     }
 

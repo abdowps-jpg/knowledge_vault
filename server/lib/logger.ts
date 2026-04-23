@@ -20,20 +20,27 @@ function minLevel(): number {
   return process.env.NODE_ENV === 'production' ? LEVEL_ORDER.info : LEVEL_ORDER.debug;
 }
 
-function redact(value: unknown): unknown {
+const SENSITIVE_KEY_RE = /password|secret|token|apikey|authorization|cookie|session|ssn|creditcard|cc_|access[_-]?key|refresh[_-]?token|private[_-]?key/i;
+
+export function redact(value: unknown, seen: WeakSet<object> = new WeakSet()): unknown {
   if (value == null) return value;
   if (typeof value === 'string') {
-    // Obvious token-shaped substrings: JWT, bearer, api keys
     return value
       .replace(/eyJ[a-zA-Z0-9_\-]{10,}\.[a-zA-Z0-9_\-]{10,}\.[a-zA-Z0-9_\-]{10,}/g, 'jwt:REDACTED')
       .replace(/kv_[a-zA-Z0-9]{20,}/g, 'kv_REDACTED')
-      .replace(/Bearer [a-zA-Z0-9._\-]{10,}/g, 'Bearer REDACTED');
+      .replace(/[Bb]earer\s+[a-zA-Z0-9._\-]{10,}/g, 'Bearer REDACTED');
   }
-  if (Array.isArray(value)) return value.map(redact);
+  if (Array.isArray(value)) {
+    if (seen.has(value)) return '[Circular]';
+    seen.add(value);
+    return value.map((v) => redact(v, seen));
+  }
   if (typeof value === 'object') {
-    const entries = Object.entries(value as Record<string, unknown>)
-      .filter(([k]) => !/password|secret|token|apiKey/i.test(k))
-      .map(([k, v]) => [k, redact(v)]);
+    if (seen.has(value as object)) return '[Circular]';
+    seen.add(value as object);
+    const entries = Object.entries(value as Record<string, unknown>).map(([k, v]) =>
+      SENSITIVE_KEY_RE.test(k) ? [k, '[REDACTED]'] : [k, redact(v, seen)]
+    );
     return Object.fromEntries(entries);
   }
   return value;
@@ -46,7 +53,7 @@ function emit(level: Level, event: string, fields?: Record<string, unknown>, err
     t: new Date().toISOString(),
     level,
     event,
-    ...(fields ? (redact(fields) as Record<string, unknown>) : {}),
+    ...(fields ? (redact(fields, new WeakSet()) as Record<string, unknown>) : {}),
     ...(err instanceof Error
       ? { err: { name: err.name, message: err.message, stack: isProd ? undefined : err.stack } }
       : err != null

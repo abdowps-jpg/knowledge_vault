@@ -2,6 +2,7 @@ import React from "react";
 import { ActivityIndicator, Pressable, ScrollView, Text, View } from "react-native";
 
 import { ScreenContainer } from "@/components/screen-container";
+import { ErrorState } from "@/components/error-state";
 import { useColors } from "@/hooks/use-colors";
 import { trpc } from "@/lib/trpc";
 
@@ -28,6 +29,14 @@ export default function AdminScreen() {
         <View style={{ padding: 40, alignItems: "center" }}>
           <ActivityIndicator color={colors.primary} />
         </View>
+      </ScreenContainer>
+    );
+  }
+
+  if (whoamiQuery.error) {
+    return (
+      <ScreenContainer>
+        <ErrorState error={whoamiQuery.error} onRetry={() => void whoamiQuery.refetch()} />
       </ScreenContainer>
     );
   }
@@ -100,6 +109,8 @@ export default function AdminScreen() {
         </Text>
         {usersQuery.isLoading ? (
           <ActivityIndicator color={colors.primary} />
+        ) : (usersQuery.data ?? []).length === 0 ? (
+          <Text style={{ color: colors.muted, fontSize: 13, paddingVertical: 12 }}>No users yet.</Text>
         ) : (
           (usersQuery.data ?? []).map((u: any) => (
             <View

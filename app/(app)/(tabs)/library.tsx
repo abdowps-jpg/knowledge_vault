@@ -8,12 +8,15 @@ import { ErrorState } from "@/components/error-state";
 import { FilterBar } from "@/components/filter-bar";
 import { SkeletonList } from "@/components/skeleton-loader";
 import { EmptyState } from "@/components/empty-state";
+import { FAB } from "@/components/fab";
 import { MaterialIcons } from "@expo/vector-icons";
 import { useColors } from "@/hooks/use-colors";
+import { useTokens } from "@/hooks/use-tokens";
 import { trpc } from "@/lib/trpc";
 import { offlineManager } from "@/lib/offline-manager";
 import Markdown from "react-native-markdown-display";
 import { Image as ExpoImage } from "expo-image";
+import { toast } from "@/hooks/use-toast";
 
 type ItemTypeFilter = "all" | "note" | "quote" | "link" | "audio";
 type SortFilter = "newest" | "oldest" | "az" | "za";
@@ -96,6 +99,7 @@ function ItemAttachments({ itemId }: { itemId: string }) {
 
 export default function LibraryScreen() {
   const colors = useColors();
+  const { shadows } = useTokens();
   const router = useRouter();
   const utils = trpc.useUtils();
 
@@ -119,7 +123,7 @@ export default function LibraryScreen() {
   const handleBulkImport = async () => {
     const text = bulkImportText.trim();
     if (!text) {
-      Alert.alert("Validation", "Paste some markdown first.");
+      toast.warning("Paste some markdown first.");
       return;
     }
     // Split by H1 headings or horizontal rule. Each block becomes one note.
@@ -141,7 +145,7 @@ export default function LibraryScreen() {
       .slice(0, 200);
 
     if (notes.length === 0) {
-      Alert.alert("Import", "Could not detect any notes in the pasted text.");
+      toast.info("Could not detect any notes in the pasted text.");
       return;
     }
 
@@ -149,10 +153,10 @@ export default function LibraryScreen() {
       const res = await bulkImport.mutateAsync({ notes, location: "library" });
       setShowBulkImportModal(false);
       setBulkImportText("");
-      Alert.alert("Imported", `Created ${res.imported} note${res.imported === 1 ? "" : "s"}.`);
+      toast.info(`Created ${res.imported} note${res.imported === 1 ? "" : "s"}.`);
     } catch (err: any) {
       console.error("[Library] bulkImport failed:", err);
-      Alert.alert("Error", err?.message ?? "Failed to import.");
+      toast.error(err?.message ?? "Failed to import.");
     }
   };
   const [savedViews, setSavedViews] = React.useState<LibrarySavedView[]>([]);
@@ -294,11 +298,11 @@ export default function LibraryScreen() {
               deleteItem.mutateAsync({ id: itemId })
             );
             if ("queued" in (result as any)) {
-              Alert.alert("Queued", "Item deletion will sync when you're back online.");
+              toast.info("Item deletion will sync when you're back online.");
             }
           } catch (err) {
             console.error("Failed to delete item:", err);
-            Alert.alert("Error", "Failed to delete item");
+            toast.error("Failed to delete item");
           } finally {
             setDeletingItemId(null);
           }
@@ -318,11 +322,11 @@ export default function LibraryScreen() {
         moveItem.mutateAsync(input)
       );
       if ("queued" in (result as any)) {
-        Alert.alert("Queued", "Item move will sync when you're back online.");
+        toast.info("Item move will sync when you're back online.");
       }
     } catch (err) {
       console.error("Failed to move item to inbox:", err);
-      Alert.alert("Error", "Failed to move item to inbox");
+      toast.error("Failed to move item to inbox");
     } finally {
       setMovingItemId(null);
     }
@@ -334,11 +338,11 @@ export default function LibraryScreen() {
         toggleFavorite.mutateAsync({ id: itemId })
       );
       if ("queued" in (result as any)) {
-        Alert.alert("Queued", "Favorite update will sync when you're back online.");
+        toast.info("Favorite update will sync when you're back online.");
       }
     } catch (err) {
       console.error("Failed to toggle favorite:", err);
-      Alert.alert("Error", "Failed to update favorite");
+      toast.error("Failed to update favorite");
     }
   };
 
@@ -347,7 +351,7 @@ export default function LibraryScreen() {
       setArchivingItemId(itemId);
       await archiveItem.mutateAsync({ id: itemId, location: "archive" });
     } catch {
-      Alert.alert("Error", "Failed to archive item");
+      toast.error("Failed to archive item");
     }
   };
 
@@ -356,20 +360,20 @@ export default function LibraryScreen() {
       setRestoringItemId(itemId);
       await archiveItem.mutateAsync({ id: itemId, location: "library" });
     } catch {
-      Alert.alert("Error", "Failed to restore item");
+      toast.error("Failed to restore item");
     }
   };
 
   const handleCreateCategory = async () => {
     const name = newCategoryName.trim();
     if (!name) {
-      Alert.alert("Validation", "Category name is required.");
+      toast.warning("Category name is required.");
       return;
     }
     try {
       await createCategory.mutateAsync({ name });
     } catch {
-      Alert.alert("Error", "Failed to create category.");
+      toast.error("Failed to create category.");
     }
   };
 
@@ -386,7 +390,7 @@ export default function LibraryScreen() {
             try {
               await deleteCategory.mutateAsync({ id: categoryId });
             } catch {
-              Alert.alert("Error", "Failed to delete category.");
+              toast.error("Failed to delete category.");
             }
           },
         },
@@ -396,7 +400,7 @@ export default function LibraryScreen() {
 
   const handleCreateLibraryItem = async () => {
     if (!newTitle.trim()) {
-      Alert.alert("Validation", "Title is required.");
+      toast.warning("Title is required.");
       return;
     }
 
@@ -415,24 +419,24 @@ export default function LibraryScreen() {
       }
     } catch (error) {
       console.error("[Library] Failed creating library item:", error);
-      Alert.alert("Error", "Failed to create item.");
+      toast.error("Failed to create item.");
     }
   };
 
   const handleFetchLinkPreview = async () => {
     const url = newUrl.trim();
     if (!url) {
-      Alert.alert("Validation", "Paste a URL first.");
+      toast.warning("Paste a URL first.");
       return;
     }
     try {
       const result = await fetchLinkMeta.mutateAsync({ url });
       if (result.error === "rate_limited") {
-        Alert.alert("Slow down", "You're fetching previews too quickly. Try again shortly.");
+        toast.info("You're fetching previews too quickly. Try again shortly.");
         return;
       }
       if (!result.metadata) {
-        Alert.alert("Preview", "Could not fetch a preview for this URL.");
+        toast.info("Could not fetch a preview for this URL.");
         return;
       }
       if (!newTitle.trim() && result.metadata.title) {
@@ -443,7 +447,7 @@ export default function LibraryScreen() {
       }
     } catch (err: any) {
       console.error("[Library] fetchLinkMetadata failed:", err);
-      Alert.alert("Error", err?.message ?? "Failed to fetch preview.");
+      toast.error(err?.message ?? "Failed to fetch preview.");
     }
   };
 
@@ -990,8 +994,9 @@ export default function LibraryScreen() {
           <View style={{ backgroundColor: colors.surface, borderTopLeftRadius: 24, borderTopRightRadius: 24, padding: 24, maxHeight: "70%" }}>
             <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: 16 }}>
               <Text style={{ fontSize: 18, fontWeight: "700", color: colors.foreground }}>Manage Categories</Text>
-              <Pressable onPress={() => setShowCategoryModal(false)}>
-                <MaterialIcons name="close" size={22} color={colors.foreground} />
+              <Pressable accessibilityRole="button" accessibilityLabel="Close" onPress={() => setShowCategoryModal(false)}>
+                
+<MaterialIcons name="close" size={22} color={colors.foreground} />
               </Pressable>
             </View>
 
@@ -1078,6 +1083,8 @@ export default function LibraryScreen() {
       {smartFolder !== "archived" && (
         <>
           <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="Bulk import"
             onPress={() => setShowBulkImportModal(true)}
             style={{
               position: "absolute",
@@ -1091,28 +1098,16 @@ export default function LibraryScreen() {
               backgroundColor: colors.surface,
               borderWidth: 1,
               borderColor: colors.border,
-              elevation: 4,
+              ...shadows.card,
             }}
           >
             <MaterialIcons name="file-download" size={20} color={colors.foreground} />
           </Pressable>
-          <Pressable
+          <FAB
+            label="Add item"
+            icon={<MaterialIcons name="add" size={28} color="white" />}
             onPress={() => setShowCreateModal(true)}
-            style={{
-              position: "absolute",
-              right: 18,
-              bottom: 22,
-              width: 56,
-              height: 56,
-              borderRadius: 28,
-              alignItems: "center",
-              justifyContent: "center",
-              backgroundColor: colors.primary,
-              elevation: 8,
-            }}
-          >
-            <MaterialIcons name="add" size={28} color="white" />
-          </Pressable>
+          />
         </>
       )}
 
@@ -1139,7 +1134,7 @@ export default function LibraryScreen() {
                 backgroundColor: colors.background,
                 borderColor: colors.border,
                 borderWidth: 1,
-                borderRadius: 10,
+                borderRadius: 8,
                 color: colors.foreground,
                 paddingHorizontal: 12,
                 paddingVertical: 10,

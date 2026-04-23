@@ -162,7 +162,7 @@ export default function OnboardingScreen() {
                   onPress={handleCreateAccount}
                   style={{
                     backgroundColor: colors.primary,
-                    borderRadius: 10,
+                    borderRadius: 8,
                     paddingVertical: 12,
                     alignItems: "center",
                   }}
@@ -173,7 +173,7 @@ export default function OnboardingScreen() {
                   onPress={finishOnboarding}
                   style={{
                     backgroundColor: colors.surface,
-                    borderRadius: 10,
+                    borderRadius: 8,
                     borderWidth: 1,
                     borderColor: colors.border,
                     paddingVertical: 12,
@@ -209,7 +209,7 @@ export default function OnboardingScreen() {
             onPress={goNext}
             style={{
               backgroundColor: colors.primary,
-              borderRadius: 10,
+              borderRadius: 8,
               paddingVertical: 12,
               alignItems: "center",
             }}

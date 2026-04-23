@@ -11,6 +11,7 @@ import {
 import { useRouter } from "expo-router";
 import { trpc } from "@/lib/trpc";
 import { useColors } from "@/hooks/use-colors";
+import { toast } from "@/hooks/use-toast";
 
 type Step = "email" | "code";
 
@@ -28,7 +29,7 @@ export default function ForgotPasswordScreen() {
       setStep("code");
     },
     onError: (error) => {
-      Alert.alert("Error", error.message || "Something went wrong.");
+      toast.error(error.message || "Something went wrong.");
     },
   });
 
@@ -39,14 +40,14 @@ export default function ForgotPasswordScreen() {
       ]);
     },
     onError: (error) => {
-      Alert.alert("Error", error.message || "Invalid or expired code.");
+      toast.error(error.message || "Invalid or expired code.");
     },
   });
 
   const handleSendCode = () => {
     const trimmed = email.trim().toLowerCase();
     if (!trimmed) {
-      Alert.alert("Validation", "Please enter your email.");
+      toast.warning("Please enter your email.");
       return;
     }
     forgotMutation.mutate({ email: trimmed });
@@ -54,15 +55,15 @@ export default function ForgotPasswordScreen() {
 
   const handleResetPassword = () => {
     if (!code.trim() || code.trim().length !== 6) {
-      Alert.alert("Validation", "Please enter the 6-digit code.");
+      toast.warning("Please enter the 6-digit code.");
       return;
     }
     if (newPassword.length < 6) {
-      Alert.alert("Validation", "Password must be at least 6 characters.");
+      toast.warning("Password must be at least 6 characters.");
       return;
     }
     if (newPassword !== confirmPassword) {
-      Alert.alert("Validation", "Passwords do not match.");
+      toast.warning("Passwords do not match.");
       return;
     }
     resetMutation.mutate({
@@ -159,7 +160,7 @@ export default function ForgotPasswordScreen() {
         </>
       )}
 
-      <Pressable onPress={() => router.back()} className="mt-4 items-center">
+      <Pressable accessibilityRole="button" accessibilityLabel="Go back" onPress={() => router.back()} className="mt-4 items-center">
         <Text className="text-primary font-semibold">Back to Login</Text>
       </Pressable>
     </View>

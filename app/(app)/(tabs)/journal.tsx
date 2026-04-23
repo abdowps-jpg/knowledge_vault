@@ -21,6 +21,7 @@ import { useColors } from "@/hooks/use-colors";
 import { trpc } from "@/lib/trpc";
 import { offlineManager } from "@/lib/offline-manager";
 import Markdown from "react-native-markdown-display";
+import { toast } from "@/hooks/use-toast";
 
 const MOOD_EMOJI: Record<string, string> = {
   happy: "😄",
@@ -122,7 +123,7 @@ export default function JournalScreen() {
       await refetch();
     } catch (err) {
       console.error("Failed to create journal entry:", err);
-      Alert.alert("Error", "Failed to create journal entry");
+      toast.error("Failed to create journal entry");
     }
   };
 
@@ -139,11 +140,11 @@ export default function JournalScreen() {
               deleteEntry.mutateAsync({ id })
             );
             if ("queued" in (result as any)) {
-              Alert.alert("Queued", "Entry deletion will sync when you're back online.");
+              toast.info("Entry deletion will sync when you're back online.");
             }
           } catch (err) {
             console.error("Failed to delete journal entry:", err);
-            Alert.alert("Error", "Failed to delete journal entry");
+            toast.error("Failed to delete journal entry");
           } finally {
             setDeletingEntryId(null);
           }
@@ -180,7 +181,7 @@ export default function JournalScreen() {
             <MaterialIcons name="book" size={32} color={colors.primary} />
             <Text className="text-2xl font-bold text-foreground ml-2">Journal</Text>
           </View>
-          <Pressable
+          <Pressable accessibilityRole="button" accessibilityLabel="Add"
             onPress={() => setShowCreateModal(true)}
             className="bg-primary rounded-lg p-2 items-center justify-center"
           >
@@ -239,7 +240,7 @@ export default function JournalScreen() {
                     </View>
                     <Markdown
                       style={{
-                        body: { color: colors.muted, fontSize: 14, lineHeight: 20 },
+                        body: { color: colors.muted, fontSize: 14, lineHeight: 20, writingDirection: "auto" },
                         paragraph: { color: colors.muted, fontSize: 14, lineHeight: 20, marginBottom: 0 },
                         heading1: { color: colors.foreground, fontSize: 18, fontWeight: "700" as const, marginBottom: 4 },
                         strong: { color: colors.foreground, fontWeight: "700" as const },
@@ -276,7 +277,7 @@ export default function JournalScreen() {
                 value={title}
                 onChangeText={setTitle}
                 className="bg-background border border-border rounded-lg p-3 text-foreground mb-3"
-                style={{ color: colors.foreground }}
+                style={{ color: colors.foreground, writingDirection: "auto" }}
               />
               <RichTextEditor
                 value={content}
@@ -328,8 +329,9 @@ export default function JournalScreen() {
           <View className="rounded-t-3xl p-6 max-h-3/4" style={{ backgroundColor: colors.surface }}>
             <View className="flex-row items-center justify-between mb-3">
               <Text className="text-lg font-bold text-foreground">Entry Details</Text>
-              <Pressable onPress={() => setShowEntryModal(false)}>
-                <MaterialIcons name="close" size={22} color={colors.foreground} />
+              <Pressable accessibilityRole="button" accessibilityLabel="Close" onPress={() => setShowEntryModal(false)}>
+                
+<MaterialIcons name="close" size={22} color={colors.foreground} />
               </Pressable>
             </View>
             {selectedEntry ? (
@@ -362,7 +364,7 @@ export default function JournalScreen() {
         </View>
       </Modal>
 
-      <Pressable
+      <Pressable accessibilityRole="button" accessibilityLabel="Add"
         onPress={() => setShowCreateModal(true)}
         style={{
           position: "absolute",

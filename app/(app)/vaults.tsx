@@ -1,10 +1,12 @@
 import React from "react";
 import { ActivityIndicator, Alert, Modal, Pressable, ScrollView, Text, TextInput, View } from "react-native";
-import { MaterialIcons } from "@expo/vector-icons";
 
 import { ScreenContainer } from "@/components/screen-container";
+import { EmptyState } from "@/components/empty-state";
+import { ErrorState } from "@/components/error-state";
 import { useColors } from "@/hooks/use-colors";
 import { trpc } from "@/lib/trpc";
+import { toast } from "@/hooks/use-toast";
 
 type Vault = {
   id: string;
@@ -47,7 +49,7 @@ export default function VaultsScreen() {
   const handleCreate = async () => {
     const name = newName.trim();
     if (!name) {
-      Alert.alert("Validation", "Name is required.");
+      toast.warning("Name is required.");
       return;
     }
     try {
@@ -56,7 +58,7 @@ export default function VaultsScreen() {
       setNewName("");
       setNewDescription("");
     } catch (err: any) {
-      Alert.alert("Error", err?.message ?? "Failed to create vault.");
+      toast.error(err?.message ?? "Failed to create vault.");
     }
   };
 
@@ -64,16 +66,16 @@ export default function VaultsScreen() {
     if (!activeVault) return;
     const email = inviteEmail.trim().toLowerCase();
     if (!email) {
-      Alert.alert("Validation", "Email is required.");
+      toast.warning("Email is required.");
       return;
     }
     try {
       await inviteMember.mutateAsync({ vaultId: activeVault.id, email, role: inviteRole });
       setInviteEmail("");
       membersQuery.refetch().catch(() => undefined);
-      Alert.alert("Invited", `${email} has been added as ${inviteRole}.`);
+      toast.info(`${email} has been added as ${inviteRole}.`);
     } catch (err: any) {
-      Alert.alert("Error", err?.message ?? "Failed to invite.");
+      toast.error(err?.message ?? "Failed to invite.");
     }
   };
 
@@ -89,7 +91,7 @@ export default function VaultsScreen() {
             await leaveVault.mutateAsync({ vaultId: activeVault.id });
             setActiveVault(null);
           } catch (err: any) {
-            Alert.alert("Error", err?.message ?? "Failed to leave.");
+            toast.error(err?.message ?? "Failed to leave.");
           }
         },
       },
@@ -108,7 +110,7 @@ export default function VaultsScreen() {
             await deleteVault.mutateAsync({ id: activeVault.id });
             setActiveVault(null);
           } catch (err: any) {
-            Alert.alert("Error", err?.message ?? "Failed to delete.");
+            toast.error(err?.message ?? "Failed to delete.");
           }
         },
       },
@@ -130,25 +132,14 @@ export default function VaultsScreen() {
             <View style={{ paddingVertical: 20, alignItems: "center" }}>
               <ActivityIndicator color={colors.primary} />
             </View>
+          ) : vaultsQuery.error ? (
+            <ErrorState error={vaultsQuery.error} onRetry={() => void vaultsQuery.refetch()} />
           ) : !vaultsQuery.data || vaultsQuery.data.length === 0 ? (
-            <View
-              style={{
-                padding: 24,
-                borderWidth: 1,
-                borderColor: colors.border,
-                borderRadius: 12,
-                backgroundColor: colors.surface,
-                alignItems: "center",
-              }}
-            >
-              <MaterialIcons name="group" size={40} color={colors.muted} />
-              <Text style={{ color: colors.foreground, fontWeight: "700", marginTop: 12 }}>
-                No vaults yet
-              </Text>
-              <Text style={{ color: colors.muted, fontSize: 13, textAlign: "center", marginTop: 4 }}>
-                Create a vault to share a set of notes, tasks, or goals with teammates.
-              </Text>
-            </View>
+            <EmptyState
+              icon="group"
+              title="No vaults yet"
+              subtitle="Create a vault to share a set of notes, tasks, or goals with teammates."
+            />
           ) : (
             vaultsQuery.data.map((v) => {
               const vault: Vault = {
@@ -411,7 +402,7 @@ export default function VaultsScreen() {
                       style={{
                         flex: 1,
                         paddingVertical: 10,
-                        borderRadius: 10,
+                        borderRadius: 8,
                         backgroundColor: colors.error,
                         alignItems: "center",
                       }}
@@ -424,7 +415,7 @@ export default function VaultsScreen() {
                       style={{
                         flex: 1,
                         paddingVertical: 10,
-                        borderRadius: 10,
+                        borderRadius: 8,
                         borderWidth: 1,
                         borderColor: colors.error,
                         alignItems: "center",
@@ -438,7 +429,7 @@ export default function VaultsScreen() {
                     style={{
                       flex: 1,
                       paddingVertical: 10,
-                      borderRadius: 10,
+                      borderRadius: 8,
                       backgroundColor: colors.border,
                       alignItems: "center",
                     }}

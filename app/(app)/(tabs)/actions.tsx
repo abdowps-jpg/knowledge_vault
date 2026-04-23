@@ -13,6 +13,7 @@ import {
 } from "react-native";
 import { FlashList } from "@shopify/flash-list";
 import { MaterialIcons } from "@expo/vector-icons";
+import { FAB } from "@/components/fab";
 import { useIsFocused } from "@react-navigation/native";
 import { Calendar as CalendarView } from "react-native-calendars";
 import AsyncStorage from "@react-native-async-storage/async-storage";
@@ -28,6 +29,7 @@ import { cancelTaskDueNotification, scheduleTaskDueNotification } from "@/lib/no
 import { checkLocationTaskReminders } from "@/lib/notifications/location-reminders";
 import { offlineManager } from "@/lib/offline-manager";
 import { extractNaturalDate, parseNaturalDate } from "@/lib/productivity/natural-date";
+import { toast } from "@/hooks/use-toast";
 
 type FilterTab = "all" | "today" | "completed" | "high" | "overdue";
 type RecurrenceType = "none" | "daily" | "weekly" | "monthly";
@@ -525,7 +527,7 @@ export default function ActionsScreen() {
         }
       } catch (error) {
         console.error("[Actions] Failed toggling task timer:", error);
-        Alert.alert("Error", "Failed to update task timer.");
+        toast.error("Failed to update task timer.");
       }
     },
     [startTaskTimer, stopTaskTimer, taskTimeQuery.data?.activeTaskId]
@@ -593,7 +595,7 @@ export default function ActionsScreen() {
         await utils.tasks.list.invalidate();
       } catch (error) {
         console.error("[Actions/Kanban] Failed moving task:", error);
-        Alert.alert("Error", "Failed moving task between columns.");
+        toast.error("Failed moving task between columns.");
       } finally {
         setRowActionTaskId(null);
       }
@@ -680,7 +682,7 @@ export default function ActionsScreen() {
         await updateTask.mutateAsync({ id: task.id, ...updateByQuadrant });
       } catch (error) {
         console.error("[Actions/Matrix] Failed moving task:", error);
-        Alert.alert("Error", "Failed moving task between quadrants.");
+        toast.error("Failed moving task between quadrants.");
       } finally {
         setRowActionTaskId(null);
       }
@@ -770,7 +772,7 @@ export default function ActionsScreen() {
   const handleCreateTask = async () => {
     const title = newTaskTitle.trim();
     if (!title) {
-      Alert.alert("Error", "Please enter a task title");
+      toast.error("Please enter a task title");
       return;
     }
 
@@ -800,7 +802,7 @@ export default function ActionsScreen() {
         createTask.mutateAsync(input as any)
       );
       if ("queued" in (createResult as any)) {
-        Alert.alert("Queued", "Task creation will sync when you're back online.");
+        toast.info("Task creation will sync when you're back online.");
         setShowCreateModal(false);
         return;
       }
@@ -828,7 +830,7 @@ export default function ActionsScreen() {
       }
     } catch (err: any) {
       console.error("Failed to create task:", err);
-      Alert.alert("Error", err?.message || "Failed to create task");
+      toast.error(err?.message || "Failed to create task");
     }
   };
 
@@ -994,11 +996,11 @@ export default function ActionsScreen() {
         updateTask.mutateAsync(input)
       );
       if ("queued" in (result as any)) {
-        Alert.alert("Queued", "Reminder update will sync when back online.");
+        toast.info("Reminder update will sync when back online.");
       }
     } catch (error) {
       console.error("[Actions] Failed snoozing task:", error);
-      Alert.alert("Error", "Failed to update reminder.");
+      toast.error("Failed to update reminder.");
     } finally {
       setReminderUpdatingTaskId(null);
     }
@@ -1015,11 +1017,11 @@ export default function ActionsScreen() {
         updateTask.mutateAsync(input)
       );
       if ("queued" in (result as any)) {
-        Alert.alert("Queued", "Task update will sync when back online.");
+        toast.info("Task update will sync when back online.");
       }
     } catch (error) {
       console.error("[Actions] Failed moving task to today:", error);
-      Alert.alert("Error", "Failed to move task.");
+      toast.error("Failed to move task.");
     } finally {
       setReminderUpdatingTaskId(null);
     }
@@ -1028,7 +1030,7 @@ export default function ActionsScreen() {
   const handleCompleteMyDay = async () => {
     const targets = myDayTasks.filter((task) => !task.isCompleted);
     if (!targets.length) {
-      Alert.alert("My Day", "No pending tasks to complete.");
+      toast.info("No pending tasks to complete.");
       return;
     }
     try {
@@ -1036,17 +1038,17 @@ export default function ActionsScreen() {
         // Reuse existing business logic to support recurring tasks correctly.
         await handleToggleTask(task.id);
       }
-      Alert.alert("Done", `Completed ${targets.length} task(s) from My Day.`);
+      toast.success(`Completed ${targets.length} task(s) from My Day.`);
     } catch (error) {
       console.error("[Actions] Failed completing My Day tasks:", error);
-      Alert.alert("Error", "Failed to complete some tasks.");
+      toast.error("Failed to complete some tasks.");
     }
   };
 
   const handleClearCompletedTasks = async () => {
     const completed = (tasks as any[]).filter((task) => task.isCompleted);
     if (!completed.length) {
-      Alert.alert("Actions", "No completed tasks to clear.");
+      toast.info("No completed tasks to clear.");
       return;
     }
     try {
@@ -1054,10 +1056,10 @@ export default function ActionsScreen() {
       for (const task of completed) {
         await deleteTask.mutateAsync({ id: task.id });
       }
-      Alert.alert("Done", `Removed ${completed.length} completed task(s).`);
+      toast.success(`Removed ${completed.length} completed task(s).`);
     } catch (error) {
       console.error("[Actions] Failed clearing completed tasks:", error);
-      Alert.alert("Error", "Failed to clear completed tasks.");
+      toast.error("Failed to clear completed tasks.");
     } finally {
       setBulkActionLoading(false);
     }
@@ -1075,7 +1077,7 @@ export default function ActionsScreen() {
       } as any);
     } catch (error) {
       console.error("[Actions] Failed duplicating task:", error);
-      Alert.alert("Error", "Failed to duplicate task.");
+      toast.error("Failed to duplicate task.");
     } finally {
       setRowActionTaskId(null);
     }
@@ -1095,11 +1097,11 @@ export default function ActionsScreen() {
         updateTask.mutateAsync(input)
       );
       if ("queued" in (result as any)) {
-        Alert.alert("Queued", "Priority update will sync when back online.");
+        toast.info("Priority update will sync when back online.");
       }
     } catch (error) {
       console.error("[Actions] Failed cycling priority:", error);
-      Alert.alert("Error", "Failed to update priority.");
+      toast.error("Failed to update priority.");
     } finally {
       setRowActionTaskId(null);
     }
@@ -1148,7 +1150,7 @@ export default function ActionsScreen() {
       if (task && !task.isCompleted && task.blockedByTaskId) {
         const blocker = (tasks as any[]).find((t) => t.id === task.blockedByTaskId);
         if (blocker && !blocker.isCompleted) {
-          Alert.alert("Task blocked", `Complete "${blocker.title}" first.`);
+          toast.info(`Complete "${blocker.title}" first.`);
           return;
         }
       }
@@ -1161,7 +1163,7 @@ export default function ActionsScreen() {
           () => completeRecurringTask.mutateAsync({ id })
         );
         if ("queued" in (result as any)) {
-          Alert.alert("Queued", "Task completion will sync when you're back online.");
+          toast.info("Task completion will sync when you're back online.");
           return;
         }
         const typedResult = result as any;
@@ -1179,12 +1181,12 @@ export default function ActionsScreen() {
           toggleTask.mutateAsync({ id })
         );
         if ("queued" in (result as any)) {
-          Alert.alert("Queued", "Task update will sync when you're back online.");
+          toast.info("Task update will sync when you're back online.");
           return;
         }
         const typedResult = result as any;
         if (typedResult?.blocked) {
-          Alert.alert("Task blocked", "You can't complete this task until its dependency is completed.");
+          toast.info("You can't complete this task until its dependency is completed.");
           return;
         }
         if (typedResult?.isCompleted) {
@@ -1200,7 +1202,7 @@ export default function ActionsScreen() {
       }
     } catch (err) {
       console.error("Failed to toggle task:", err);
-      Alert.alert("Error", "Failed to update task");
+      toast.error("Failed to update task");
     } finally {
       setTogglingTaskId(null);
     }
@@ -1219,13 +1221,13 @@ export default function ActionsScreen() {
               deleteTask.mutateAsync({ id })
             );
             if ("queued" in (result as any)) {
-              Alert.alert("Queued", "Task deletion will sync when you're back online.");
+              toast.info("Task deletion will sync when you're back online.");
             } else {
               await cancelTaskDueNotification(id);
             }
           } catch (err) {
             console.error("Failed to delete task:", err);
-            Alert.alert("Error", "Failed to delete task");
+            toast.error("Failed to delete task");
           } finally {
             setDeletingTaskId(null);
           }
@@ -1289,12 +1291,12 @@ export default function ActionsScreen() {
           )
         )
       );
-      Alert.alert("Done", `Completed ${selectedTaskIds.length} task(s).`);
+      toast.success(`Completed ${selectedTaskIds.length} task(s).`);
       clearMultiSelect();
       await utils.tasks.list.invalidate();
     } catch (error) {
       console.error("[Actions] Bulk complete failed:", error);
-      Alert.alert("Error", "Failed to complete selected tasks.");
+      toast.error("Failed to complete selected tasks.");
     } finally {
       setBulkActionLoading(false);
     }
@@ -1312,12 +1314,12 @@ export default function ActionsScreen() {
             )
           )
         );
-        Alert.alert("Done", `Updated priority for ${selectedTaskIds.length} task(s).`);
+        toast.success(`Updated priority for ${selectedTaskIds.length} task(s).`);
         clearMultiSelect();
         await utils.tasks.list.invalidate();
       } catch (error) {
         console.error("[Actions] Bulk priority failed:", error);
-        Alert.alert("Error", "Failed to update priority for selected tasks.");
+        toast.error("Failed to update priority for selected tasks.");
       } finally {
         setBulkActionLoading(false);
       }
@@ -1342,12 +1344,12 @@ export default function ActionsScreen() {
                 )
               )
             );
-            Alert.alert("Deleted", `${selectedTaskIds.length} task(s) deleted.`);
+            toast.info(`${selectedTaskIds.length} task(s) deleted.`);
             clearMultiSelect();
             await utils.tasks.list.invalidate();
           } catch (error) {
             console.error("[Actions] Bulk delete failed:", error);
-            Alert.alert("Error", "Failed to delete selected tasks.");
+            toast.error("Failed to delete selected tasks.");
           } finally {
             setBulkActionLoading(false);
           }
@@ -1390,7 +1392,7 @@ export default function ActionsScreen() {
       await createSubtask.mutateAsync({ taskId: subtasksTaskId, title: newSubtaskTitle.trim() });
     } catch (error) {
       console.error("[Actions] Failed creating subtask:", error);
-      Alert.alert("Error", "Failed to create subtask.");
+      toast.error("Failed to create subtask.");
     }
   }, [createSubtask, newSubtaskTitle, subtasksTaskId]);
 
@@ -1402,7 +1404,7 @@ export default function ActionsScreen() {
             <MaterialIcons name="check-circle" size={32} color={colors.primary} />
             <Text className="text-2xl font-bold text-foreground ml-2">Actions</Text>
           </View>
-          <Pressable
+          <Pressable accessibilityRole="button" accessibilityLabel="Add"
             onPress={() => openCreateTaskModal("todo")}
             className="bg-primary rounded-lg p-2 items-center justify-center"
           >
@@ -2230,7 +2232,7 @@ export default function ActionsScreen() {
                     style={{
                       borderWidth: 1,
                       borderColor: colors.border,
-                      borderRadius: 10,
+                      borderRadius: 8,
                       padding: 10,
                       marginBottom: 8,
                       ...(Platform.OS === "web" ? { cursor: "grab" as any } : {}),
@@ -2322,7 +2324,7 @@ export default function ActionsScreen() {
                     style={{
                       borderWidth: 1,
                       borderColor: colors.border,
-                      borderRadius: 10,
+                      borderRadius: 8,
                       padding: 10,
                       marginBottom: 8,
                     }}
@@ -2378,7 +2380,7 @@ export default function ActionsScreen() {
                   style={{
                     borderWidth: 1,
                     borderColor: focusedTaskId === task.id ? colors.primary : colors.border,
-                    borderRadius: 10,
+                    borderRadius: 8,
                     padding: 10,
                     marginBottom: 8,
                     backgroundColor: colors.surface,
@@ -2602,7 +2604,7 @@ export default function ActionsScreen() {
                   flex: 1,
                   borderWidth: 1,
                   borderColor: colors.border,
-                  borderRadius: 10,
+                  borderRadius: 8,
                   paddingHorizontal: 12,
                   paddingVertical: 10,
                   color: colors.foreground,
@@ -2614,7 +2616,7 @@ export default function ActionsScreen() {
                 onPress={handleCreateSubtask}
                 disabled={createSubtask.isPending || !newSubtaskTitle.trim()}
                 style={{
-                  borderRadius: 10,
+                  borderRadius: 8,
                   paddingHorizontal: 12,
                   justifyContent: "center",
                   backgroundColor: colors.primary,
@@ -2635,7 +2637,7 @@ export default function ActionsScreen() {
                     justifyContent: "space-between",
                     borderWidth: 1,
                     borderColor: colors.border,
-                    borderRadius: 10,
+                    borderRadius: 8,
                     paddingHorizontal: 10,
                     paddingVertical: 8,
                     marginBottom: 8,
@@ -2660,7 +2662,7 @@ export default function ActionsScreen() {
                       {subtask.title}
                     </Text>
                   </Pressable>
-                  <Pressable onPress={() => deleteSubtask.mutate({ id: subtask.id })}>
+                  <Pressable accessibilityRole="button" accessibilityLabel="Delete" onPress={() => deleteSubtask.mutate({ id: subtask.id })}>
                     <MaterialIcons name="delete" size={18} color={colors.error} />
                   </Pressable>
                 </View>
@@ -3000,23 +3002,11 @@ export default function ActionsScreen() {
         </View>
       </Modal>
 
-      <Pressable
+      <FAB
+        label="Add task"
+        icon={<MaterialIcons name="add" size={28} color="white" />}
         onPress={() => openCreateTaskModal(viewMode === "kanban" ? createTaskDefaultStatus : "todo")}
-        style={{
-          position: "absolute",
-          right: 18,
-          bottom: 22,
-          width: 56,
-          height: 56,
-          borderRadius: 28,
-          alignItems: "center",
-          justifyContent: "center",
-          backgroundColor: colors.primary,
-          elevation: 8,
-        }}
-      >
-        <MaterialIcons name="add" size={28} color="white" />
-      </Pressable>
+      />
     </ScreenContainer>
   );
 }

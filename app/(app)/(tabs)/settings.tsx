@@ -23,6 +23,7 @@ import { useRouter } from "expo-router";
 import { useQueryClient } from "@tanstack/react-query";
 
 import { ScreenContainer } from "@/components/screen-container";
+import { Button } from "@/components/button";
 import { useColors } from "@/hooks/use-colors";
 import { useThemeContext } from "@/lib/theme-provider";
 import { ACCENT_THEME_LABELS, ACCENT_THEME_PREVIEW, type AccentTheme } from "@/lib/theme-presets";
@@ -41,6 +42,7 @@ import {
   saveAppSettings,
   setJournalReminderNotificationId,
 } from "@/lib/settings-storage";
+import { toast } from "@/hooks/use-toast";
 
 interface SectionProps {
   title: string;
@@ -563,7 +565,7 @@ export default function SettingsScreen() {
     const subject = feedbackSubject.trim();
     const body = feedbackBody.trim();
     if (!subject || !body) {
-      Alert.alert("Validation", "Subject and body are required.");
+      toast.warning("Subject and body are required.");
       return;
     }
     try {
@@ -577,9 +579,9 @@ export default function SettingsScreen() {
       setShowFeedbackModal(false);
       setFeedbackSubject("");
       setFeedbackBody("");
-      Alert.alert("Thank you", "Your feedback was received.");
+      toast.success("Your feedback was received.");
     } catch (err: any) {
-      Alert.alert("Error", err?.message ?? "Failed to send feedback.");
+      toast.error(err?.message ?? "Failed to send feedback.");
     }
   };
   const generateApiKeyMutation = trpc.api.generateKey.useMutation();
@@ -607,6 +609,7 @@ export default function SettingsScreen() {
   const [showEmailVerificationModal, setShowEmailVerificationModal] = useState(false);
   const [showChangePasswordModal, setShowChangePasswordModal] = useState(false);
   const [showDeleteAccountModal, setShowDeleteAccountModal] = useState(false);
+  const [showLanguagePicker, setShowLanguagePicker] = useState(false);
   const [currentPassword, setCurrentPassword] = useState("");
   const [newPassword, setNewPassword] = useState("");
   const [confirmNewPassword, setConfirmNewPassword] = useState("");
@@ -685,27 +688,27 @@ const [showApiModal, setShowApiModal] = useState(false);
     const snapshotsRaw = await AsyncStorage.getItem(BACKUP_SNAPSHOTS_KEY);
     const snapshots = snapshotsRaw ? (JSON.parse(snapshotsRaw) as any[]) : [];
     if (!snapshots.length) {
-      Alert.alert("Restore", "No backup snapshots found.");
+      toast.info("No backup snapshots found.");
       return;
     }
     const latest = snapshots[0];
     await clearAllData();
     await importData(latest.payload);
     await refreshStorageUsed();
-    Alert.alert("Restore Complete", `Restored backup from ${new Date(latest.createdAt).toLocaleString()}.`);
+    toast.success(`Restored backup from ${new Date(latest.createdAt).toLocaleString()}.`);
   };
 
   const openExternalUrl = async (url: string) => {
     try {
       const canOpen = await Linking.canOpenURL(url);
       if (!canOpen) {
-        Alert.alert("Unavailable", "This link is not available right now.");
+        toast.error("This link is not available right now.");
         return;
       }
       await Linking.openURL(url);
     } catch (error) {
       console.error("Failed opening URL:", url, error);
-      Alert.alert("Error", "Failed to open link.");
+      toast.error("Failed to open link.");
     }
   };
 
@@ -829,11 +832,11 @@ const [showApiModal, setShowApiModal] = useState(false);
     const username = editUsername.trim();
     const email = editEmail.trim().toLowerCase();
     if (!username) {
-      Alert.alert("Validation", "Username is required.");
+      toast.warning("Username is required.");
       return;
     }
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
-      Alert.alert("Validation", "Please enter a valid email.");
+      toast.warning("Please enter a valid email.");
       return;
     }
 
@@ -854,17 +857,17 @@ const [showApiModal, setShowApiModal] = useState(false);
         setEmailVerificationCode("");
         setShowAccountEditModal(false);
         setShowEmailVerificationModal(true);
-        Alert.alert("Verification required", "We sent a 6-digit code to your new email.");
+        toast.success("We sent a 6-digit code to your new email.");
       } else {
         const nextSettings = { ...settings, username, email: currentEmail || settings.email };
         setSettings(nextSettings);
         await saveAppSettings(nextSettings);
         setShowAccountEditModal(false);
-        Alert.alert("Updated", "Account info updated successfully.");
+        toast.success("Account info updated successfully.");
       }
     } catch (error) {
       const message = error instanceof Error ? error.message : "Failed to update account.";
-      Alert.alert("Update Failed", message);
+      toast.error(message);
     } finally {
       setWorking(false);
     }
@@ -873,7 +876,7 @@ const [showApiModal, setShowApiModal] = useState(false);
   const handleConfirmEmailChange = async () => {
     const code = emailVerificationCode.trim();
     if (!/^\d{6}$/.test(code)) {
-      Alert.alert("Validation", "Enter a valid 6-digit code.");
+      toast.warning("Enter a valid 6-digit code.");
       return;
     }
 
@@ -892,10 +895,10 @@ const [showApiModal, setShowApiModal] = useState(false);
       setShowEmailVerificationModal(false);
       setPendingEmailChange("");
       setEmailVerificationCode("");
-      Alert.alert("Updated", "Email changed successfully.");
+      toast.success("Email changed successfully.");
     } catch (error) {
       const message = error instanceof Error ? error.message : "Failed to verify code.";
-      Alert.alert("Verification Failed", message);
+      toast.error(message);
     } finally {
       setWorking(false);
     }
@@ -982,7 +985,7 @@ const [showApiModal, setShowApiModal] = useState(false);
   const saveTimePicker = async () => {
     const nextTime = normalizeTime(selectedHour, selectedMinute);
     if (!nextTime) {
-      Alert.alert("Invalid Time", "Please enter valid hour (0-23) and minute (0-59).");
+      toast.error("Please enter valid hour (0-23) and minute (0-59).");
       return;
     }
     if (timeTarget === "task") {
@@ -997,7 +1000,7 @@ const [showApiModal, setShowApiModal] = useState(false);
     try {
       setWorking(true);
       if (!Object.values(exportScope).some(Boolean)) {
-        Alert.alert("Export Scope", "Select at least one data section to export.");
+        toast.warning("Select at least one data section to export.");
         return;
       }
       const response = await exportQuery.refetch();
@@ -1086,7 +1089,7 @@ const [showApiModal, setShowApiModal] = useState(false);
             dialogTitle: "Export Data",
           });
         } else {
-          Alert.alert("Export Ready", `File saved: ${fileUri}`);
+          toast.success(`File saved: ${fileUri}`);
         }
       }
 
@@ -1095,7 +1098,7 @@ const [showApiModal, setShowApiModal] = useState(false);
       setShowExportModal(true);
     } catch (error) {
       console.error("Export failed:", error);
-      Alert.alert("Error", "Failed to export data.");
+      toast.error("Failed to export data.");
     } finally {
       setWorking(false);
     }
@@ -1143,7 +1146,7 @@ const [showApiModal, setShowApiModal] = useState(false);
       }
 
       if (!validated.valid || !validated.normalized) {
-        Alert.alert("Invalid Import", validated.message || "The selected file could not be imported.");
+        toast.error(validated.message || "The selected file could not be imported.");
         return;
       }
 
@@ -1156,13 +1159,10 @@ const [showApiModal, setShowApiModal] = useState(false);
               setWorking(true);
               const summary = await applyImport("merge", validated.normalized);
               await refreshStorageUsed();
-              Alert.alert(
-                "Import Complete",
-                `${summary.items} items, ${summary.tasks} tasks, ${summary.entries} entries imported (merge).`
-              );
+              toast.success(`${summary.items} items, ${summary.tasks} tasks, ${summary.entries} entries imported (merge).`);
             } catch (error) {
               console.error("Merge import failed:", error);
-              Alert.alert("Error", "Failed to merge import data.");
+              toast.error("Failed to merge import data.");
             } finally {
               setWorking(false);
             }
@@ -1176,13 +1176,10 @@ const [showApiModal, setShowApiModal] = useState(false);
               setWorking(true);
               const summary = await applyImport("replace", validated.normalized);
               await refreshStorageUsed();
-              Alert.alert(
-                "Import Complete",
-                `${summary.items} items, ${summary.tasks} tasks, ${summary.entries} entries imported (replace).`
-              );
+              toast.success(`${summary.items} items, ${summary.tasks} tasks, ${summary.entries} entries imported (replace).`);
             } catch (error) {
               console.error("Replace import failed:", error);
-              Alert.alert("Error", "Failed to replace with imported data.");
+              toast.error("Failed to replace with imported data.");
             } finally {
               setWorking(false);
             }
@@ -1191,7 +1188,7 @@ const [showApiModal, setShowApiModal] = useState(false);
       ]);
     } catch (error) {
       console.error("Import failed:", error);
-      Alert.alert("Error", "Import failed. Check file format and try again.");
+      toast.error("Import failed. Check file format and try again.");
     } finally {
       setWorking(false);
     }
@@ -1205,19 +1202,16 @@ const [showApiModal, setShowApiModal] = useState(false);
       });
       setLatestApiKey(created.key);
       await apiKeysQuery.refetch();
-      Alert.alert(
-        "API Key Created",
-        `Scope: ${created.scope}. Copy the key now — it will not be shown again.`
-      );
+      toast.success(`Scope: ${created.scope}. Copy the key now — it will not be shown again.`);
     } catch (error: any) {
-      Alert.alert("Error", error?.message || "Failed to create API key.");
+      toast.error(error?.message || "Failed to create API key.");
     }
   };
 
   const handleCreateWebhook = async () => {
     const url = newWebhookUrl.trim();
     if (!url) {
-      Alert.alert("Validation", "Webhook URL is required.");
+      toast.warning("Webhook URL is required.");
       return;
     }
     try {
@@ -1230,7 +1224,7 @@ const [showApiModal, setShowApiModal] = useState(false);
       setNewWebhookSecret("");
       await webhooksQuery.refetch();
     } catch (error: any) {
-      Alert.alert("Error", error?.message || "Failed creating webhook.");
+      toast.error(error?.message || "Failed creating webhook.");
     }
   };
 
@@ -1247,10 +1241,10 @@ const [showApiModal, setShowApiModal] = useState(false);
             await saveAppSettings(DEFAULT_APP_SETTINGS);
             setSettings(DEFAULT_APP_SETTINGS);
             await refreshStorageUsed();
-            Alert.alert("Done", "All data cleared.");
+            toast.success("All data cleared.");
           } catch (error) {
             console.error("Clear data failed:", error);
-            Alert.alert("Error", "Failed to clear data.");
+            toast.error("Failed to clear data.");
           } finally {
             setWorking(false);
           }
@@ -1273,7 +1267,7 @@ const [showApiModal, setShowApiModal] = useState(false);
         }, 50);
       } catch (error) {
         console.error("Logout failed:", error);
-        Alert.alert("Error", "Logout failed. Please try again.");
+        toast.error("Logout failed. Please try again.");
       }
     };
 
@@ -1302,15 +1296,15 @@ const [showApiModal, setShowApiModal] = useState(false);
 
   const handleChangePassword = async () => {
     if (!currentPassword || !newPassword) {
-      Alert.alert("Validation", "All fields are required.");
+      toast.warning("All fields are required.");
       return;
     }
     if (newPassword.length < 6) {
-      Alert.alert("Validation", "New password must be at least 6 characters.");
+      toast.warning("New password must be at least 6 characters.");
       return;
     }
     if (newPassword !== confirmNewPassword) {
-      Alert.alert("Validation", "New passwords do not match.");
+      toast.warning("New passwords do not match.");
       return;
     }
     try {
@@ -1320,9 +1314,9 @@ const [showApiModal, setShowApiModal] = useState(false);
       setCurrentPassword("");
       setNewPassword("");
       setConfirmNewPassword("");
-      Alert.alert("Success", "Password changed successfully.");
+      toast.success("Password changed successfully.");
     } catch (error: any) {
-      Alert.alert("Error", error?.message || "Failed to change password.");
+      toast.error(error?.message || "Failed to change password.");
     } finally {
       setWorking(false);
     }
@@ -1330,7 +1324,7 @@ const [showApiModal, setShowApiModal] = useState(false);
 
   const handleDeleteAccount = async () => {
     if (!deleteAccountPassword) {
-      Alert.alert("Validation", "Please enter your password to confirm.");
+      toast.warning("Please enter your password to confirm.");
       return;
     }
     try {
@@ -1342,7 +1336,7 @@ const [showApiModal, setShowApiModal] = useState(false);
       queryClient.clear();
       router.replace("/(auth)/login" as any);
     } catch (error: any) {
-      Alert.alert("Error", error?.message || "Failed to delete account.");
+      toast.error(error?.message || "Failed to delete account.");
     } finally {
       setWorking(false);
       setDeleteAccountPassword("");
@@ -1354,9 +1348,9 @@ const [showApiModal, setShowApiModal] = useState(false);
       setSyncingNow(true);
       const result = await fullSync();
       setLastSyncAt(result.down.serverTimestamp);
-      Alert.alert("Sync Complete", `Uploaded: ${result.up.synced}, Failed: ${result.up.failed}`);
+      toast.success(`Uploaded: ${result.up.synced}, Failed: ${result.up.failed}`);
     } catch (error) {
-      Alert.alert("Sync Failed", error instanceof Error ? error.message : "Unknown error");
+      toast.error(error instanceof Error ? error.message : "Unknown error");
     } finally {
       setSyncingNow(false);
     }
@@ -1411,9 +1405,9 @@ const [showApiModal, setShowApiModal] = useState(false);
                     onPress: async () => {
                       try {
                         await signOutEverywhereMutation.mutateAsync();
-                        Alert.alert("Done", "Push notifications disabled on all devices.");
+                        toast.success("Push notifications disabled on all devices.");
                       } catch (err: any) {
-                        Alert.alert("Error", err?.message ?? "Failed to sign out everywhere.");
+                        toast.error(err?.message ?? "Failed to sign out everywhere.");
                       }
                     },
                   },
@@ -1560,7 +1554,7 @@ const [showApiModal, setShowApiModal] = useState(false);
                 key={themeKey}
                 onPress={() => handleAccentThemeChange(themeKey)}
                 style={{
-                  borderRadius: 10,
+                  borderRadius: 8,
                   borderWidth: 1,
                   borderColor: colors.border,
                   paddingHorizontal: 10,
@@ -1653,10 +1647,10 @@ const [showApiModal, setShowApiModal] = useState(false);
               try {
                 setWorking(true);
                 await createBackupSnapshot("manual");
-                Alert.alert("Backup Created", "Local backup snapshot saved.");
+                toast.success("Local backup snapshot saved.");
               } catch (error) {
                 console.error("Failed creating backup snapshot:", error);
-                Alert.alert("Error", "Failed creating backup snapshot.");
+                toast.error("Failed creating backup snapshot.");
               } finally {
                 setWorking(false);
               }
@@ -1678,7 +1672,7 @@ const [showApiModal, setShowApiModal] = useState(false);
                       await restoreLatestBackupSnapshot();
                     } catch (error) {
                       console.error("Restore backup failed:", error);
-                      Alert.alert("Error", "Failed restoring backup snapshot.");
+                      toast.error("Failed restoring backup snapshot.");
                     } finally {
                       setWorking(false);
                     }
@@ -1737,17 +1731,7 @@ const [showApiModal, setShowApiModal] = useState(false);
             icon="translate"
             label={locale === "ar" ? "اللغة" : "Language"}
             value={locale === "ar" ? "العربية" : "English"}
-            onPress={() => {
-              Alert.alert(
-                locale === "ar" ? "اختر اللغة" : "Choose language",
-                undefined,
-                [
-                  { text: "English", onPress: () => void setLocale("en") },
-                  { text: "العربية", onPress: () => void setLocale("ar") },
-                  { text: locale === "ar" ? "إلغاء" : "Cancel", style: "cancel" },
-                ]
-              );
-            }}
+            onPress={() => setShowLanguagePicker(true)}
           />
           <Row icon="admin-panel-settings" label="Admin Dashboard" description="Only visible to admins" onPress={() => router.push("/admin" as any)} />
           <Row icon="devices" label="Device Management" onPress={() => router.push("/devices" as any)} />
@@ -1831,11 +1815,7 @@ const [showApiModal, setShowApiModal] = useState(false);
                   <Text className="text-foreground font-semibold">Cancel</Text>
                 </View>
               </Pressable>
-              <Pressable onPress={handleExportData} style={{ flex: 1 }}>
-                <View className="bg-primary rounded-lg py-3 items-center">
-                  <Text className="text-white font-semibold">Export</Text>
-                </View>
-              </Pressable>
+              <Button label="Export" onPress={handleExportData} fullWidth />
             </View>
           </View>
         </View>
@@ -1848,11 +1828,7 @@ const [showApiModal, setShowApiModal] = useState(false);
             <ScrollView className="border border-border rounded-lg p-3 bg-background mb-4">
               <Text style={{ color: colors.foreground, fontFamily: "monospace", fontSize: 12 }}>{exportPreview}</Text>
             </ScrollView>
-            <Pressable onPress={() => setShowExportModal(false)}>
-              <View className="bg-primary rounded-lg py-3 items-center">
-                <Text className="text-white font-semibold">Close</Text>
-              </View>
-            </Pressable>
+            <Button label="Close" onPress={() => setShowExportModal(false)} />
           </View>
         </View>
       </Modal>
@@ -1898,11 +1874,7 @@ const [showApiModal, setShowApiModal] = useState(false);
             <Text style={{ color: colors.muted, fontSize: 10, marginBottom: 10 }}>
               read = GET only · write = GET + POST/PUT · admin = all including DELETE
             </Text>
-            <Pressable onPress={handleGenerateApiKey} style={{ marginBottom: 10 }}>
-              <View className="bg-primary rounded-lg py-3 items-center">
-                <Text className="text-white font-semibold">Generate API Key</Text>
-              </View>
-            </Pressable>
+            <Button label="Generate API Key" onPress={handleGenerateApiKey} style={{ marginBottom: 10 }} />
             {latestApiKey ? (
               <View className="border border-border rounded-lg p-3 mb-3" style={{ backgroundColor: colors.background }}>
                 <Text style={{ color: colors.muted, fontSize: 12, marginBottom: 6 }}>Copy this key now:</Text>
@@ -2005,11 +1977,7 @@ const [showApiModal, setShowApiModal] = useState(false);
                 marginBottom: 8,
               }}
             />
-            <Pressable onPress={handleCreateWebhook} style={{ marginBottom: 8 }}>
-              <View className="bg-primary rounded-lg py-3 items-center">
-                <Text className="text-white font-semibold">Create Webhook</Text>
-              </View>
-            </Pressable>
+            <Button label="Create Webhook" onPress={handleCreateWebhook} style={{ marginBottom: 8 }} />
             <ScrollView style={{ maxHeight: 130 }}>
               {(webhooksQuery.data ?? []).map((hook: any) => {
                 const hasStatus = typeof hook.lastStatus === "number";
@@ -2499,11 +2467,7 @@ const [showApiModal, setShowApiModal] = useState(false);
                   <Text className="text-foreground font-semibold">Cancel</Text>
                 </View>
               </Pressable>
-              <Pressable onPress={saveTimePicker} style={{ flex: 1 }}>
-                <View className="bg-primary rounded-lg py-3 items-center">
-                  <Text className="text-white font-semibold">Save</Text>
-                </View>
-              </Pressable>
+              <Button label="Save" onPress={saveTimePicker} fullWidth />
             </View>
           </View>
         </View>
@@ -2527,7 +2491,7 @@ const [showApiModal, setShowApiModal] = useState(false);
               style={{
                 borderWidth: 1,
                 borderColor: colors.border,
-                borderRadius: 10,
+                borderRadius: 8,
                 paddingHorizontal: 12,
                 paddingVertical: 10,
                 color: colors.foreground,
@@ -2546,7 +2510,7 @@ const [showApiModal, setShowApiModal] = useState(false);
               style={{
                 borderWidth: 1,
                 borderColor: colors.border,
-                borderRadius: 10,
+                borderRadius: 8,
                 paddingHorizontal: 12,
                 paddingVertical: 10,
                 color: colors.foreground,
@@ -2561,11 +2525,7 @@ const [showApiModal, setShowApiModal] = useState(false);
                   <Text className="text-foreground font-semibold">Cancel</Text>
                 </View>
               </Pressable>
-              <Pressable onPress={handleAccountEditSave} style={{ flex: 1 }}>
-                <View className="bg-primary rounded-lg py-3 items-center">
-                  <Text className="text-white font-semibold">Submit</Text>
-                </View>
-              </Pressable>
+              <Button label="Submit" onPress={handleAccountEditSave} fullWidth />
             </View>
           </View>
         </View>
@@ -2594,7 +2554,7 @@ const [showApiModal, setShowApiModal] = useState(false);
               style={{
                 borderWidth: 1,
                 borderColor: colors.border,
-                borderRadius: 10,
+                borderRadius: 8,
                 paddingHorizontal: 12,
                 paddingVertical: 10,
                 color: colors.foreground,
@@ -2609,11 +2569,7 @@ const [showApiModal, setShowApiModal] = useState(false);
                   <Text className="text-foreground font-semibold">Cancel</Text>
                 </View>
               </Pressable>
-              <Pressable onPress={handleConfirmEmailChange} style={{ flex: 1 }}>
-                <View className="bg-primary rounded-lg py-3 items-center">
-                  <Text className="text-white font-semibold">Verify</Text>
-                </View>
-              </Pressable>
+              <Button label="Verify" onPress={handleConfirmEmailChange} fullWidth />
             </View>
           </View>
         </View>
@@ -2644,7 +2600,7 @@ const [showApiModal, setShowApiModal] = useState(false);
                 style={{
                   borderWidth: 1,
                   borderColor: colors.border,
-                  borderRadius: 10,
+                  borderRadius: 8,
                   paddingHorizontal: 12,
                   paddingVertical: 10,
                   color: colors.foreground,
@@ -2659,15 +2615,12 @@ const [showApiModal, setShowApiModal] = useState(false);
                   <Text className="text-foreground font-semibold">Cancel</Text>
                 </View>
               </Pressable>
-              <Pressable onPress={handleChangePassword} disabled={changePasswordMutation.isPending} style={{ flex: 1 }}>
-                <View className="bg-primary rounded-lg py-3 items-center">
-                  {changePasswordMutation.isPending ? (
-                    <ActivityIndicator color="white" />
-                  ) : (
-                    <Text className="text-white font-semibold">Change Password</Text>
-                  )}
-                </View>
-              </Pressable>
+              <Button
+                label="Change Password"
+                onPress={handleChangePassword}
+                loading={changePasswordMutation.isPending}
+                fullWidth
+              />
             </View>
           </View>
         </View>
@@ -2695,7 +2648,7 @@ const [showApiModal, setShowApiModal] = useState(false);
               style={{
                 borderWidth: 1,
                 borderColor: colors.error,
-                borderRadius: 10,
+                borderRadius: 8,
                 paddingHorizontal: 12,
                 paddingVertical: 10,
                 color: colors.foreground,
@@ -2743,6 +2696,80 @@ const [showApiModal, setShowApiModal] = useState(false);
           <ActivityIndicator color={colors.primary} />
         </View>
       ) : null}
+
+      <Modal
+        visible={showLanguagePicker}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setShowLanguagePicker(false)}
+      >
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel="Close language picker"
+          onPress={() => setShowLanguagePicker(false)}
+          style={{ flex: 1, backgroundColor: "rgba(0,0,0,0.5)", justifyContent: "center", padding: 24 }}
+        >
+          <Pressable
+            onPress={() => { /* swallow tap on content */ }}
+            style={{
+              backgroundColor: colors.surface,
+              borderRadius: 14,
+              padding: 18,
+              borderWidth: 1,
+              borderColor: colors.border,
+            }}
+          >
+            <Text style={{ color: colors.foreground, fontWeight: "800", fontSize: 16, marginBottom: 12 }}>
+              {locale === "ar" ? "اختر اللغة" : "Choose language"}
+            </Text>
+            {[
+              { code: "en" as const, label: "English" },
+              { code: "ar" as const, label: "العربية" },
+            ].map((opt) => {
+              const selected = locale === opt.code;
+              return (
+                <Pressable
+                  key={opt.code}
+                  accessibilityRole="button"
+                  accessibilityLabel={`Switch language to ${opt.label}`}
+                  accessibilityState={{ selected }}
+                  onPress={() => {
+                    void setLocale(opt.code);
+                    setShowLanguagePicker(false);
+                  }}
+                  style={{
+                    flexDirection: "row",
+                    alignItems: "center",
+                    justifyContent: "space-between",
+                    paddingVertical: 12,
+                    paddingHorizontal: 14,
+                    borderRadius: 10,
+                    marginBottom: 8,
+                    backgroundColor: selected ? colors.primary + "22" : "transparent",
+                    borderWidth: 1,
+                    borderColor: selected ? colors.primary : colors.border,
+                  }}
+                >
+                  <Text style={{ color: colors.foreground, fontSize: 15, fontWeight: selected ? "700" : "500" }}>
+                    {opt.label}
+                  </Text>
+                  {selected ? <MaterialIcons name="check" size={18} color={colors.primary} /> : null}
+                </Pressable>
+              );
+            })}
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel={locale === "ar" ? "إلغاء" : "Cancel"}
+              onPress={() => setShowLanguagePicker(false)}
+              style={{ alignItems: "center", paddingVertical: 10, marginTop: 4 }}
+            >
+              <Text style={{ color: colors.muted, fontSize: 13, fontWeight: "600" }}>
+                {locale === "ar" ? "إلغاء" : "Cancel"}
+              </Text>
+            </Pressable>
+          </Pressable>
+        </Pressable>
+      </Modal>
     </ScreenContainer>
   );
 }

@@ -1,11 +1,12 @@
 import React from "react";
-import { Alert, Pressable, ScrollView, Text, TextInput, View } from "react-native";
+import { Pressable, ScrollView, Text, TextInput, View } from "react-native";
 import { useRouter } from "expo-router";
 import { MaterialIcons } from "@expo/vector-icons";
 import { ScreenContainer } from "@/components/screen-container";
 import { addConflict, ConflictRecord, listConflicts, removeConflict } from "@/lib/conflicts-storage";
 import { trpc } from "@/lib/trpc";
 import { useColors } from "@/hooks/use-colors";
+import { toast } from "@/hooks/use-toast";
 
 export default function ConflictsScreen() {
   const router = useRouter();
@@ -50,7 +51,7 @@ export default function ConflictsScreen() {
         : mergeResult.trim();
 
     if (!contentToSave.trim()) {
-      Alert.alert("Validation", "Merged content cannot be empty.");
+      toast.warning("Merged content cannot be empty.");
       return;
     }
 
@@ -62,10 +63,10 @@ export default function ConflictsScreen() {
       });
       await removeConflict(activeConflict.id);
       await refreshConflicts();
-      Alert.alert("Resolved", "Conflict resolved and saved.");
+      toast.info("Conflict resolved and saved.");
     } catch (error: any) {
       console.error("[Conflicts] Resolve failed:", error);
-      Alert.alert("Error", error?.message || "Failed to resolve conflict.");
+      toast.error(error?.message || "Failed to resolve conflict.");
     }
   };
 
@@ -87,7 +88,7 @@ export default function ConflictsScreen() {
   return (
     <ScreenContainer>
       <View className="px-4 py-4 border-b border-border flex-row items-center">
-        <Pressable onPress={() => router.back()} className="mr-3">
+        <Pressable accessibilityRole="button" accessibilityLabel="Go back" onPress={() => router.back()} className="mr-3">
           <MaterialIcons name="arrow-back" size={22} color={colors.foreground} />
         </Pressable>
         <Text className="text-2xl font-bold text-foreground">Conflict Resolution</Text>

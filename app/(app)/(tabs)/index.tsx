@@ -1,6 +1,6 @@
 import React, { Suspense, useMemo, useState } from "react";
 import { useRouter } from "expo-router";
-import { FlatList, Text, View, Pressable, RefreshControl, Modal, ActivityIndicator, TextInput, Alert } from "react-native";
+import { FlatList, Text, View, Pressable, RefreshControl, Modal, ActivityIndicator, TextInput } from "react-native";
 import { ScreenContainer } from "@/components/screen-container";
 import { SkeletonList } from "@/components/skeleton-loader";
 import { EmptyState } from "@/components/empty-state";
@@ -14,6 +14,7 @@ import * as Haptics from "expo-haptics";
 import Markdown from "react-native-markdown-display";
 import { Image as ExpoImage } from "expo-image";
 import { AudioPlayer } from "@/components/audio-player";
+import { toast } from "@/hooks/use-toast";
 
 const QuickAddModal = React.lazy(() =>
   import("@/components/quick-add-modal").then((mod) => ({ default: mod.QuickAddModal }))
@@ -357,7 +358,7 @@ export default function InboxScreen() {
       await utils.items.list.invalidate();
     } catch (error) {
       console.error("[Inbox] Failed archiving item:", error);
-      Alert.alert("Error", "Failed to archive item.");
+      toast.error("Failed to archive item.");
     }
   };
 
@@ -366,10 +367,10 @@ export default function InboxScreen() {
       await updateItemMutation.mutateAsync({ id: item.id, location: "library" });
       await loadInboxItems();
       await utils.items.list.invalidate();
-      Alert.alert("Done", "Item moved to Library.");
+      toast.success("Item moved to Library.");
     } catch (error) {
       console.error("[Inbox] Failed moving item to library:", error);
-      Alert.alert("Error", "Failed to move item to Library.");
+      toast.error("Failed to move item to Library.");
     }
   };
 
@@ -396,10 +397,10 @@ export default function InboxScreen() {
       await deleteItem(item.id);
       await utils.journal.list.invalidate();
       await utils.items.list.invalidate();
-      Alert.alert("Done", "Item moved to Journal.");
+      toast.success("Item moved to Journal.");
     } catch (error) {
       console.error("[Inbox] Failed moving item to journal:", error);
-      Alert.alert("Error", "Failed to move item to Journal.");
+      toast.error("Failed to move item to Journal.");
     }
   };
 
@@ -420,14 +421,14 @@ export default function InboxScreen() {
       await deleteItem(item.id);
       await utils.tasks.list.invalidate();
       await utils.items.list.invalidate();
-      Alert.alert("Done", "Item moved to Actions.");
+      toast.success("Item moved to Actions.");
     } catch (error) {
       console.error("[Inbox] Failed moving item to actions:", error);
       try {
         await convertToTask(item.id);
-        Alert.alert("Done", "Item moved locally to Actions.");
+        toast.success("Item moved locally to Actions.");
       } catch {
-        Alert.alert("Error", "Failed to move item to Actions.");
+        toast.error("Failed to move item to Actions.");
       }
     }
   };
@@ -435,7 +436,7 @@ export default function InboxScreen() {
   const handleSaveEdit = async () => {
     if (!editingItem) return;
     if (!editTitle.trim()) {
-      Alert.alert("Validation", "Title is required");
+      toast.warning("Title is required");
       return;
     }
 
@@ -450,7 +451,7 @@ export default function InboxScreen() {
       setEditContent("");
     } catch (error) {
       console.error("Error updating item:", error);
-      Alert.alert("Error", "Failed to update item");
+      toast.error("Failed to update item");
     } finally {
       setSavingEdit(false);
     }
@@ -549,7 +550,7 @@ export default function InboxScreen() {
                 backgroundColor: colors.surface,
                 borderColor: colors.border,
                 borderWidth: 1,
-                borderRadius: 10,
+                borderRadius: 8,
                 color: colors.foreground,
                 paddingHorizontal: 12,
                 paddingVertical: 10,
@@ -590,7 +591,7 @@ export default function InboxScreen() {
                   marginTop: 10,
                   borderWidth: 1,
                   borderColor: colors.border,
-                  borderRadius: 10,
+                  borderRadius: 8,
                   padding: 10,
                   backgroundColor: colors.surface,
                 }}
@@ -633,7 +634,7 @@ export default function InboxScreen() {
                 marginRight: action.label === "Voice" ? 0 : 8,
                 borderWidth: 1,
                 borderColor: colors.border,
-                borderRadius: 10,
+                borderRadius: 8,
                 paddingVertical: 10,
                 alignItems: "center",
                 backgroundColor: colors.surface,
@@ -745,8 +746,9 @@ export default function InboxScreen() {
           <View className="rounded-t-3xl p-6 max-h-[85%]" style={{ backgroundColor: colors.surface }}>
             <View className="flex-row items-center justify-between mb-4">
               <Text className="text-lg font-bold text-foreground">Edit Item</Text>
-              <Pressable onPress={() => setEditingItem(null)}>
-                <MaterialIcons name="close" size={22} color={colors.foreground} />
+              <Pressable accessibilityRole="button" accessibilityLabel="Close" onPress={() => setEditingItem(null)}>
+                
+<MaterialIcons name="close" size={22} color={colors.foreground} />
               </Pressable>
             </View>
 

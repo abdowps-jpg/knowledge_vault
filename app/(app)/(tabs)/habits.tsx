@@ -5,8 +5,10 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 import { ScreenContainer } from "@/components/screen-container";
 import { SkeletonList } from "@/components/skeleton-loader";
 import { EmptyState } from "@/components/empty-state";
+import { ErrorState } from "@/components/error-state";
 import { useColors } from "@/hooks/use-colors";
 import { trpc } from "@/lib/trpc";
+import { toast } from "@/hooks/use-toast";
 
 const HABITS_META_KEY = "habits_meta_v1";
 const HABITS_HISTORY_KEY = "habits_history_v1";
@@ -90,7 +92,7 @@ export default function HabitsScreen() {
 
   const handleCreate = async () => {
     if (!newHabitName.trim()) {
-      Alert.alert("Validation", "Habit name is required.");
+      toast.warning("Habit name is required.");
       return;
     }
     const parsedTarget = Number(newHabitTargetPerWeek);
@@ -110,7 +112,7 @@ export default function HabitsScreen() {
       setNewHabitTargetPerWeek("5");
     } catch (error) {
       console.error("[Habits] Failed creating habit:", error);
-      Alert.alert("Error", "Failed to create habit.");
+      toast.error("Failed to create habit.");
     }
   };
 
@@ -135,7 +137,7 @@ export default function HabitsScreen() {
             });
           } catch (error) {
             console.error("[Habits] Failed deleting habit:", error);
-            Alert.alert("Error", "Failed to delete habit.");
+            toast.error("Failed to delete habit.");
           }
         },
       },
@@ -157,7 +159,7 @@ export default function HabitsScreen() {
       });
     } catch (error) {
       console.error("[Habits] Failed toggling habit:", error);
-      Alert.alert("Error", "Failed to update habit.");
+      toast.error("Failed to update habit.");
     }
   };
 
@@ -218,7 +220,7 @@ export default function HabitsScreen() {
           style={{
             borderWidth: 1,
             borderColor: colors.border,
-            borderRadius: 10,
+            borderRadius: 8,
             paddingHorizontal: 12,
             paddingVertical: 10,
             color: colors.foreground,
@@ -236,7 +238,7 @@ export default function HabitsScreen() {
               flex: 1,
               borderWidth: 1,
               borderColor: colors.border,
-              borderRadius: 10,
+              borderRadius: 8,
               paddingHorizontal: 12,
               paddingVertical: 10,
               color: colors.foreground,
@@ -253,7 +255,7 @@ export default function HabitsScreen() {
               width: 90,
               borderWidth: 1,
               borderColor: colors.border,
-              borderRadius: 10,
+              borderRadius: 8,
               paddingHorizontal: 12,
               paddingVertical: 10,
               color: colors.foreground,
@@ -266,7 +268,7 @@ export default function HabitsScreen() {
           onPress={handleCreate}
           disabled={createHabit.isPending}
           style={{
-            borderRadius: 10,
+            borderRadius: 8,
             alignItems: "center",
             justifyContent: "center",
             paddingVertical: 12,
@@ -310,6 +312,8 @@ export default function HabitsScreen() {
         </View>
         {habitsQuery.isLoading ? (
           <SkeletonList count={3} variant="list" />
+        ) : habitsQuery.error ? (
+          <ErrorState error={habitsQuery.error} onRetry={() => void habitsQuery.refetch()} />
         ) : filteredHabits.length > 0 ? (
           filteredHabits.map((habit) => {
             const meta = metaByHabitId[habit.id] ?? { category: "General", targetPerWeek: 5 };

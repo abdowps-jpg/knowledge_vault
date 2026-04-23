@@ -12,6 +12,7 @@ import { MaterialIcons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
 
 import { useColors } from "@/hooks/use-colors";
+import { useTokens } from "@/hooks/use-tokens";
 import { useInbox } from "@/lib/context/inbox-context";
 
 type ActionKey = "quick-note" | "quick-task" | "journal-entry" | "scan-save";
@@ -84,6 +85,7 @@ function QuickActionItem({
 
 export function QuickActionsFab() {
   const colors = useColors();
+  const { shadows } = useTokens();
   const router = useRouter();
   const { openQuickAdd } = useInbox();
 
@@ -146,6 +148,8 @@ export function QuickActionsFab() {
         }}
       >
         <Pressable
+          accessibilityRole="button"
+          accessibilityLabel="Open quick actions"
           onPress={toggle}
           style={{
             width: 56,
@@ -154,7 +158,7 @@ export function QuickActionsFab() {
             backgroundColor: colors.primary,
             alignItems: "center",
             justifyContent: "center",
-            elevation: 6,
+            ...shadows.fab,
           }}
         >
           <MaterialIcons name="bolt" size={26} color="white" />
@@ -205,6 +209,8 @@ export function QuickActionsFab() {
         ))}
 
         <Pressable
+          accessibilityRole="button"
+          accessibilityLabel="Close quick actions"
           onPress={toggle}
           style={{
             width: 56,
@@ -213,7 +219,7 @@ export function QuickActionsFab() {
             backgroundColor: colors.primary,
             alignItems: "center",
             justifyContent: "center",
-            elevation: 6,
+            ...shadows.fab,
           }}
         >
           <MaterialIcons name="close" size={26} color="white" />

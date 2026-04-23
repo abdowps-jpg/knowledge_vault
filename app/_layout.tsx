@@ -33,6 +33,7 @@ import { registerPushTokenOnce } from "@/lib/notifications/push-token";
 import { useRealtime } from "@/hooks/use-realtime";
 import { initLocale } from "@/lib/i18n";
 import { OfflineSnapshot, offlineManager } from "@/lib/offline-manager";
+import { ToastHost } from "@/components/toast-host";
 
 const DEFAULT_WEB_INSETS: EdgeInsets = { top: 0, right: 0, bottom: 0, left: 0 };
 const DEFAULT_WEB_FRAME: Rect = { x: 0, y: 0, width: 0, height: 0 };
@@ -417,7 +418,7 @@ export default function RootLayout() {
             paddingHorizontal: 12,
             paddingVertical: 10,
             backgroundColor: "#ef4444",
-            borderRadius: 10,
+            borderRadius: 8,
             zIndex: 130,
           }}
         >
@@ -452,6 +453,8 @@ export default function RootLayout() {
             : ""}
         </Text>
       </View>
+
+      <ToastHost />
     </RootContainer>
   );
 

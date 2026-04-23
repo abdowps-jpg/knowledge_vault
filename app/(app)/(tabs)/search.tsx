@@ -536,8 +536,9 @@ export default function SearchScreen() {
           <View className="rounded-t-3xl p-6 max-h-3/4" style={{ backgroundColor: colors.surface }}>
             <View className="flex-row items-center justify-between mb-3">
               <Text className="text-lg font-bold text-foreground">Result Details</Text>
-              <Pressable onPress={() => setSelectedResult(null)}>
-                <MaterialIcons name="close" size={22} color={colors.foreground} />
+              <Pressable accessibilityRole="button" accessibilityLabel="Close" onPress={() => setSelectedResult(null)}>
+                
+<MaterialIcons name="close" size={22} color={colors.foreground} />
               </Pressable>
             </View>
 

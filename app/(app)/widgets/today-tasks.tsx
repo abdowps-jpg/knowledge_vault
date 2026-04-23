@@ -3,6 +3,8 @@ import { ActivityIndicator, Pressable, ScrollView, Text, View } from "react-nati
 import { useRouter } from "expo-router";
 
 import { ScreenContainer } from "@/components/screen-container";
+import { EmptyState } from "@/components/empty-state";
+import { ErrorState } from "@/components/error-state";
 import { useColors } from "@/hooks/use-colors";
 import { trpc } from "@/lib/trpc";
 
@@ -48,10 +50,16 @@ export default function WidgetTodayTasksScreen() {
         <View className="flex-1 items-center justify-center">
           <ActivityIndicator color={colors.primary} />
         </View>
+      ) : tasksQuery.error ? (
+        <ErrorState error={tasksQuery.error} onRetry={() => void tasksQuery.refetch()} />
       ) : (
         <ScrollView className="flex-1 p-4">
           {tasks.length === 0 ? (
-            <Text style={{ color: colors.muted }}>No tasks due today.</Text>
+            <EmptyState
+              icon="event-available"
+              title="No tasks due today"
+              subtitle="Add a task with today's date to see it here."
+            />
           ) : (
             tasks.map((task: any) => (
               <Pressable
@@ -60,7 +68,7 @@ export default function WidgetTodayTasksScreen() {
                 style={{
                   borderWidth: 1,
                   borderColor: colors.border,
-                  borderRadius: 10,
+                  borderRadius: 8,
                   paddingHorizontal: 12,
                   paddingVertical: 10,
                   marginBottom: 8,

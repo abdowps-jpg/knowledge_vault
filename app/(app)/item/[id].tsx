@@ -9,10 +9,12 @@ import { ScreenContainer } from "@/components/screen-container";
 import { RichTextEditor } from "@/components/rich-text-editor";
 import { useAiEnabled } from "@/hooks/use-ai-enabled";
 import { useColors } from "@/hooks/use-colors";
+import { VaultSelector } from "@/components/VaultSelector";
 import { trpc } from "@/lib/trpc";
 import * as localStorage from "@/lib/db/storage";
 import type { Item as LocalItem } from "@/lib/db/schema";
 import { useInbox } from "@/lib/context/inbox-context";
+import { toast } from "@/hooks/use-toast";
 
 export default function ItemDetailScreen() {
   const colors = useColors();
@@ -25,6 +27,7 @@ export default function ItemDetailScreen() {
   const [tagsInput, setTagsInput] = React.useState("");
   const [isSaving, setIsSaving] = React.useState(false);
   const [didHydrateForm, setDidHydrateForm] = React.useState(false);
+  const [vaultId, setVaultId] = React.useState<string | undefined>(undefined);
   const [extractingAttachmentId, setExtractingAttachmentId] = React.useState<string | null>(null);
   const [shareEmail, setShareEmail] = React.useState("");
   const [sharePermission, setSharePermission] = React.useState<"view" | "edit">("view");
@@ -61,7 +64,7 @@ export default function ItemDetailScreen() {
       setTranscribingId(attachmentId);
       const result = await transcribeAttachment.mutateAsync({ attachmentId });
       if (!result.text) {
-        Alert.alert("No Speech", "Could not detect speech in this audio.");
+        toast.info("Could not detect speech in this audio.");
         return;
       }
       setTranscriptionByAttachment((prev) => ({ ...prev, [attachmentId]: result.text }));
@@ -72,7 +75,7 @@ export default function ItemDetailScreen() {
       });
     } catch (err: any) {
       console.error("[Item/Detail] Transcription failed:", err);
-      Alert.alert("Error", err?.message || "Failed to transcribe audio.");
+      toast.error(err?.message || "Failed to transcribe audio.");
     } finally {
       setTranscribingId(null);
     }
@@ -186,6 +189,7 @@ export default function ItemDetailScreen() {
       setTitle(effectiveItem.title ?? "");
       setContent(effectiveItem.content ?? "");
       setTagsInput((effectiveItem.tags ?? []).map((tag) => tag.name).join(", "));
+      setVaultId((effectiveItem as any).vaultId ?? undefined);
       setDidHydrateForm(true);
     }
   }, [didHydrateForm, effectiveItem, id, itemQuery.error, itemQuery.isFetched, router]);
@@ -213,11 +217,11 @@ export default function ItemDetailScreen() {
   const handleSave = async () => {
     if (!id || !effectiveItem) return;
     if (effectiveItem.accessPermission !== "edit") {
-      Alert.alert("View Only", "You do not have permission to edit this item.");
+      toast.info("You do not have permission to edit this item.");
       return;
     }
     if (!title.trim()) {
-      Alert.alert("Validation", "Title is required.");
+      toast.warning("Title is required.");
       return;
     }
 
@@ -228,6 +232,7 @@ export default function ItemDetailScreen() {
           title: title.trim(),
           content: content.trim() || title.trim(),
           id,
+          vaultId: vaultId ?? null,
         });
       } else {
         await localStorage.updateItem(id, {
@@ -277,11 +282,11 @@ export default function ItemDetailScreen() {
         utils.items.list.invalidate(),
         utils.tags.list.invalidate(),
       ]);
-      Alert.alert("Saved", "Item updated successfully.");
+      toast.success("Item updated successfully.");
       router.replace("/(app)/(tabs)" as any);
     } catch (error) {
       console.error("[Item/Detail] Failed saving item:", error);
-      Alert.alert("Error", "Failed to save item.");
+      toast.error("Failed to save item.");
     } finally {
       setIsSaving(false);
     }
@@ -301,11 +306,11 @@ export default function ItemDetailScreen() {
           utils.items.getWithTags.invalidate({ id }),
           loadInboxItems(),
         ]);
-        Alert.alert("Deleted", "Item deleted successfully.");
+        toast.info("Item deleted successfully.");
         router.back();
       } catch (error: any) {
         console.error("[Item/Detail] Failed deleting item:", error);
-        Alert.alert("Error", error?.message || "Failed to delete item.");
+        toast.error(error?.message || "Failed to delete item.");
       }
     };
 
@@ -332,7 +337,7 @@ export default function ItemDetailScreen() {
     if (!id) return;
     const email = shareEmail.trim().toLowerCase();
     if (!email) {
-      Alert.alert("Validation", "Please enter an email to share with.");
+      toast.warning("Please enter an email to share with.");
       return;
     }
     try {
@@ -343,10 +348,10 @@ export default function ItemDetailScreen() {
       });
       await itemSharesQuery.refetch();
       setShareEmail("");
-      Alert.alert("Shared", `Item shared with ${email}.`);
+      toast.info(`Item shared with ${email}.`);
     } catch (error: any) {
       console.error("[Item/Share] Failed sharing item:", error);
-      Alert.alert("Error", error?.message || "Failed to share item.");
+      toast.error(error?.message || "Failed to share item.");
     }
   };
 
@@ -365,7 +370,7 @@ export default function ItemDetailScreen() {
       await commentsQuery.refetch();
     } catch (error: any) {
       console.error("[Item/Comments] Failed creating comment:", error);
-      Alert.alert("Error", error?.message || "Failed to add comment.");
+      toast.error(error?.message || "Failed to add comment.");
     }
   };
 
@@ -380,10 +385,10 @@ export default function ItemDetailScreen() {
       });
       setPublicPassword("");
       await listPublicLinks.refetch();
-      Alert.alert("Public Link Created", "You can now open this item through the generated token link.");
+      toast.info("You can now open this item through the generated token link.");
     } catch (error: any) {
       console.error("[Item/PublicLink] Failed creating public link:", error);
-      Alert.alert("Error", error?.message || "Failed to create public link.");
+      toast.error(error?.message || "Failed to create public link.");
     }
   };
 
@@ -392,7 +397,7 @@ export default function ItemDetailScreen() {
       setExtractingAttachmentId(attachmentId);
       const result = await extractText.mutateAsync({ attachmentId });
       if (!result?.text) {
-        Alert.alert("No Text Found", "Could not detect readable text in this image.");
+        toast.info("Could not detect readable text in this image.");
         return;
       }
 
@@ -401,11 +406,11 @@ export default function ItemDetailScreen() {
         const section = `\n\n[Extracted Text]\n${result.text}`.trim();
         return trimmedPrev ? `${trimmedPrev}\n\n${section}` : section;
       });
-      Alert.alert("Text Extracted", "Extracted text was inserted into content.");
+      toast.info("Extracted text was inserted into content.");
     } catch (error: any) {
       console.error("[Item/Detail] OCR extraction failed:", error);
       const message = error?.message || "Failed to extract text from image.";
-      Alert.alert("Error", message);
+      toast.error(message);
     } finally {
       setExtractingAttachmentId(null);
     }
@@ -413,7 +418,7 @@ export default function ItemDetailScreen() {
 
   const handlePrint = () => {
     if (Platform.OS !== "web") {
-      Alert.alert("Print", "Print is currently supported on web.");
+      toast.info("Print is currently supported on web.");
       return;
     }
     window.print();
@@ -443,10 +448,12 @@ export default function ItemDetailScreen() {
             This note may have been moved or deleted.
           </Text>
           <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="Go back"
             onPress={() => router.back()}
             style={{
               backgroundColor: colors.primary,
-              borderRadius: 10,
+              borderRadius: 8,
               paddingHorizontal: 16,
               paddingVertical: 10,
             }}
@@ -462,7 +469,7 @@ export default function ItemDetailScreen() {
     <ScreenContainer className="bg-background" containerClassName="bg-background">
       <View className="px-4 py-4 border-b border-border flex-row items-center justify-between">
         <Text className="text-xl font-bold text-foreground">Item Details</Text>
-        <Pressable onPress={() => router.back()}>
+        <Pressable accessibilityRole="button" accessibilityLabel="Go back" onPress={() => router.back()}>
           <Text style={{ color: colors.primary, fontWeight: "700" }}>Close</Text>
         </Pressable>
       </View>
@@ -474,6 +481,8 @@ export default function ItemDetailScreen() {
           onChangeText={setTitle}
           placeholder="Title"
           placeholderTextColor={colors.muted}
+          // writingDirection "auto" picks LTR/RTL per first strong character,
+          // so Arabic titles render right-to-left even in an English UI.
           style={{
             backgroundColor: colors.surface,
             borderColor: colors.border,
@@ -483,6 +492,7 @@ export default function ItemDetailScreen() {
             paddingHorizontal: 12,
             paddingVertical: 10,
             marginBottom: 14,
+            writingDirection: "auto",
           }}
         />
 
@@ -517,7 +527,7 @@ export default function ItemDetailScreen() {
               padding: 12,
               borderWidth: 1,
               borderColor: colors.border,
-              borderRadius: 10,
+              borderRadius: 8,
               backgroundColor: colors.surface,
               marginBottom: 4,
             }}
@@ -529,7 +539,7 @@ export default function ItemDetailScreen() {
             ) : (
               <Markdown
                 style={{
-                  body: { color: colors.foreground, fontSize: 14, lineHeight: 21 },
+                  body: { color: colors.foreground, fontSize: 14, lineHeight: 21, writingDirection: "auto" },
                   heading1: { color: colors.foreground, fontSize: 20, fontWeight: "700" },
                   heading2: { color: colors.foreground, fontSize: 17, fontWeight: "700" },
                   heading3: { color: colors.foreground, fontSize: 15, fontWeight: "700" },
@@ -580,7 +590,7 @@ export default function ItemDetailScreen() {
                     style={{
                       borderWidth: 1,
                       borderColor: colors.border,
-                      borderRadius: 10,
+                      borderRadius: 8,
                       padding: 10,
                       backgroundColor: colors.surface,
                     }}
@@ -631,7 +641,7 @@ export default function ItemDetailScreen() {
                       style={{
                         borderWidth: 1,
                         borderColor: colors.border,
-                        borderRadius: 10,
+                        borderRadius: 8,
                         padding: 10,
                         backgroundColor: colors.surface,
                       }}
@@ -693,7 +703,7 @@ export default function ItemDetailScreen() {
             style={{
               borderWidth: 1,
               borderColor: colors.border,
-              borderRadius: 10,
+              borderRadius: 8,
               padding: 12,
               marginTop: 16,
               marginBottom: 4,
@@ -708,7 +718,7 @@ export default function ItemDetailScreen() {
                     const res = await suggestTags.mutateAsync({ itemId: id });
                     setAiTagSuggestions(res.suggestions);
                   } catch (e: any) {
-                    Alert.alert("AI", e?.message ?? "Failed to suggest tags");
+                    toast.info(e?.message ?? "Failed to suggest tags");
                   }
                 }}
                 disabled={suggestTags.isPending}
@@ -730,7 +740,7 @@ export default function ItemDetailScreen() {
                     const res = await summarizeItem.mutateAsync({ itemId: id });
                     setAiSummary(res.summary || "Not enough content to summarize.");
                   } catch (e: any) {
-                    Alert.alert("AI", e?.message ?? "Failed to summarize");
+                    toast.info(e?.message ?? "Failed to summarize");
                   }
                 }}
                 disabled={summarizeItem.isPending}
@@ -754,7 +764,7 @@ export default function ItemDetailScreen() {
                     const res = await relatedItems.mutateAsync({ itemId: id, limit: 5 });
                     setAiRelated(res.related);
                   } catch (e: any) {
-                    Alert.alert("AI", e?.message ?? "Failed to find related items");
+                    toast.info(e?.message ?? "Failed to find related items");
                   }
                 }}
                 disabled={relatedItems.isPending}
@@ -778,7 +788,7 @@ export default function ItemDetailScreen() {
                     const res = await quickActions.mutateAsync({ itemId: id });
                     setAiActions(res.actions);
                   } catch (e: any) {
-                    Alert.alert("AI", e?.message ?? "Failed to suggest actions");
+                    toast.info(e?.message ?? "Failed to suggest actions");
                   }
                 }}
                 disabled={quickActions.isPending}
@@ -801,7 +811,7 @@ export default function ItemDetailScreen() {
                   try {
                     const res = await expandDraft.mutateAsync({ itemId: id, tone: "neutral" });
                     if (!res.expanded) {
-                      Alert.alert("AI", "Not enough content to expand.");
+                      toast.info("Not enough content to expand.");
                       return;
                     }
                     setContent((prev) => {
@@ -810,7 +820,7 @@ export default function ItemDetailScreen() {
                       return trimmed ? `${trimmed}\n\n${section}` : section;
                     });
                   } catch (e: any) {
-                    Alert.alert("AI", e?.message ?? "Failed to expand");
+                    toast.info(e?.message ?? "Failed to expand");
                   }
                 }}
                 disabled={expandDraft.isPending}
@@ -834,10 +844,10 @@ export default function ItemDetailScreen() {
                     const res = await extractTasks.mutateAsync({ itemId: id });
                     setExtractedTasks(res.tasks);
                     if (res.tasks.length === 0) {
-                      Alert.alert("AI", "No actionable tasks detected in this content.");
+                      toast.info("No actionable tasks detected in this content.");
                     }
                   } catch (e: any) {
-                    Alert.alert("AI", e?.message ?? "Failed to extract tasks");
+                    toast.info(e?.message ?? "Failed to extract tasks");
                   }
                 }}
                 disabled={extractTasks.isPending}
@@ -860,7 +870,7 @@ export default function ItemDetailScreen() {
                   try {
                     const res = await proofreadItem.mutateAsync({ itemId: id });
                     if (!res.cleaned) {
-                      Alert.alert("AI", "Not enough content to proofread.");
+                      toast.info("Not enough content to proofread.");
                       return;
                     }
                     Alert.alert(
@@ -877,7 +887,7 @@ export default function ItemDetailScreen() {
                       ]
                     );
                   } catch (e: any) {
-                    Alert.alert("AI", e?.message ?? "Failed to proofread");
+                    toast.info(e?.message ?? "Failed to proofread");
                   }
                 }}
                 disabled={proofreadItem.isPending}
@@ -900,7 +910,7 @@ export default function ItemDetailScreen() {
                   try {
                     const res = await suggestTitle.mutateAsync({ itemId: id });
                     if (res.titles.length === 0) {
-                      Alert.alert("AI", "Not enough content to propose a title.");
+                      toast.info("Not enough content to propose a title.");
                       return;
                     }
                     Alert.alert(
@@ -915,7 +925,7 @@ export default function ItemDetailScreen() {
                       ]
                     );
                   } catch (e: any) {
-                    Alert.alert("AI", e?.message ?? "Failed to suggest titles");
+                    toast.info(e?.message ?? "Failed to suggest titles");
                   }
                 }}
                 disabled={suggestTitle.isPending}
@@ -952,9 +962,9 @@ export default function ItemDetailScreen() {
                       try {
                         const res = await bulkCreateTasks.mutateAsync({ tasks: extractedTasks });
                         setExtractedTasks([]);
-                        Alert.alert("Tasks created", `${res.created} task${res.created === 1 ? "" : "s"} added.`);
+                        toast.info(`${res.created} task${res.created === 1 ? "" : "s"} added.`);
                       } catch (err: any) {
-                        Alert.alert("Error", err?.message ?? "Failed to create tasks.");
+                        toast.error(err?.message ?? "Failed to create tasks.");
                       }
                     }}
                     disabled={bulkCreateTasks.isPending}
@@ -1039,9 +1049,9 @@ export default function ItemDetailScreen() {
                               priority: "medium",
                             });
                             setAiActions((prev) => prev.filter((_, i) => i !== idx));
-                            Alert.alert("Task created", a.label);
+                            toast.info(a.label);
                           } catch (err: any) {
-                            Alert.alert("Error", err?.message ?? "Failed to create task.");
+                            toast.error(err?.message ?? "Failed to create task.");
                           }
                         }
                       }}
@@ -1186,6 +1196,14 @@ export default function ItemDetailScreen() {
         ) : null}
 
         <Text className="text-sm font-semibold text-foreground mb-2 mt-4">Tags (comma separated)</Text>
+        {isServerBackedItem ? (
+          <VaultSelector
+            value={vaultId}
+            onChange={setVaultId}
+            disabled={effectiveItem?.accessPermission !== "edit"}
+          />
+        ) : null}
+
         <TextInput
           value={tagsInput}
           onChangeText={setTagsInput}
@@ -1209,7 +1227,7 @@ export default function ItemDetailScreen() {
             style={{
               borderWidth: 1,
               borderColor: colors.border,
-              borderRadius: 10,
+              borderRadius: 8,
               padding: 12,
               marginBottom: 16,
               backgroundColor: colors.surface,
@@ -1299,7 +1317,7 @@ export default function ItemDetailScreen() {
                         await itemSharesQuery.refetch();
                       } catch (error) {
                         console.error("[Item/Share] Failed revoking share:", error);
-                        Alert.alert("Error", "Failed to revoke share.");
+                        toast.error("Failed to revoke share.");
                       }
                     }}
                   >
@@ -1382,7 +1400,7 @@ export default function ItemDetailScreen() {
                           await listPublicLinks.refetch();
                         } catch (error) {
                           console.error("[Item/PublicLink] Failed revoking link:", error);
-                          Alert.alert("Error", "Failed to revoke public link.");
+                          toast.error("Failed to revoke public link.");
                         }
                       }}
                     >
@@ -1404,7 +1422,7 @@ export default function ItemDetailScreen() {
           style={{
             borderWidth: 1,
             borderColor: colors.border,
-            borderRadius: 10,
+            borderRadius: 8,
             padding: 12,
             marginBottom: 20,
             backgroundColor: colors.surface,
@@ -1505,7 +1523,7 @@ export default function ItemDetailScreen() {
           style={{
             borderWidth: 1,
             borderColor: colors.border,
-            borderRadius: 10,
+            borderRadius: 8,
             padding: 12,
             marginBottom: 16,
             backgroundColor: colors.surface,
@@ -1543,10 +1561,10 @@ export default function ItemDetailScreen() {
                         itemQuery.refetch(),
                         versionsQuery.refetch(),
                       ]);
-                      Alert.alert("Restored", "Previous version restored.");
+                      toast.success("Previous version restored.");
                     } catch (error: any) {
                       console.error("[Item/Versions] Restore failed:", error);
-                      Alert.alert("Error", error?.message || "Failed to restore version.");
+                      toast.error(error?.message || "Failed to restore version.");
                     }
                   }}
                   style={{ marginTop: 8 }}
@@ -1564,7 +1582,7 @@ export default function ItemDetailScreen() {
             onPress={handlePrint}
             style={{
               flex: 1,
-              borderRadius: 10,
+              borderRadius: 8,
               paddingVertical: 14,
               alignItems: "center",
               borderWidth: 1,
@@ -1578,7 +1596,7 @@ export default function ItemDetailScreen() {
             onPress={handleOpenPresentation}
             style={{
               flex: 1,
-              borderRadius: 10,
+              borderRadius: 8,
               paddingVertical: 14,
               alignItems: "center",
               borderWidth: 1,
@@ -1596,7 +1614,7 @@ export default function ItemDetailScreen() {
           style={{
             marginTop: 8,
             backgroundColor: colors.primary,
-            borderRadius: 10,
+            borderRadius: 8,
             paddingVertical: 14,
             alignItems: "center",
             opacity: isSaving || effectiveItem?.accessPermission !== "edit" ? 0.7 : 1,
@@ -1610,7 +1628,7 @@ export default function ItemDetailScreen() {
           style={{
             marginTop: 8,
             backgroundColor: colors.error,
-            borderRadius: 10,
+            borderRadius: 8,
             paddingVertical: 14,
             alignItems: "center",
             opacity: deleteItem.isPending ? 0.7 : 1,

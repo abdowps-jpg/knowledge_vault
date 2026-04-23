@@ -63,7 +63,7 @@ export function FilterBar({
             marginRight: 8,
             paddingHorizontal: 12,
             paddingVertical: 9,
-            borderRadius: 10,
+            borderRadius: 8,
             borderWidth: 1,
             borderColor: colors.border,
             backgroundColor: colors.surface,
@@ -87,7 +87,7 @@ export function FilterBar({
           style={{
             paddingHorizontal: 12,
             paddingVertical: 9,
-            borderRadius: 10,
+            borderRadius: 8,
             borderWidth: 1,
             borderColor: colors.border,
             backgroundColor: colors.surface,
@@ -107,7 +107,7 @@ export function FilterBar({
         <View
           style={{
             marginTop: 10,
-            borderRadius: 10,
+            borderRadius: 8,
             borderWidth: 1,
             borderColor: colors.border,
             backgroundColor: colors.surface,
@@ -139,7 +139,7 @@ export function FilterBar({
         <View
           style={{
             marginTop: 10,
-            borderRadius: 10,
+            borderRadius: 8,
             borderWidth: 1,
             borderColor: colors.border,
             backgroundColor: colors.surface,

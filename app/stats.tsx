@@ -55,7 +55,7 @@ export default function StatsScreen() {
     return (
       <ScreenContainer>
         <View className="p-4 border-b border-border flex-row items-center">
-          <Pressable onPress={() => router.back()} className="mr-2">
+          <Pressable accessibilityRole="button" accessibilityLabel="Go back" onPress={() => router.back()} className="mr-2">
             <MaterialIcons name="arrow-back" size={22} color={colors.foreground} />
           </Pressable>
           <Text className="text-2xl font-bold text-foreground">Statistics</Text>
@@ -98,7 +98,7 @@ export default function StatsScreen() {
   return (
     <ScreenContainer>
       <View className="p-4 border-b border-border flex-row items-center">
-        <Pressable onPress={() => router.back()} className="mr-2">
+        <Pressable accessibilityRole="button" accessibilityLabel="Go back" onPress={() => router.back()} className="mr-2">
           <MaterialIcons name="arrow-back" size={22} color={colors.foreground} />
         </Pressable>
         <MaterialIcons name="analytics" size={28} color={colors.primary} />

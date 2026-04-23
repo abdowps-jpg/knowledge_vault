@@ -1,8 +1,9 @@
 import React, { useMemo, useState } from "react";
-import { ActivityIndicator, Alert, Pressable, Text, TextInput, TouchableOpacity, View } from "react-native";
+import { ActivityIndicator, Pressable, Text, TextInput, TouchableOpacity, View } from "react-native";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { trpc } from "@/lib/trpc";
 import { useColors } from "@/hooks/use-colors";
+import { toast } from "@/hooks/use-toast";
 
 export default function VerifyEmailScreen() {
   const router = useRouter();
@@ -17,7 +18,7 @@ export default function VerifyEmailScreen() {
   const verifyMutation = trpc.auth.verifyEmail.useMutation({
     onSuccess: () => {
       setErrorMessage(null);
-      Alert.alert("Success", "Email verified successfully. You can login now.");
+      toast.success("Email verified successfully. You can login now.");
       router.replace("/(auth)/login");
     },
     onError: (error) => {
@@ -28,7 +29,7 @@ export default function VerifyEmailScreen() {
   const resendMutation = trpc.auth.resendVerificationCode.useMutation({
     onSuccess: () => {
       setErrorMessage(null);
-      Alert.alert("Check your email", "If an account exists, a verification code has been sent.");
+      toast.info("If an account exists, a verification code has been sent.");
     },
     onError: (error) => {
       setErrorMessage(error.message || "Failed to resend code.");

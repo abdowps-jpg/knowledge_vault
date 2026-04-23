@@ -1,4 +1,4 @@
-const { themeColors } = require("./theme.config");
+const { themeColors, radii, space } = require("./theme.config");
 const plugin = require("tailwindcss/plugin");
 
 const tailwindColors = Object.fromEntries(
@@ -12,6 +12,15 @@ const tailwindColors = Object.fromEntries(
   ]),
 );
 
+// Expose our radii/space scale to Tailwind so `rounded-md`, `p-md`, `gap-sm`
+// etc. all resolve to the same numbers our RN components use via useTokens().
+const tailwindRadii = Object.fromEntries(
+  Object.entries(radii).map(([k, v]) => [k, `${v}px`])
+);
+const tailwindSpace = Object.fromEntries(
+  Object.entries(space).map(([k, v]) => [k, `${v}px`])
+);
+
 /** @type {import('tailwindcss').Config} */
 module.exports = {
   darkMode: "class",
@@ -22,6 +31,8 @@ module.exports = {
   theme: {
     extend: {
       colors: tailwindColors,
+      borderRadius: tailwindRadii,
+      spacing: tailwindSpace,
     },
   },
   plugins: [

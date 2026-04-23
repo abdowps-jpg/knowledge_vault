@@ -2,8 +2,12 @@ import React from "react";
 import { ActivityIndicator, Alert, Pressable, ScrollView, Text, TextInput, View } from "react-native";
 
 import { ScreenContainer } from "@/components/screen-container";
+import { Card } from "@/components/card";
+import { EmptyState } from "@/components/empty-state";
+import { ErrorState } from "@/components/error-state";
 import { useColors } from "@/hooks/use-colors";
 import { trpc } from "@/lib/trpc";
+import { toast } from "@/hooks/use-toast";
 
 function parseMilestones(value: string): string[] {
   return value
@@ -58,7 +62,7 @@ export default function GoalsScreen() {
 
   const handleCreateGoal = async () => {
     if (!title.trim()) {
-      Alert.alert("Validation", "Goal title is required.");
+      toast.warning("Goal title is required.");
       return;
     }
     try {
@@ -72,7 +76,7 @@ export default function GoalsScreen() {
       setMilestonesText("");
     } catch (error) {
       console.error("[Goals] Failed creating goal:", error);
-      Alert.alert("Error", "Failed to create goal.");
+      toast.error("Failed to create goal.");
     }
   };
 
@@ -81,7 +85,7 @@ export default function GoalsScreen() {
       <ScrollView className="flex-1 p-4">
         <Text className="text-2xl font-bold text-foreground mb-2">Goals & Milestones</Text>
 
-        <View style={{ borderWidth: 1, borderColor: colors.border, borderRadius: 12, padding: 12, backgroundColor: colors.surface }}>
+        <Card>
           <TextInput
             value={title}
             onChangeText={setTitle}
@@ -90,7 +94,7 @@ export default function GoalsScreen() {
             style={{
               borderWidth: 1,
               borderColor: colors.border,
-              borderRadius: 10,
+              borderRadius: 8,
               paddingHorizontal: 12,
               paddingVertical: 10,
               color: colors.foreground,
@@ -106,7 +110,7 @@ export default function GoalsScreen() {
             style={{
               borderWidth: 1,
               borderColor: colors.border,
-              borderRadius: 10,
+              borderRadius: 8,
               paddingHorizontal: 12,
               paddingVertical: 10,
               color: colors.foreground,
@@ -123,7 +127,7 @@ export default function GoalsScreen() {
             style={{
               borderWidth: 1,
               borderColor: colors.border,
-              borderRadius: 10,
+              borderRadius: 8,
               paddingHorizontal: 12,
               paddingVertical: 10,
               color: colors.foreground,
@@ -134,30 +138,30 @@ export default function GoalsScreen() {
             }}
           />
           <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="Create Goal"
             onPress={handleCreateGoal}
             disabled={createGoal.isPending}
-            style={{ borderRadius: 10, backgroundColor: colors.primary, paddingVertical: 12, alignItems: "center" }}
+            style={{ borderRadius: 8, backgroundColor: colors.primary, paddingVertical: 12, alignItems: "center" }}
           >
             {createGoal.isPending ? <ActivityIndicator color="white" /> : <Text style={{ color: "white", fontWeight: "700" }}>Create Goal</Text>}
           </Pressable>
-        </View>
+        </Card>
 
         <View style={{ marginTop: 16 }}>
           {goalsQuery.isLoading ? (
             <ActivityIndicator color={colors.primary} />
+          ) : goalsQuery.error ? (
+            <ErrorState error={goalsQuery.error} onRetry={() => void goalsQuery.refetch()} />
+          ) : (goalsQuery.data ?? []).length === 0 ? (
+            <EmptyState
+              icon="flag"
+              title="No goals yet"
+              subtitle="Goals hold your intentions and break them into milestones."
+            />
           ) : (
             (goalsQuery.data ?? []).map((goal) => (
-              <View
-                key={goal.id}
-                style={{
-                  borderWidth: 1,
-                  borderColor: colors.border,
-                  borderRadius: 12,
-                  padding: 12,
-                  backgroundColor: colors.surface,
-                  marginBottom: 10,
-                }}
-              >
+              <Card key={goal.id} style={{ marginBottom: 10 }}>
                 <Pressable onPress={() => setExpandedGoalId((prev) => (prev === goal.id ? null : goal.id))}>
                   <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "flex-start" }}>
                     <View style={{ flex: 1 }}>
@@ -237,7 +241,7 @@ export default function GoalsScreen() {
                     ))}
                   </View>
                 ) : null}
-              </View>
+              </Card>
             ))
           )}
         </View>

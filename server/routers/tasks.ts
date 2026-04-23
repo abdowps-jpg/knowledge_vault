@@ -5,6 +5,7 @@ import { z } from 'zod';
 import { db } from '../db';
 import { tasks } from '../schema/tasks';
 import { protectedProcedure, router } from '../trpc';
+import { canWrite, canDelete } from '../../lib/vault-permissions';
 
 const recurrenceSchema = z.enum(['daily', 'weekly', 'monthly']);
 
@@ -27,6 +28,7 @@ export const tasksRouter = router({
     .input(
       z.object({
         isCompleted: z.boolean().optional(),
+        vaultId: z.string().optional(),
         sortOrder: z.enum(['asc', 'desc']).default('asc'),
         limit: z.number().min(1).max(100).default(25),
         cursor: z.number().int().min(0).optional(),
@@ -39,6 +41,10 @@ export const tasksRouter = router({
 
         if (typeof input.isCompleted === 'boolean') {
           conditions.push(eq(tasks.isCompleted, input.isCompleted));
+        }
+
+        if (input.vaultId) {
+          conditions.push(eq(tasks.vaultId, input.vaultId));
         }
 
         const result = await db
@@ -82,10 +88,14 @@ export const tasksRouter = router({
         isImportant: z.boolean().optional(),
         priority: z.enum(['low', 'medium', 'high']).default('medium'),
         recurrence: recurrenceSchema.optional(),
+        vaultId: z.string().optional(),
       })
     )
     .mutation(async ({ input, ctx }) => {
       try {
+        if (input.vaultId) {
+          await canWrite(ctx.user.id, input.vaultId);
+        }
         if (input.blockedByTaskId) {
           const blockerRows = await db
             .select({ id: tasks.id })
@@ -113,6 +123,7 @@ export const tasksRouter = router({
           isCompleted: false,
           completedAt: null,
           recurrence: input.recurrence || null,
+          vaultId: input.vaultId ?? null,
         };
 
         await db.insert(tasks).values(newTask);
@@ -140,6 +151,7 @@ export const tasksRouter = router({
         priority: z.enum(['low', 'medium', 'high']).optional(),
         isCompleted: z.boolean().optional(),
         recurrence: recurrenceSchema.nullable().optional(),
+        vaultId: z.string().nullable().optional(),
       })
     )
     .mutation(async ({ input, ctx }) => {
@@ -148,11 +160,21 @@ export const tasksRouter = router({
         const existingTaskRows = await db
           .select()
           .from(tasks)
-          .where(and(eq(tasks.id, id), eq(tasks.userId, ctx.user.id), isNull(tasks.deletedAt)))
+          .where(and(eq(tasks.id, id), isNull(tasks.deletedAt)))
           .limit(1);
         const existingTask = existingTaskRows[0];
         if (!existingTask) {
           return { success: false };
+        }
+        if (existingTask.vaultId) {
+          await canWrite(ctx.user.id, existingTask.vaultId);
+        } else if (existingTask.userId !== ctx.user.id) {
+          return { success: false };
+        }
+        if (typeof input.vaultId !== 'undefined' && input.vaultId !== existingTask.vaultId) {
+          if (input.vaultId) {
+            await canWrite(ctx.user.id, input.vaultId);
+          }
         }
 
         const updateData: Record<string, unknown> = {
@@ -179,7 +201,7 @@ export const tasksRouter = router({
           updateData.completedAt = isCompleted ? new Date() : null;
         }
 
-        await db.update(tasks).set(updateData).where(and(eq(tasks.id, id), eq(tasks.userId, ctx.user.id)));
+        await db.update(tasks).set(updateData).where(eq(tasks.id, id));
         return { success: true };
       } catch (error) {
         console.error('Error updating task:', error);
@@ -196,7 +218,13 @@ export const tasksRouter = router({
     )
     .mutation(async ({ input, ctx }) => {
       try {
-        await db.delete(tasks).where(and(eq(tasks.id, input.id), eq(tasks.userId, ctx.user.id)));
+        const row = await db.select().from(tasks).where(eq(tasks.id, input.id)).limit(1);
+        if (row[0]?.vaultId) {
+          await canDelete(ctx.user.id, row[0].vaultId);
+          await db.delete(tasks).where(eq(tasks.id, input.id));
+        } else {
+          await db.delete(tasks).where(and(eq(tasks.id, input.id), eq(tasks.userId, ctx.user.id)));
+        }
         return { success: true };
       } catch (error) {
         console.error('Error deleting task:', error);

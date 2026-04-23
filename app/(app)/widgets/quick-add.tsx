@@ -1,10 +1,11 @@
 import React from "react";
-import { ActivityIndicator, Alert, Pressable, Text, TextInput, View } from "react-native";
+import { ActivityIndicator, Pressable, Text, TextInput, View } from "react-native";
 import { useRouter } from "expo-router";
 
 import { ScreenContainer } from "@/components/screen-container";
 import { useColors } from "@/hooks/use-colors";
 import { trpc } from "@/lib/trpc";
+import { toast } from "@/hooks/use-toast";
 
 export default function WidgetQuickAddScreen() {
   const colors = useColors();
@@ -16,7 +17,7 @@ export default function WidgetQuickAddScreen() {
 
   const handleCreate = async () => {
     if (!title.trim()) {
-      Alert.alert("Validation", "Task title is required.");
+      toast.warning("Task title is required.");
       return;
     }
     try {
@@ -28,7 +29,7 @@ export default function WidgetQuickAddScreen() {
       router.replace("/(app)/(tabs)/actions");
     } catch (error) {
       console.error("[Widgets/QuickAdd] Failed creating task:", error);
-      Alert.alert("Error", "Failed to create task.");
+      toast.error("Failed to create task.");
     }
   };
 
@@ -48,7 +49,7 @@ export default function WidgetQuickAddScreen() {
           style={{
             borderWidth: 1,
             borderColor: colors.border,
-            borderRadius: 10,
+            borderRadius: 8,
             paddingHorizontal: 12,
             paddingVertical: 10,
             color: colors.foreground,
@@ -64,7 +65,7 @@ export default function WidgetQuickAddScreen() {
           style={{
             borderWidth: 1,
             borderColor: colors.border,
-            borderRadius: 10,
+            borderRadius: 8,
             paddingHorizontal: 12,
             paddingVertical: 10,
             color: colors.foreground,
@@ -77,7 +78,7 @@ export default function WidgetQuickAddScreen() {
           onPress={handleCreate}
           disabled={createTask.isPending}
           style={{
-            borderRadius: 10,
+            borderRadius: 8,
             alignItems: "center",
             justifyContent: "center",
             paddingVertical: 14,

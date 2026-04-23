@@ -26,9 +26,9 @@ function resolveBaseUrl(): string | null {
 }
 
 /**
- * Opens a Server-Sent Events connection to `/events?token=<jwt>` and fires
- * callbacks on each notification event. No-op on native platforms that don't
- * have a global EventSource.
+ * Opens a Server-Sent Events connection to `/events?ticket=<t>`, where the
+ * ticket is obtained by exchanging the JWT at POST /events/ticket. Keeps the
+ * JWT out of the SSE URL (which leaks via access logs, Referer, history).
  */
 export function useRealtime(cbs: RealtimeCallbacks) {
   const savedCbs = useRef(cbs);
@@ -50,7 +50,14 @@ export function useRealtime(cbs: RealtimeCallbacks) {
       const token = await getToken();
       if (!token || cancelled) return;
       try {
-        const url = `${base}/events?token=${encodeURIComponent(token)}`;
+        const ticketRes = await fetch(`${base}/events/ticket`, {
+          method: "POST",
+          headers: { authorization: `Bearer ${token}` },
+        });
+        if (!ticketRes.ok) throw new Error(`ticket exchange failed: ${ticketRes.status}`);
+        const { ticket } = (await ticketRes.json()) as { ticket?: string };
+        if (!ticket || cancelled) return;
+        const url = `${base}/events?ticket=${encodeURIComponent(ticket)}`;
         source = new (globalThis as any).EventSource(url);
         source.addEventListener("notification", (ev: MessageEvent) => {
           try {

@@ -324,7 +324,7 @@ export default function AppLayout() {
             </ScrollView>
             <Pressable
               onPress={() => setShowShortcutsHelp(false)}
-              style={{ marginTop: 12, borderRadius: 10, paddingVertical: 10, backgroundColor: colors.primary }}
+              style={{ marginTop: 12, borderRadius: 8, paddingVertical: 10, backgroundColor: colors.primary }}
             >
               <Text style={{ textAlign: "center", color: "white", fontWeight: "700" }}>Close</Text>
             </Pressable>
@@ -347,7 +347,7 @@ export default function AppLayout() {
               style={{
                 borderWidth: 1,
                 borderColor: colors.border,
-                borderRadius: 10,
+                borderRadius: 8,
                 paddingHorizontal: 12,
                 paddingVertical: 10,
                 fontSize: 14,

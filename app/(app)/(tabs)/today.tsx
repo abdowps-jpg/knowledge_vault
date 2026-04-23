@@ -40,7 +40,7 @@ function SectionHeader({ title, icon, count, color }: { title: string; icon: key
         style={{
           marginLeft: 8,
           backgroundColor: (color || colors.primary) + "20",
-          borderRadius: 10,
+          borderRadius: 8,
           paddingHorizontal: 8,
           paddingVertical: 2,
         }}

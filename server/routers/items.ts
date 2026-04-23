@@ -10,6 +10,7 @@ import { itemCategories } from '../schema/categories';
 import { ensureItemAccess, getItemAccessById } from '../lib/item-access';
 import { fetchLinkMetadata } from '../lib/link-metadata';
 import { itemVersions } from '../schema/item_versions';
+import { canWrite, canDelete } from '../../lib/vault-permissions';
 
 const LINK_META_WINDOW_MS = 60_000;
 const LINK_META_MAX = 20;
@@ -34,6 +35,7 @@ export const itemsRouter = router({
       isFavorite: z.boolean().optional(),
       type: z.enum(['note', 'quote', 'link', 'audio']).optional(),
       categoryId: z.string().optional(),
+      vaultId: z.string().optional(),
       recentDays: z.number().optional(),
       sortBy: z.enum(['createdAt', 'title']).default('createdAt'),
       sortOrder: z.enum(['asc', 'desc']).default('desc'),
@@ -59,6 +61,10 @@ export const itemsRouter = router({
 
         if (input.categoryId) {
           conditions.push(eq(itemCategories.categoryId, input.categoryId));
+        }
+
+        if (input.vaultId) {
+          conditions.push(eq(items.vaultId, input.vaultId));
         }
 
         if (input.recentDays && input.recentDays > 0) {
@@ -149,16 +155,30 @@ export const itemsRouter = router({
     )
     .query(async ({ input, ctx }) => {
       try {
-        const ownerRows = await db
+        const itemRows = await db
           .select()
           .from(items)
-          .where(and(eq(items.id, input.id), eq(items.userId, ctx.user.id)))
+          .where(eq(items.id, input.id))
           .limit(1);
+        const itemRow = itemRows[0];
 
         let accessRole: 'owner' | 'shared' = 'owner';
         let accessPermission: 'view' | 'edit' = 'edit';
 
-        if (ownerRows.length === 0) {
+        if (itemRow?.vaultId) {
+          const { vaultMembers } = await import('../schema/vaults');
+          const memberRows = await db
+            .select()
+            .from(vaultMembers)
+            .where(and(eq(vaultMembers.vaultId, itemRow.vaultId), eq(vaultMembers.userId, ctx.user.id)))
+            .limit(1);
+          const member = memberRows[0];
+          if (!member) {
+            throw new TRPCError({ code: 'FORBIDDEN', message: 'Not a member of this vault' });
+          }
+          accessRole = member.role === 'owner' ? 'owner' : 'shared';
+          accessPermission = member.role === 'viewer' ? 'view' : 'edit';
+        } else if (!itemRow || itemRow.userId !== ctx.user.id) {
           const access = await getItemAccessById({
             itemId: input.id,
             userId: ctx.user.id,
@@ -223,9 +243,13 @@ export const itemsRouter = router({
       content: z.string().optional(),
       url: z.string().optional(),
       location: z.enum(['inbox', 'library', 'archive']).optional(),
+      vaultId: z.string().optional(),
     }))
     .mutation(async ({ input, ctx }) => {
       try {
+        if (input.vaultId) {
+          await canWrite(ctx.user.id, input.vaultId);
+        }
         const newItem = {
           id: randomUUID(),
           userId: ctx.user.id,
@@ -235,6 +259,7 @@ export const itemsRouter = router({
           url: input.url || null,
           location: input.location ?? ('inbox' as const),
           isFavorite: false,
+          vaultId: input.vaultId ?? null,
         };
 
         await db.insert(items).values(newItem);
@@ -287,16 +312,28 @@ export const itemsRouter = router({
       content: z.string().optional(),
       location: z.enum(['inbox', 'library', 'archive']).optional(),
       isFavorite: z.boolean().optional(),
+      vaultId: z.string().nullable().optional(),
     }))
     .mutation(async ({ input, ctx }) => {
       const { id, ...data } = input;
 
-      const access = await getItemAccessById({
-        itemId: id,
-        userId: ctx.user.id,
-        userEmail: ctx.user.email,
-      });
-      ensureItemAccess(access, 'edit');
+      const currentForVault = await db.select().from(items).where(eq(items.id, id)).limit(1);
+      const currentVaultId = currentForVault[0]?.vaultId ?? null;
+      if (currentVaultId) {
+        await canWrite(ctx.user.id, currentVaultId);
+      } else {
+        const access = await getItemAccessById({
+          itemId: id,
+          userId: ctx.user.id,
+          userEmail: ctx.user.email,
+        });
+        ensureItemAccess(access, 'edit');
+      }
+      if (typeof input.vaultId !== 'undefined' && input.vaultId !== currentVaultId) {
+        if (input.vaultId) {
+          await canWrite(ctx.user.id, input.vaultId);
+        }
+      }
 
       const MAX_VERSIONS_PER_ITEM = 50;
 
@@ -378,9 +415,15 @@ export const itemsRouter = router({
       id: z.string(),
     }))
     .mutation(async ({ input, ctx }) => {
-      await db
-        .delete(items)
-        .where(and(eq(items.id, input.id), eq(items.userId, ctx.user.id)));
+      const row = await db.select().from(items).where(eq(items.id, input.id)).limit(1);
+      if (row[0]?.vaultId) {
+        await canDelete(ctx.user.id, row[0].vaultId);
+        await db.delete(items).where(eq(items.id, input.id));
+      } else {
+        await db
+          .delete(items)
+          .where(and(eq(items.id, input.id), eq(items.userId, ctx.user.id)));
+      }
 
       return { success: true };
     }),

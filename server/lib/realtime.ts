@@ -3,13 +3,23 @@ import type { Response } from 'express';
 type Client = { userId: string; res: Response };
 
 const clients = new Set<Client>();
+const MAX_CONNECTIONS_PER_USER = 5;
 
 function formatEvent(event: string, data: unknown): string {
   const payload = typeof data === 'string' ? data : JSON.stringify(data);
   return `event: ${event}\ndata: ${payload}\n\n`;
 }
 
-export function addRealtimeClient(userId: string, res: Response): () => void {
+export function countConnectionsForUser(userId: string): number {
+  let n = 0;
+  for (const c of clients) if (c.userId === userId) n++;
+  return n;
+}
+
+export function addRealtimeClient(userId: string, res: Response): (() => void) | null {
+  if (countConnectionsForUser(userId) >= MAX_CONNECTIONS_PER_USER) {
+    return null;
+  }
   const client: Client = { userId, res };
   clients.add(client);
 

@@ -4,6 +4,8 @@ import { useRouter } from "expo-router";
 import { MaterialIcons } from "@expo/vector-icons";
 import { trpc } from "@/lib/trpc";
 import { ScreenContainer } from "@/components/screen-container";
+import { EmptyState } from "@/components/empty-state";
+import { ErrorState } from "@/components/error-state";
 import { useColors } from "@/hooks/use-colors";
 
 export default function DevicesScreen() {
@@ -28,13 +30,21 @@ export default function DevicesScreen() {
     );
   }
 
+  if (devicesQuery.error) {
+    return (
+      <ScreenContainer>
+        <ErrorState error={devicesQuery.error} onRetry={() => void devicesQuery.refetch()} />
+      </ScreenContainer>
+    );
+  }
+
   const devices = devicesQuery.data ?? [];
 
   return (
     <ScreenContainer>
       <View className="px-4 py-4 border-b border-border flex-row items-center justify-between">
         <View className="flex-row items-center">
-          <Pressable onPress={() => router.back()} className="mr-3">
+          <Pressable accessibilityRole="button" accessibilityLabel="Go back" onPress={() => router.back()} className="mr-3">
             <MaterialIcons name="arrow-back" size={22} color={colors.foreground} />
           </Pressable>
           <Text className="text-2xl font-bold text-foreground">Devices</Text>
@@ -44,6 +54,13 @@ export default function DevicesScreen() {
         </Pressable>
       </View>
       <ScrollView className="flex-1 p-4">
+        {devices.length === 0 ? (
+          <EmptyState
+            icon="devices"
+            title="No devices signed in"
+            subtitle="Sign in on another device to see it listed here."
+          />
+        ) : null}
         {devices.map((device) => (
           <View key={device.id} className="bg-surface border border-border rounded-xl p-4 mb-3">
             <Text className="text-foreground font-semibold">{device.deviceName}</Text>

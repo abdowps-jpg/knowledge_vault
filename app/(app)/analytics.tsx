@@ -4,6 +4,7 @@ import { BarChart, PieChart } from "react-native-chart-kit";
 import { useRouter } from "expo-router";
 import { MaterialIcons } from "@expo/vector-icons";
 import { ScreenContainer } from "@/components/screen-container";
+import { ErrorState } from "@/components/error-state";
 import { trpc } from "@/lib/trpc";
 import { useColors } from "@/hooks/use-colors";
 
@@ -29,6 +30,12 @@ export default function AnalyticsScreen() {
   const distribution = trpc.analytics.getDistribution.useQuery();
 
   const loading = productivity.isLoading || streaks.isLoading || distribution.isLoading;
+  const queryError = productivity.error ?? streaks.error ?? distribution.error;
+  const refetchAll = () => {
+    void productivity.refetch();
+    void streaks.refetch();
+    void distribution.refetch();
+  };
 
   const chartConfig = useMemo(
     () => ({
@@ -100,10 +107,18 @@ export default function AnalyticsScreen() {
     );
   }
 
+  if (queryError) {
+    return (
+      <ScreenContainer>
+        <ErrorState error={queryError} onRetry={refetchAll} />
+      </ScreenContainer>
+    );
+  }
+
   return (
     <ScreenContainer>
       <View className="px-4 py-4 border-b border-border flex-row items-center">
-        <Pressable onPress={() => router.back()} className="mr-3">
+        <Pressable accessibilityRole="button" accessibilityLabel="Go back" onPress={() => router.back()} className="mr-3">
           <MaterialIcons name="arrow-back" size={22} color={colors.foreground} />
         </Pressable>
         <Text className="text-2xl font-bold text-foreground">Analytics</Text>

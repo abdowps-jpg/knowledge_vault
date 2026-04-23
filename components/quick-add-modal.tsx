@@ -16,6 +16,7 @@ import { RichTextEditor } from "./rich-text-editor";
 import { Image as ExpoImage } from "expo-image";
 import { VoiceInputButton } from "./voice-input-button";
 import { QUICK_TEMPLATES, type QuickTemplate } from "@/lib/templates";
+import { VaultSelector } from "./VaultSelector";
 
 // ============================================================================
 // Tab Component
@@ -85,6 +86,17 @@ export function QuickAddModal() {
   const [source, setSource] = useState("");
   const [author, setAuthor] = useState("");
   const [destination, setDestination] = useState<"inbox" | "library" | "actions">("inbox");
+  const [vaultId, setVaultId] = useState<string | undefined>(undefined);
+  const createItemForVault = trpc.items.create.useMutation({
+    onSuccess: () => {
+      utils.items.list.invalidate();
+    },
+  });
+  const createTaskForVault = trpc.tasks.create.useMutation({
+    onSuccess: () => {
+      utils.tasks.list.invalidate();
+    },
+  });
   const noteTemplates = [
     { label: "Meeting Notes", title: "Meeting Notes", content: "- Agenda\n- Decisions\n- Next steps" },
     { label: "Daily Plan", title: "Daily Plan", content: "- Top 3 priorities\n- Time blocks\n- End-of-day review" },
@@ -112,6 +124,7 @@ export function QuickAddModal() {
     setUrl("");
     setSource("");
     setAuthor("");
+    setVaultId(undefined);
     setSelectedImageUri(null);
     setSelectedImageBase64(null);
     setSelectedImageName(null);
@@ -298,7 +311,36 @@ export function QuickAddModal() {
         itemData.url = url.trim();
       }
 
-      const newItem = await addItem(itemData);
+      let newItem: { id?: string } | null = null;
+      if (vaultId) {
+        if (destination === "actions") {
+          await createTaskForVault.mutateAsync({
+            title: itemData.title,
+            description: itemData.content,
+            priority: "medium",
+            vaultId,
+          });
+        } else {
+          const itemType =
+            quickAddModal.activeTab === "quote"
+              ? "quote"
+              : quickAddModal.activeTab === "link"
+              ? "link"
+              : "note";
+          const locationForVault: "inbox" | "library" | "archive" =
+            destination === "library" ? "library" : "inbox";
+          newItem = await createItemForVault.mutateAsync({
+            type: itemType,
+            title: itemData.title,
+            content: itemData.content,
+            url: itemData.url,
+            location: locationForVault,
+            vaultId,
+          });
+        }
+      } else {
+        newItem = await addItem(itemData);
+      }
       await AsyncStorage.setItem(DESTINATION_KEY, destination);
       if (newItem?.id && selectedImageBase64 && selectedImageName) {
         await createAttachment.mutateAsync({
@@ -388,7 +430,7 @@ export function QuickAddModal() {
                 opacity: pressed ? 0.75 : 1,
                 borderWidth: 1,
                 borderColor: colors.border,
-                borderRadius: 10,
+                borderRadius: 8,
                 backgroundColor: colors.surface,
                 paddingVertical: 9,
                 paddingHorizontal: 12,
@@ -418,7 +460,7 @@ export function QuickAddModal() {
                 style={{
                   paddingVertical: 9,
                   paddingHorizontal: 10,
-                  borderRadius: 10,
+                  borderRadius: 8,
                   borderWidth: 1,
                   borderColor: colors.border,
                   backgroundColor: colors.surface,
@@ -437,6 +479,9 @@ export function QuickAddModal() {
               </Pressable>
             ))}
           </View>
+        </View>
+        <View className="px-4 pb-4">
+          <VaultSelector value={vaultId} onChange={setVaultId} />
         </View>
       </View>
 
@@ -893,7 +938,7 @@ export function QuickAddModal() {
                   style={{
                     borderWidth: 1,
                     borderColor: colors.border,
-                    borderRadius: 10,
+                    borderRadius: 8,
                     backgroundColor: colors.background,
                     paddingHorizontal: 12,
                     paddingVertical: 10,

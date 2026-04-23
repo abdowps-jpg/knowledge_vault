@@ -5,6 +5,7 @@ export const tasks = sqliteTable(
   {
     id: text('id').primaryKey(),
     userId: text('user_id').notNull(),
+    vaultId: text('vault_id'),
     title: text('title').notNull(),
     description: text('description'),
     dueDate: text('due_date'),
@@ -24,6 +25,7 @@ export const tasks = sqliteTable(
   },
   (table) => ({
     userIdx: index('tasks_user_idx').on(table.userId),
+    vaultIdx: index('tasks_vault_idx').on(table.vaultId),
     dueDateIdx: index('tasks_due_date_idx').on(table.dueDate),
     blockedByIdx: index('tasks_blocked_by_idx').on(table.blockedByTaskId),
     urgentIdx: index('tasks_urgent_idx').on(table.isUrgent),

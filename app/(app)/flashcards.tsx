@@ -2,8 +2,10 @@ import React from "react";
 import { ActivityIndicator, Alert, Pressable, ScrollView, Text, View } from "react-native";
 
 import { ScreenContainer } from "@/components/screen-container";
+import { ErrorState } from "@/components/error-state";
 import { useColors } from "@/hooks/use-colors";
 import { trpc } from "@/lib/trpc";
+import { toast } from "@/hooks/use-toast";
 
 type Card = {
   id: string;
@@ -37,7 +39,7 @@ export default function FlashcardsScreen() {
       await dueQuery.refetch();
       await statsQuery.refetch();
     } catch (err: any) {
-      Alert.alert("Error", err?.message ?? "Failed to save review.");
+      toast.error(err?.message ?? "Failed to save review.");
     }
   }
 
@@ -86,6 +88,8 @@ export default function FlashcardsScreen() {
           <View style={{ alignItems: "center", paddingVertical: 40 }}>
             <ActivityIndicator color={colors.primary} />
           </View>
+        ) : dueQuery.error ? (
+          <ErrorState error={dueQuery.error} onRetry={() => void dueQuery.refetch()} />
         ) : !current ? (
           <View
             style={{
@@ -127,7 +131,7 @@ export default function FlashcardsScreen() {
                 style={{
                   marginTop: 16,
                   padding: 14,
-                  borderRadius: 10,
+                  borderRadius: 8,
                   backgroundColor: colors.background,
                   borderWidth: 1,
                   borderColor: colors.border,
@@ -148,7 +152,7 @@ export default function FlashcardsScreen() {
                 style={{
                   marginTop: 20,
                   padding: 14,
-                  borderRadius: 10,
+                  borderRadius: 8,
                   backgroundColor: colors.primary,
                   alignItems: "center",
                 }}

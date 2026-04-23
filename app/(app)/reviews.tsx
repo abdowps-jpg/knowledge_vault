@@ -1,11 +1,14 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import React from "react";
-import { ActivityIndicator, Alert, Pressable, ScrollView, Text, TextInput, View } from "react-native";
+import { ActivityIndicator, Pressable, ScrollView, Text, TextInput, View } from "react-native";
 
 import { ScreenContainer } from "@/components/screen-container";
+import { Card } from "@/components/card";
+import { ErrorState } from "@/components/error-state";
 import { useAiEnabled } from "@/hooks/use-ai-enabled";
 import { useColors } from "@/hooks/use-colors";
 import { trpc } from "@/lib/trpc";
+import { toast } from "@/hooks/use-toast";
 
 const REVIEWS_STORAGE_KEY = "reviews.entries.v1";
 
@@ -44,7 +47,7 @@ export default function ReviewsScreen() {
       setReview(res);
     } catch (err: any) {
       console.error("[Reviews] Weekly review failed:", err);
-      Alert.alert("AI", err?.message ?? "Failed to generate weekly review.");
+      toast.info(err?.message ?? "Failed to generate weekly review.");
     }
   };
 
@@ -84,13 +87,13 @@ export default function ReviewsScreen() {
         completedTaskIds: (type === "daily" ? completedToday : completedThisWeek).map((task: any) => task.id),
       };
       await AsyncStorage.setItem(REVIEWS_STORAGE_KEY, JSON.stringify([entry, ...existing].slice(0, 200)));
-      Alert.alert("Saved", `${type === "daily" ? "Daily" : "Weekly"} review saved.`);
+      toast.success(`${type === "daily" ? "Daily" : "Weekly"} review saved.`);
       setWins("");
       setImprovements("");
       setNextFocus("");
     } catch (error) {
       console.error("[Reviews] Failed saving review:", error);
-      Alert.alert("Error", "Failed to save review.");
+      toast.error("Failed to save review.");
     } finally {
       setSaving(false);
     }
@@ -103,16 +106,7 @@ export default function ReviewsScreen() {
         <Text className="text-sm text-muted mb-4">Reflect, learn, and plan next actions.</Text>
 
         {aiEnabled ? (
-        <View
-          style={{
-            borderWidth: 1,
-            borderColor: colors.border,
-            borderRadius: 12,
-            padding: 12,
-            backgroundColor: colors.surface,
-            marginBottom: 12,
-          }}
-        >
+        <Card style={{ marginBottom: 12 }}>
           <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}>
             <Text style={{ color: colors.foreground, fontWeight: "700", fontSize: 14 }}>
               AI Weekly Review
@@ -195,13 +189,15 @@ export default function ReviewsScreen() {
               ) : null}
             </>
           ) : null}
-        </View>
+        </Card>
         ) : null}
 
-        <View style={{ borderWidth: 1, borderColor: colors.border, borderRadius: 12, padding: 12, backgroundColor: colors.surface, marginBottom: 12 }}>
+        <Card style={{ marginBottom: 12 }}>
           <Text style={{ color: colors.foreground, fontWeight: "700", marginBottom: 8 }}>Completed Today ({completedToday.length})</Text>
           {tasksQuery.isLoading ? (
             <ActivityIndicator color={colors.primary} />
+          ) : tasksQuery.error ? (
+            <ErrorState error={tasksQuery.error} onRetry={() => void tasksQuery.refetch()} />
           ) : completedToday.length === 0 ? (
             <Text style={{ color: colors.muted }}>No completed tasks today.</Text>
           ) : (
@@ -211,9 +207,9 @@ export default function ReviewsScreen() {
               </Text>
             ))
           )}
-        </View>
+        </Card>
 
-        <View style={{ borderWidth: 1, borderColor: colors.border, borderRadius: 12, padding: 12, backgroundColor: colors.surface, marginBottom: 12 }}>
+        <Card style={{ marginBottom: 12 }}>
           <Text style={{ color: colors.foreground, fontWeight: "700", marginBottom: 8 }}>Completed This Week ({completedThisWeek.length})</Text>
           {completedThisWeek.length === 0 ? (
             <Text style={{ color: colors.muted }}>No completed tasks this week.</Text>
@@ -224,9 +220,9 @@ export default function ReviewsScreen() {
               </Text>
             ))
           )}
-        </View>
+        </Card>
 
-        <View style={{ borderWidth: 1, borderColor: colors.border, borderRadius: 12, padding: 12, backgroundColor: colors.surface }}>
+        <Card>
           <Text style={{ color: colors.foreground, fontWeight: "700", marginBottom: 8 }}>Reflection Prompts</Text>
           <TextInput
             value={wins}
@@ -237,7 +233,7 @@ export default function ReviewsScreen() {
             style={{
               borderWidth: 1,
               borderColor: colors.border,
-              borderRadius: 10,
+              borderRadius: 8,
               paddingHorizontal: 12,
               paddingVertical: 10,
               color: colors.foreground,
@@ -256,7 +252,7 @@ export default function ReviewsScreen() {
             style={{
               borderWidth: 1,
               borderColor: colors.border,
-              borderRadius: 10,
+              borderRadius: 8,
               paddingHorizontal: 12,
               paddingVertical: 10,
               color: colors.foreground,
@@ -275,7 +271,7 @@ export default function ReviewsScreen() {
             style={{
               borderWidth: 1,
               borderColor: colors.border,
-              borderRadius: 10,
+              borderRadius: 8,
               paddingHorizontal: 12,
               paddingVertical: 10,
               color: colors.foreground,
@@ -290,19 +286,19 @@ export default function ReviewsScreen() {
             <Pressable
               onPress={() => handleSaveReview("daily")}
               disabled={saving}
-              style={{ flex: 1, borderRadius: 10, backgroundColor: colors.primary, paddingVertical: 12, alignItems: "center" }}
+              style={{ flex: 1, borderRadius: 8, backgroundColor: colors.primary, paddingVertical: 12, alignItems: "center" }}
             >
               {saving ? <ActivityIndicator color="white" /> : <Text style={{ color: "white", fontWeight: "700" }}>Save Daily</Text>}
             </Pressable>
             <Pressable
               onPress={() => handleSaveReview("weekly")}
               disabled={saving}
-              style={{ flex: 1, borderRadius: 10, borderWidth: 1, borderColor: colors.border, paddingVertical: 12, alignItems: "center" }}
+              style={{ flex: 1, borderRadius: 8, borderWidth: 1, borderColor: colors.border, paddingVertical: 12, alignItems: "center" }}
             >
               <Text style={{ color: colors.foreground, fontWeight: "700" }}>Save Weekly</Text>
             </Pressable>
           </View>
-        </View>
+        </Card>
       </ScrollView>
     </ScreenContainer>
   );

@@ -23,6 +23,7 @@ import {
 import { clearAllData } from "@/lib/db/storage";
 import { clearSyncQueue } from "@/lib/sync-manager";
 import { loadAppSettings, saveAppSettings } from "@/lib/settings-storage";
+import { toast } from "@/hooks/use-toast";
 
 export default function LoginScreen() {
   const router = useRouter();
@@ -53,7 +54,7 @@ export default function LoginScreen() {
         });
       } catch (error) {
         console.error("[Auth/Login] Failed saving auth state:", error);
-        Alert.alert("Login Failed", "Could not save your session. Please try again.");
+        toast.error("Could not save your session. Please try again.");
         return;
       }
 
@@ -105,13 +106,13 @@ export default function LoginScreen() {
         return;
       }
       console.error("[Auth/Login] Login mutation failed:", error);
-      Alert.alert("Login Failed", error.message || "Unable to sign in.");
+      toast.error(error.message || "Unable to sign in.");
     },
   });
 
   const handleLogin = async () => {
     if (!email.trim() || !password) {
-      Alert.alert("Validation", "Email and password are required.");
+      toast.warning("Email and password are required.");
       return;
     }
     const normalizedEmail = email.trim().toLowerCase();

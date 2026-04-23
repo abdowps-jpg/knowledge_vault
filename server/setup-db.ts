@@ -80,11 +80,23 @@ db.exec(`
     updated_at INTEGER DEFAULT (strftime('%s', 'now')),
     deleted_at INTEGER
   );
-  
+
   CREATE INDEX IF NOT EXISTS idx_items_user_id ON items(user_id);
   CREATE INDEX IF NOT EXISTS idx_items_type ON items(type);
   CREATE INDEX IF NOT EXISTS idx_items_location ON items(location);
 `);
+
+try {
+  db.exec(`ALTER TABLE items ADD COLUMN vault_id TEXT REFERENCES vaults(id);`);
+} catch {
+  // Column already exists.
+}
+
+try {
+  db.exec(`CREATE INDEX IF NOT EXISTS idx_items_vault_id ON items(vault_id);`);
+} catch {
+  // Ignore index creation errors on legacy states.
+}
 
 db.exec(`
   CREATE TABLE IF NOT EXISTS item_shares (
@@ -301,6 +313,18 @@ try {
   db.exec(`ALTER TABLE tasks ADD COLUMN is_important INTEGER DEFAULT 0;`);
 } catch {
   // Column already exists.
+}
+
+try {
+  db.exec(`ALTER TABLE tasks ADD COLUMN vault_id TEXT REFERENCES vaults(id);`);
+} catch {
+  // Column already exists.
+}
+
+try {
+  db.exec(`CREATE INDEX IF NOT EXISTS idx_tasks_vault_id ON tasks(vault_id);`);
+} catch {
+  // Ignore index creation errors on legacy states.
 }
 
 try {

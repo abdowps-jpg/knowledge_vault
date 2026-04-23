@@ -6,8 +6,10 @@ import { printValidation, validateEnv } from './validate-env';
 import { db } from '../db';
 import { users } from '../schema/users';
 import { tasks } from '../schema/tasks';
-import { createHmac, randomUUID } from 'crypto';
-import { eq, isNull } from 'drizzle-orm';
+import { createHmac, randomUUID, timingSafeEqual } from 'crypto';
+import { eq, isNull, sql } from 'drizzle-orm';
+import { logger, redact } from '../lib/logger';
+import { addRealtimeClient, countConnectionsForUser } from '../lib/realtime';
 import { resolveUserIdFromTaskInboxAddress } from '../lib/email-task-address';
 import { itemsRouter } from '../routers/items';
 import { tasksRouter } from '../routers/tasks';
@@ -62,13 +64,14 @@ const SENTRY_DSN = process.env.SENTRY_DSN ?? '';
 function reportError(error: unknown, meta: Record<string, unknown> = {}) {
   const timestamp = new Date().toISOString();
   const err = error instanceof Error ? error : new Error(String(error));
+  const safeMeta = redact(meta) as Record<string, unknown>;
   const payload = {
     timestamp,
     level: 'error',
     message: err.message,
     name: err.name,
     stack: err.stack,
-    ...meta,
+    ...safeMeta,
   };
   console.error('[ErrorReport]', JSON.stringify(payload));
 
@@ -89,7 +92,7 @@ function reportError(error: unknown, meta: Record<string, unknown> = {}) {
           platform: 'node',
           message: err.message,
           exception: { values: [{ type: err.name, value: err.message, stacktrace: { frames: [] } }] },
-          extra: meta,
+          extra: safeMeta,
         });
         fetch(envelopeUrl, {
           method: 'POST',
@@ -213,14 +216,28 @@ if (typeof trashPurgeTimer === 'object' && trashPurgeTimer && 'unref' in trashPu
 }
 
 const app = express();
+// Honor X-Forwarded-For/Proto from the immediate proxy (nginx / ALB / CF).
+// Required for correct req.ip in rate limits and for HSTS/CORS decisions.
+app.set('trust proxy', 1);
 const port = process.env.PORT || 3000;
 const host = process.env.HOST || '0.0.0.0';
 const isProduction = process.env.NODE_ENV === 'production';
 const allowedOrigins = process.env.ALLOWED_ORIGINS?.split(',').map((o) => o.trim()).filter(Boolean) ?? null;
+const allowedExtensionOrigins = new Set(
+  (process.env.ALLOWED_EXTENSION_ORIGINS ?? '')
+    .split(',')
+    .map((o) => o.trim())
+    .filter(Boolean)
+);
+const corsAllowAnyOrigin = process.env.CORS_ALLOW_ANY_ORIGIN === 'true';
 
 if (isProduction && (!allowedOrigins || allowedOrigins.length === 0)) {
   console.warn('[CORS] ALLOWED_ORIGINS is not set in production — all cross-origin requests will be rejected.');
 }
+
+const EMAIL_RATE_LIMIT_WINDOW_MS = 60_000;
+const EMAIL_RATE_LIMIT_MAX = 30;
+const emailRateLimitMap = new Map<string, { count: number; resetAt: number }>();
 
 // إنشاء main router
 const appRouter = router({
@@ -306,19 +323,26 @@ app.use((_req, res, next) => {
 // CORS middleware
 app.use((req, res, next) => {
   const origin = req.headers.origin ?? '';
-  const isExtension =
+  const isExtensionScheme =
     origin.startsWith('chrome-extension://') ||
     origin.startsWith('moz-extension://') ||
     origin.startsWith('safari-web-extension://');
 
-  const isAllowed = isExtension
-    ? true
-    : allowedOrigins
-      ? origin !== '' && allowedOrigins.includes(origin)
-      : !isProduction;
+  // Extension origins are only trusted if the exact origin is in the allowlist.
+  // Prevents any installed extension from reading user data via credentialed XHR.
+  const isAllowedExtension = isExtensionScheme && allowedExtensionOrigins.has(origin);
+  // In dev, auto-allow localhost/127.0.0.1 origins so Expo web (`:8081`) can
+  // call the API (`:3000`) without requiring ALLOWED_ORIGINS in .env.
+  const isDevLocalhost =
+    !isProduction && /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(origin);
+  const isAllowedOrigin = allowedOrigins
+    ? origin !== '' && allowedOrigins.includes(origin)
+    : corsAllowAnyOrigin || isDevLocalhost;
+  const isAllowed = isAllowedExtension || isAllowedOrigin;
 
-  if (isAllowed) {
-    res.header('Access-Control-Allow-Origin', origin || '*');
+  // Only echo the exact Origin when present; never fall back to '*' with credentials.
+  if (isAllowed && origin) {
+    res.header('Access-Control-Allow-Origin', origin);
     res.header('Access-Control-Allow-Credentials', 'true');
     res.header('Vary', 'Origin');
   }
@@ -486,6 +510,10 @@ app.get('/api/schema', (_req, res) => {
   });
 });
 
+// Rate-limit FIRST, before authentication, so failed auth attempts count
+// against the source IP's bucket (prevents API-key brute-force).
+app.use('/api', rateLimit);
+
 app.use('/api', async (req: ApiRequest, res, next) => {
   try {
     const rawKey = String(req.headers['x-api-key'] ?? '').trim();
@@ -503,7 +531,7 @@ app.use('/api', async (req: ApiRequest, res, next) => {
     req.apiKeyScope = (key.scope as 'read' | 'write' | 'admin') ?? 'write';
     next();
   } catch (error) {
-    console.error('[REST API] API key validation failed:', error);
+    logger.error('api.key.validation_failed', { path: req.path }, error);
     return res.status(500).json({ success: false, error: 'internal_error' });
   }
 });
@@ -523,8 +551,6 @@ app.use('/api', (req: ApiRequest, res, next) => {
   }
   next();
 });
-
-app.use('/api', rateLimit);
 
 const createItemSchema = z.object({
   title: z.string().min(1).max(500),
@@ -556,7 +582,7 @@ const updateTaskSchema = z.object({
 
 const createJournalSchema = z.object({
   content: z.string().min(1),
-  entryDate: z.string().min(1),
+  entryDate: z.string().regex(/^\d{4}-\d{2}-\d{2}(T.*)?$/, 'entryDate must be ISO date (YYYY-MM-DD or full ISO)'),
   title: z.string().nullish(),
   mood: z.string().nullish(),
   location: z.string().nullish(),
@@ -621,7 +647,7 @@ app.post('/api/items', async (req: ApiRequest, res) => {
     await triggerWebhooks({ userId, event: 'items.created', payload: { id: newItem.id, title: newItem.title } });
     return res.json({ success: true, item: newItem });
   } catch (error) {
-    console.error('[REST API] create item failed:', error);
+    logger.error('api.items.create_failed', { userId: req.apiUserId }, error);
     return res.status(500).json({ success: false, error: 'internal_error' });
   }
 });
@@ -640,7 +666,7 @@ app.put('/api/items/:id', async (req: ApiRequest, res) => {
     await triggerWebhooks({ userId, event: 'items.updated', payload: { id } });
     return res.json({ success: true });
   } catch (error) {
-    console.error('[REST API] update item failed:', error);
+    logger.error('api.items.update_failed', { userId: req.apiUserId }, error);
     return res.status(500).json({ success: false, error: 'internal_error' });
   }
 });
@@ -653,7 +679,7 @@ app.delete('/api/items/:id', async (req: ApiRequest, res) => {
     await triggerWebhooks({ userId, event: 'items.deleted', payload: { id } });
     return res.json({ success: true });
   } catch (error) {
-    console.error('[REST API] delete item failed:', error);
+    logger.error('api.items.delete_failed', { userId: req.apiUserId }, error);
     return res.status(500).json({ success: false, error: 'internal_error' });
   }
 });
@@ -695,7 +721,7 @@ app.post('/api/tasks', async (req: ApiRequest, res) => {
     await triggerWebhooks({ userId, event: 'tasks.created', payload: { id: newTask.id, title: newTask.title } });
     return res.json({ success: true, task: newTask });
   } catch (error) {
-    console.error('[REST API] create task failed:', error);
+    logger.error('api.tasks.create_failed', { userId: req.apiUserId }, error);
     return res.status(500).json({ success: false, error: 'internal_error' });
   }
 });
@@ -714,7 +740,7 @@ app.put('/api/tasks/:id', async (req: ApiRequest, res) => {
     await triggerWebhooks({ userId, event: 'tasks.updated', payload: { id } });
     return res.json({ success: true });
   } catch (error) {
-    console.error('[REST API] update task failed:', error);
+    logger.error('api.tasks.update_failed', { userId: req.apiUserId }, error);
     return res.status(500).json({ success: false, error: 'internal_error' });
   }
 });
@@ -727,7 +753,7 @@ app.delete('/api/tasks/:id', async (req: ApiRequest, res) => {
     await triggerWebhooks({ userId, event: 'tasks.deleted', payload: { id } });
     return res.json({ success: true });
   } catch (error) {
-    console.error('[REST API] delete task failed:', error);
+    logger.error('api.tasks.delete_failed', { userId: req.apiUserId }, error);
     return res.status(500).json({ success: false, error: 'internal_error' });
   }
 });
@@ -762,7 +788,7 @@ app.post('/api/journal', async (req: ApiRequest, res) => {
     await db.insert(journal).values(newEntry);
     return res.json({ success: true, entry: newEntry });
   } catch (error) {
-    console.error('[REST API] create journal failed:', error);
+    logger.error('api.journal.create_failed', { userId: req.apiUserId }, error);
     return res.status(500).json({ success: false, error: 'internal_error' });
   }
 });
@@ -780,7 +806,7 @@ app.put('/api/journal/:id', async (req: ApiRequest, res) => {
       .where(and(eq(journal.id, id), eq(journal.userId, userId)));
     return res.json({ success: true });
   } catch (error) {
-    console.error('[REST API] update journal failed:', error);
+    logger.error('api.journal.update_failed', { userId: req.apiUserId }, error);
     return res.status(500).json({ success: false, error: 'internal_error' });
   }
 });
@@ -792,7 +818,7 @@ app.delete('/api/journal/:id', async (req: ApiRequest, res) => {
     await db.delete(journal).where(and(eq(journal.id, id), eq(journal.userId, userId)));
     return res.json({ success: true });
   } catch (error) {
-    console.error('[REST API] delete journal failed:', error);
+    logger.error('api.journal.delete_failed', { userId: req.apiUserId }, error);
     return res.status(500).json({ success: false, error: 'internal_error' });
   }
 });
@@ -813,13 +839,37 @@ function extractEmailAddress(raw: string): string {
   return plain.toLowerCase();
 }
 
-app.post('/email/inbound', async (req, res) => {
+function emailRateLimit(req: Request, res: Response, next: NextFunction) {
+  const key = req.ip ?? 'unknown';
+  const now = Date.now();
+  const entry = emailRateLimitMap.get(key);
+  if (!entry || now > entry.resetAt) {
+    emailRateLimitMap.set(key, { count: 1, resetAt: now + EMAIL_RATE_LIMIT_WINDOW_MS });
+    return next();
+  }
+  entry.count++;
+  if (entry.count > EMAIL_RATE_LIMIT_MAX) {
+    res.setHeader('Retry-After', String(Math.ceil((entry.resetAt - now) / 1000)));
+    return res.status(429).json({ success: false, error: 'rate_limit_exceeded' });
+  }
+  return next();
+}
+
+function timingSafeStringEqual(a: string, b: string): boolean {
+  const ab = Buffer.from(a, 'utf8');
+  const bb = Buffer.from(b, 'utf8');
+  if (ab.length !== bb.length) return false;
+  return timingSafeEqual(ab, bb);
+}
+
+app.post('/email/inbound', emailRateLimit, async (req, res) => {
   try {
     const configuredSecret = (process.env.EMAIL_WEBHOOK_SECRET ?? '').trim();
-    const requestSecret = String(req.headers['x-email-webhook-secret'] ?? req.query.secret ?? '').trim();
+    // Header-only — query-string secrets leak into access logs.
+    const requestSecret = String(req.headers['x-email-webhook-secret'] ?? '').trim();
 
     if (configuredSecret) {
-      if (requestSecret !== configuredSecret) {
+      if (!timingSafeStringEqual(requestSecret, configuredSecret)) {
         return res.status(401).json({ success: false, error: 'unauthorized' });
       }
     } else if (process.env.NODE_ENV === 'production') {
@@ -850,6 +900,9 @@ app.post('/email/inbound', async (req, res) => {
     const cleanSubject = subjectRaw.trim();
     const textBody = textRaw.trim();
     const htmlBody = htmlRaw.trim();
+    // normalizedBody is plain-text only — do NOT render it as HTML anywhere.
+    // The regex strip is not a safe HTML sanitizer (nested tags like
+    // <scr<script>ipt> evade it); we rely on the output being text-only.
     const normalizedBody = textBody || htmlBody.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim();
 
     const title = cleanSubject || normalizedBody.split('\n')[0]?.trim() || 'Email task';
@@ -874,16 +927,14 @@ app.post('/email/inbound', async (req, res) => {
     };
     await db.insert(tasks).values(newTask);
 
-    console.log('[Email->Task] Created task from inbound email:', {
+    logger.info('email.task.created', {
       taskId: newTask.id,
       userId: user.id,
-      to: toAddress,
-      title: newTask.title,
     });
 
     return res.status(200).json({ success: true, taskId: newTask.id });
   } catch (error) {
-    console.error('[Email->Task] Failed processing inbound email:', error);
+    logger.error('email.inbound.failed', {}, error);
     return res.status(500).json({ success: false, error: 'internal_error' });
   }
 });
@@ -910,7 +961,10 @@ app.use(
             };
           }
         } catch (error) {
-          console.error('[Auth/Middleware] JWT verification error:', error);
+          // Only the error name — messages can include attacker-controlled input.
+          logger.warn('auth.jwt.verify_failed', {
+            errorName: error instanceof Error ? error.name : 'unknown',
+          });
         }
       }
 
@@ -929,25 +983,59 @@ app.use(
   })
 );
 
-// Server-Sent Events: realtime notification stream
-app.get('/events', (req: Request, res: Response) => {
+// Short-lived single-use tickets for SSE. Keeps the JWT out of the
+// /events URL (which leaks via access logs / Referer / browser history).
+const SSE_TICKET_TTL_MS = 60_000;
+const sseTickets = new Map<string, { userId: string; expiresAt: number }>();
+
+function cleanupExpiredSseTickets(): void {
+  const now = Date.now();
+  for (const [k, v] of sseTickets) {
+    if (v.expiresAt < now) sseTickets.delete(k);
+  }
+}
+const sseTicketCleanupTimer = setInterval(cleanupExpiredSseTickets, 60_000);
+if (typeof sseTicketCleanupTimer === 'object' && sseTicketCleanupTimer && 'unref' in sseTicketCleanupTimer) {
+  (sseTicketCleanupTimer as { unref: () => void }).unref();
+}
+
+app.post('/events/ticket', rateLimit, (req: Request, res: Response) => {
   const authHeader = req.headers.authorization;
   const bearer = typeof authHeader === 'string' && authHeader.startsWith('Bearer ')
     ? authHeader.slice(7).trim()
     : '';
-  const queryToken = typeof req.query.token === 'string' ? req.query.token.trim() : '';
-  const token = bearer || queryToken;
-  if (!token) {
-    return res.status(401).json({ error: 'missing_token' });
-  }
+  if (!bearer) return res.status(401).json({ error: 'missing_token' });
   let payload: { sub?: string } | null = null;
   try {
-    payload = verifyToken(token) as { sub?: string } | null;
+    payload = verifyToken(bearer) as { sub?: string } | null;
   } catch {
     return res.status(401).json({ error: 'invalid_token' });
   }
-  if (!payload?.sub) {
-    return res.status(401).json({ error: 'invalid_token' });
+  if (!payload?.sub) return res.status(401).json({ error: 'invalid_token' });
+  const ticket = randomUUID();
+  sseTickets.set(ticket, { userId: payload.sub, expiresAt: Date.now() + SSE_TICKET_TTL_MS });
+  return res.json({ ticket, expiresInSeconds: Math.floor(SSE_TICKET_TTL_MS / 1000) });
+});
+
+// Server-Sent Events: realtime notification stream. Auth via single-use
+// ticket from POST /events/ticket (NEVER accept a JWT in the URL here).
+app.get('/events', rateLimit, (req: Request, res: Response) => {
+  const ticketStr = typeof req.query.ticket === 'string' ? req.query.ticket.trim() : '';
+  if (!ticketStr) {
+    return res.status(401).json({ error: 'missing_ticket' });
+  }
+  const ticket = sseTickets.get(ticketStr);
+  if (!ticket || ticket.expiresAt < Date.now()) {
+    sseTickets.delete(ticketStr);
+    return res.status(401).json({ error: 'invalid_or_expired_ticket' });
+  }
+  // Single-use: consume on first use.
+  sseTickets.delete(ticketStr);
+  const userId = ticket.userId;
+
+  // Enforce the per-user cap BEFORE setting SSE headers so we can return 429.
+  if (countConnectionsForUser(userId) >= 5) {
+    return res.status(429).json({ error: 'too_many_connections' });
   }
 
   res.setHeader('Content-Type', 'text/event-stream');
@@ -955,14 +1043,14 @@ app.get('/events', (req: Request, res: Response) => {
   res.setHeader('Connection', 'keep-alive');
   res.setHeader('X-Accel-Buffering', 'no'); // disable nginx buffering
 
-  void import('../lib/realtime').then(({ addRealtimeClient }) => {
-    const cleanup = addRealtimeClient(payload!.sub!, res);
-    req.on('close', cleanup);
-    req.on('aborted', cleanup);
-  }).catch((err) => {
-    console.error('[SSE] failed to attach client:', err);
+  const cleanup = addRealtimeClient(userId, res);
+  if (!cleanup) {
+    // Race: another connection raced in between the check and addClient.
     res.end();
-  });
+    return;
+  }
+  req.on('close', cleanup);
+  req.on('aborted', cleanup);
 });
 
 // Health check for uptime monitors
@@ -970,9 +1058,19 @@ app.get('/healthz', (_req, res) => {
   res.json({ status: 'ok', uptime: process.uptime() });
 });
 
-// Lightweight process metrics (no auth — safe because it only exposes counters,
-// not user data). Mount behind an infra-only allowlist in production.
-app.get('/_metrics', (_req, res) => {
+// Process metrics — gated by METRICS_KEY to avoid leaking nodeVersion etc.
+// publicly. Set METRICS_KEY in the infra env and scrape with
+// `X-Metrics-Key: <key>` from the monitoring service.
+app.get('/_metrics', (req, res) => {
+  const configured = (process.env.METRICS_KEY ?? '').trim();
+  if (configured) {
+    const supplied = String(req.headers['x-metrics-key'] ?? '').trim();
+    if (!timingSafeStringEqual(supplied, configured)) {
+      return res.status(401).json({ error: 'unauthorized' });
+    }
+  } else if (isProduction) {
+    return res.status(503).json({ error: 'metrics_key_not_configured' });
+  }
   const mem = process.memoryUsage();
   res.json({
     timestamp: new Date().toISOString(),
@@ -1326,6 +1424,15 @@ function esc(s) {
   return String(s == null ? '' : s).replace(/[&<>"]/g, function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c];});
 }
 
+// Only http(s) URLs — otherwise "javascript:..." becomes stored XSS on click.
+function safeUrl(raw) {
+  try {
+    var u = new URL(raw);
+    if (u.protocol === 'http:' || u.protocol === 'https:') return u.href;
+  } catch (_) {}
+  return '';
+}
+
 function api(path, opts) {
   const key = getKey();
   if (!key) return Promise.reject(new Error('missing_key'));
@@ -1359,7 +1466,7 @@ function renderItems() {
       '<strong>' + esc(i.title || 'Untitled') + '</strong>' +
       '<div class="muted"><span class="pill">' + esc(i.type) + '</span><span class="pill">' + esc(i.location || 'inbox') + '</span>' + esc(date) + '</div>' +
       (snippet ? '<div style="margin-top:6px">' + esc(snippet) + '</div>' : '') +
-      (i.url ? '<div style="margin-top:6px"><a href="' + esc(i.url) + '" target="_blank" rel="noreferrer">Open link</a></div>' : '') +
+      (safeUrl(i.url) ? '<div style="margin-top:6px"><a href="' + esc(safeUrl(i.url)) + '" target="_blank" rel="noreferrer">Open link</a></div>' : '') +
       '<div class="actions"><button type="button" class="ghost sm" data-action="archive">Archive</button>' +
       '<button type="button" class="danger sm" data-action="delete">Delete</button></div>' +
       '</div>';
@@ -1715,6 +1822,21 @@ function escapeHtml(value: string): string {
     .replace(/'/g, '&#39;');
 }
 
+// Only http(s) URLs may be rendered as <a href="..."> — otherwise a stored
+// `javascript:` or `data:` URL executes on click (stored XSS).
+function safeExternalUrl(url: string | null | undefined): string | null {
+  if (!url) return null;
+  try {
+    const parsed = new URL(url);
+    if (parsed.protocol === 'http:' || parsed.protocol === 'https:') {
+      return parsed.toString();
+    }
+  } catch {
+    // fall through
+  }
+  return null;
+}
+
 // JSON variant of the public link — useful for embedding from third-party tools
 app.get('/p/:token.json', async (req: Request, res: Response) => {
   try {
@@ -1739,9 +1861,9 @@ app.get('/p/:token.json', async (req: Request, res: Response) => {
       .limit(1);
     const item = itemRows[0];
     if (!item) return res.status(404).json({ error: 'item_not_found' });
-    // Fire-and-forget view bump
+    // Atomic view-count bump — avoids lost increments under concurrent views.
     db.update(publicLinks)
-      .set({ viewCount: (link.viewCount ?? 0) + 1, lastViewedAt: new Date() })
+      .set({ viewCount: sql`${publicLinks.viewCount} + 1`, lastViewedAt: new Date() })
       .where(eq(publicLinks.id, link.id))
       .catch(() => {});
     return res.json({
@@ -1750,7 +1872,7 @@ app.get('/p/:token.json', async (req: Request, res: Response) => {
         type: item.type,
         title: item.title,
         content: item.content,
-        url: item.url,
+        url: safeExternalUrl(item.url) ?? null,
         createdAt: item.createdAt,
       },
       expiresAt: link.expiresAt,
@@ -1796,10 +1918,10 @@ app.get('/p/:token', async (req: Request, res: Response) => {
       return res.status(404).type('html').send('<h1>Item not found</h1>');
     }
 
-    // Fire-and-forget view tally
+    // Atomic view-count bump — avoids lost increments under concurrent views.
     db.update(publicLinks)
       .set({
-        viewCount: (link.viewCount ?? 0) + 1,
+        viewCount: sql`${publicLinks.viewCount} + 1`,
         lastViewedAt: new Date(),
       })
       .where(eq(publicLinks.id, link.id))
@@ -1807,8 +1929,9 @@ app.get('/p/:token', async (req: Request, res: Response) => {
 
     const title = escapeHtml(item.title || 'Untitled');
     const contentHtml = escapeHtml(item.content ?? '').replace(/\n/g, '<br>');
-    const urlLink = item.url
-      ? `<p><a href="${escapeHtml(item.url)}" rel="nofollow noreferrer">${escapeHtml(item.url)}</a></p>`
+    const safeUrl = safeExternalUrl(item.url);
+    const urlLink = safeUrl
+      ? `<p><a href="${escapeHtml(safeUrl)}" rel="nofollow noreferrer">${escapeHtml(safeUrl)}</a></p>`
       : '';
     const created = item.createdAt ? new Date(item.createdAt).toISOString().slice(0, 10) : '';
 

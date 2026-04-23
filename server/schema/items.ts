@@ -3,6 +3,7 @@ import { sqliteTable, text, integer, index } from 'drizzle-orm/sqlite-core';
 export const items = sqliteTable('items', {
   id: text('id').primaryKey(),
   userId: text('user_id').notNull(),
+  vaultId: text('vault_id'),
   type: text('type', { enum: ['note', 'quote', 'link', 'audio'] }).notNull(),
   title: text('title').notNull(),
   content: text('content'),
@@ -14,6 +15,7 @@ export const items = sqliteTable('items', {
   deletedAt: integer('deleted_at', { mode: 'timestamp' }),
 }, (table) => ({
   userIdx: index('user_idx').on(table.userId),
+  vaultIdx: index('items_vault_idx').on(table.vaultId),
   typeIdx: index('type_idx').on(table.type),
   locationIdx: index('location_idx').on(table.location),
   favoriteIdx: index('favorite_idx').on(table.isFavorite),

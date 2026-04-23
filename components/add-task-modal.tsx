@@ -10,21 +10,29 @@ import {
 } from "react-native";
 import { useColors } from "@/hooks/use-colors";
 import { trpc } from "@/lib/trpc";
+import { VaultSelector } from "@/components/VaultSelector";
 
 interface AddTaskModalProps {
   visible: boolean;
   onClose: () => void;
   onSuccess: () => void;
+  defaultVaultId?: string;
+  lockVault?: boolean;
 }
 
-export function AddTaskModal({ visible, onClose, onSuccess }: AddTaskModalProps) {
+export function AddTaskModal({ visible, onClose, onSuccess, defaultVaultId, lockVault }: AddTaskModalProps) {
   const colors = useColors();
 
   const [title, setTitle] = React.useState("");
   const [description, setDescription] = React.useState("");
   const [dueDate, setDueDate] = React.useState("");
   const [priority, setPriority] = React.useState<"low" | "medium" | "high">("medium");
+  const [vaultId, setVaultId] = React.useState<string | undefined>(defaultVaultId);
   const [titleError, setTitleError] = React.useState("");
+
+  React.useEffect(() => {
+    if (visible) setVaultId(defaultVaultId);
+  }, [visible, defaultVaultId]);
 
   const createTask = trpc.tasks.create.useMutation({
     onSuccess: () => {
@@ -39,6 +47,7 @@ export function AddTaskModal({ visible, onClose, onSuccess }: AddTaskModalProps)
     setDescription("");
     setDueDate("");
     setPriority("medium");
+    setVaultId(defaultVaultId);
     setTitleError("");
   };
 
@@ -60,6 +69,7 @@ export function AddTaskModal({ visible, onClose, onSuccess }: AddTaskModalProps)
       description: description.trim() || undefined,
       dueDate: dueDate.trim() || undefined,
       priority,
+      vaultId,
     });
   };
 
@@ -108,6 +118,8 @@ export function AddTaskModal({ visible, onClose, onSuccess }: AddTaskModalProps)
               className="bg-background border border-border rounded-lg p-3 text-foreground mb-3"
               style={{ color: colors.foreground }}
             />
+
+            <VaultSelector value={vaultId} onChange={setVaultId} disabled={lockVault} />
 
             <View className="mb-4">
               <Text className="text-sm font-semibold text-foreground mb-2">Priority</Text>
