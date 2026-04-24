@@ -129,11 +129,60 @@ docker run -p 3000:3000 --env-file .env knowledge-vault-api
 See [`extension/README.md`](extension/README.md). Load unpacked from
 `chrome://extensions` with Developer mode on.
 
+## Error monitoring (Sentry)
+
+Errors are forwarded to Sentry via the lightweight envelope reporter — no
+SDK dependency on the server. Both DSNs are optional; when unset, errors
+log to stdout only.
+
+**Server** — set in `.env`:
+
+```bash
+SENTRY_DSN=https://<publicKey>@<host>/<projectId>
+```
+
+This catches everything: REST handlers (via the global Express error
+middleware), tRPC `INTERNAL_SERVER_ERROR` codes (via `onError`), Node
+`unhandledRejection`, and `uncaughtException`. Each event is tagged with
+`source` (express / trpc / unhandledRejection / uncaughtException),
+`route`, `type`, `method`, and `user_id` — all searchable in the Sentry UI.
+The `user_id` tag is only set when the request was authenticated, so the
+unauthenticated `/debug/throw` test will not exercise it; trigger an
+authenticated tRPC error to see the user-id flow.
+
+**Web client** — set as Expo public env vars (these survive into the
+browser bundle):
+
+```bash
+EXPO_PUBLIC_SENTRY_DSN_WEB=https://<publicKey>@<host>/<projectId>
+# Optional fallback: EXPO_PUBLIC_SENTRY_DSN
+# Optional release tag: EXPO_PUBLIC_APP_VERSION
+```
+
+The web init lives in `lib/sentry-web.ts` and runs from `app/_layout.tsx`
+behind a `Platform.OS === 'web'` guard. `@sentry/browser` registers
+`window.onerror` and `unhandledrejection` listeners automatically. **Native
+iOS/Android errors are not captured by this** — `@sentry/react-native`
+would be the full-coverage replacement.
+
+**Verify the pipeline.** With `NODE_ENV !== 'production'`, the server
+exposes a deliberate-throw endpoint:
+
+```bash
+curl http://localhost:3000/debug/throw?tag=verify
+# → 500, error logged to stdout, envelope sent to Sentry
+# Look for `debug.throw: verify` in the Sentry issues feed
+```
+
+If `SENTRY_DSN` is unset, the line is logged but no envelope is sent. The
+`/debug/throw` route is not registered in production.
+
 ## Documentation
 
 - [ROADMAP.md](ROADMAP.md) — product strategy and phase-by-phase plan
 - [docs/MIGRATION-POSTGRES.md](docs/MIGRATION-POSTGRES.md) — how to move
   from SQLite to Postgres without downtime
+- [docs/security-audit.md](docs/security-audit.md) — UGC XSS audit (2026-04-23)
 - [CHANGELOG.md](CHANGELOG.md) — version history
 - [SECURITY.md](SECURITY.md) — how to report vulnerabilities
 - [CONTRIBUTING.md](CONTRIBUTING.md) — contribution guide

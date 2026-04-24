@@ -1,4 +1,4 @@
-import * as SecureStore from "expo-secure-store";
+import * as SecureStore from "@/lib/secure-store-web-safe";
 import * as LocalAuthentication from "expo-local-authentication";
 import { Platform } from "react-native";
 

@@ -2,6 +2,41 @@
 
 ## [Unreleased]
 
+### Security audit + Sentry wiring (2026-04-23)
+
+**UGC XSS audit (`docs/security-audit.md`)**
+- Enumerated every HTML/DOM sink: `/p/:token`, `/app`, landing page,
+  `/privacy`, `/terms`, email-inbound, `/app.js` client-side `innerHTML`
+  assignments — all verified protected via `escapeHtml` / `safeExternalUrl`
+  / `esc()` / `safeUrl()`.
+- **Found: stored XSS in `components/rich-text-editor.tsx`** web build.
+  Markdown link regex interpolated href raw into `<a href="$2">`, allowing
+  `[x](javascript:alert\`xss\`)` to execute on click. Reachable via shared
+  items from collaborators with edit permission.
+- Fix: extracted security-critical helpers into `lib/markdown-safe-html.ts`
+  with a `safeMarkdownLinkHref` allow-list (`http:` / `https:` / `mailto:`
+  only). Links also gain `rel="noopener noreferrer"`.
+- Regression tests in `tests/markdown-safe-html.test.ts` (13 cases) cover
+  `javascript:`, `data:`, `vbscript:`, `file:`, case-insensitivity,
+  whitespace-padding, and the legitimate schemes.
+
+**Sentry wiring**
+- Server `reportError` now emits `tags` (indexed/searchable in Sentry UI)
+  for `source`, `route`, `type`, `user_id`, `method` — previously buried
+  in `extra`. Also sets `environment` and `user.id` at event top level.
+- Authenticated tRPC `INTERNAL_SERVER_ERROR` events carry `user_id` tag
+  via `ctx.user.id`; unauthenticated Express routes don't.
+- New `/debug/throw?tag=...` endpoint (non-production only) for verifying
+  the envelope reaches Sentry.
+- Web client: `@sentry/browser` installed and initialized from
+  `lib/sentry-web.ts`, loaded lazily from `app/_layout.tsx` behind a
+  `Platform.OS === "web"` guard. `init()` registers `window.onerror` and
+  `unhandledrejection` listeners automatically. **Native iOS/Android not
+  covered** — would require `@sentry/react-native`.
+- `README.md` gains an "Error monitoring (Sentry)" section documenting
+  `SENTRY_DSN`, `EXPO_PUBLIC_SENTRY_DSN_WEB`, and the `/debug/throw`
+  verification flow.
+
 ### Phase 3 / 4 / 5 completion batch (2026-04-22)
 
 **Shared Vaults (Phase 3 — 85%)**

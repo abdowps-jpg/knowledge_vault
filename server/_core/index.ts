@@ -61,10 +61,26 @@ interface ApiRequest extends Request {
 
 const SENTRY_DSN = process.env.SENTRY_DSN ?? '';
 
+// Pull `tags` out of meta so they're indexed by Sentry (searchable/filterable)
+// rather than buried in `extra`. Tag values must be flat strings ≤ 200 chars.
+const TAG_KEYS = new Set(['source', 'route', 'type', 'userId', 'method']);
+
 function reportError(error: unknown, meta: Record<string, unknown> = {}) {
   const timestamp = new Date().toISOString();
   const err = error instanceof Error ? error : new Error(String(error));
   const safeMeta = redact(meta) as Record<string, unknown>;
+
+  const tags: Record<string, string> = {};
+  const extra: Record<string, unknown> = {};
+  for (const [k, v] of Object.entries(safeMeta)) {
+    if (TAG_KEYS.has(k) && v != null) {
+      const s = String(v);
+      tags[k === 'userId' ? 'user_id' : k] = s.length > 200 ? s.slice(0, 200) : s;
+    } else {
+      extra[k] = v;
+    }
+  }
+
   const payload = {
     timestamp,
     level: 'error',
@@ -90,9 +106,12 @@ function reportError(error: unknown, meta: Record<string, unknown> = {}) {
           timestamp,
           level: 'error',
           platform: 'node',
+          environment: process.env.NODE_ENV ?? 'development',
           message: err.message,
           exception: { values: [{ type: err.name, value: err.message, stacktrace: { frames: [] } }] },
-          extra: safeMeta,
+          tags,
+          user: tags.user_id ? { id: tags.user_id } : undefined,
+          extra,
         });
         fetch(envelopeUrl, {
           method: 'POST',
@@ -974,7 +993,7 @@ app.use(
       if (error.code === 'INTERNAL_SERVER_ERROR' || !error.code) {
         reportError(error, {
           source: 'trpc',
-          path: path ?? 'unknown',
+          route: path ?? 'unknown',
           type,
           userId: ctx?.user?.id ?? null,
         });
@@ -1964,9 +1983,18 @@ ${urlLink}
   }
 });
 
+// Verification endpoint for the Sentry pipeline. Disabled in production
+// (refuses to register the route) so attackers can't force log spam.
+if (process.env.NODE_ENV !== 'production') {
+  app.get('/debug/throw', (req: Request, _res: Response, next: NextFunction) => {
+    const tag = String(req.query.tag ?? 'manual-test');
+    next(new Error(`debug.throw: ${tag}`));
+  });
+}
+
 // Global error handler — catches uncaught errors from REST routes
 app.use((err: Error, req: Request, res: Response, _next: NextFunction) => {
-  reportError(err, { source: 'express', path: req.path, method: req.method });
+  reportError(err, { source: 'express', route: req.path, method: req.method });
   if (res.headersSent) return;
   res.status(500).json({ success: false, error: 'internal_error' });
 });

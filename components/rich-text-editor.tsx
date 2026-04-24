@@ -11,6 +11,7 @@ import {
 } from "react-native";
 import Markdown from "react-native-markdown-display";
 import { useColors } from "@/hooks/use-colors";
+import { renderInlineMarkdown } from "@/lib/markdown-safe-html";
 
 type Selection = { start: number; end: number };
 
@@ -22,24 +23,6 @@ interface RichTextEditorProps {
 }
 
 const IS_WEB = Platform.OS === "web";
-
-function escapeHtml(text: string): string {
-  return text
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/\"/g, "&quot;")
-    .replace(/'/g, "&#39;");
-}
-
-function renderInlineMarkdown(text: string): string {
-  let out = escapeHtml(text);
-  out = out.replace(/`([^`]+)`/g, "<code>$1</code>");
-  out = out.replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>");
-  out = out.replace(/\*([^*]+)\*/g, "<em>$1</em>");
-  out = out.replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2">$1</a>');
-  return out;
-}
 
 function markdownToHtml(markdown: string): string {
   const lines = markdown.replace(/\r\n/g, "\n").split("\n");

@@ -93,6 +93,13 @@ export default function RootLayout() {
   useEffect(() => {
     initManusRuntime();
     initLocale().catch(() => undefined);
+    if (Platform.OS === "web") {
+      // @sentry/browser registers window.onerror and unhandledrejection
+      // listeners during init() — no further hookup needed here.
+      import("@/lib/sentry-web")
+        .then((m) => m.initSentryWeb())
+        .catch(() => undefined);
+    }
   }, []);
 
   const handleSafeAreaUpdate = useCallback((metrics: Metrics) => {
