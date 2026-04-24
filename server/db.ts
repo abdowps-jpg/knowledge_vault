@@ -1,11 +1,14 @@
-import { drizzle } from 'drizzle-orm/better-sqlite3';
-import Database from 'better-sqlite3';
+import { drizzle } from 'drizzle-orm/libsql';
+import { createClient } from '@libsql/client';
 import * as schema from './schema';
+import { ENV } from './_core/env';
 
-const sqlite = new Database('./local.db');
-sqlite.pragma('foreign_keys = ON');
-sqlite.pragma('journal_mode = WAL');
-export const db = drizzle(sqlite, { schema });
+const client = createClient({
+  url: ENV.tursoUrl,
+  authToken: ENV.tursoToken,
+});
+
+export const db = drizzle(client, { schema });
 
 type OAuthUserRecord = {
   id?: string;

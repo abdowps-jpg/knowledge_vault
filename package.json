@@ -26,6 +26,7 @@
   },
   "dependencies": {
     "@expo/vector-icons": "^15.0.3",
+    "@libsql/client": "^0.17.3",
     "@react-native-async-storage/async-storage": "^2.2.0",
     "@react-native-community/netinfo": "^11.4.1",
     "@react-navigation/bottom-tabs": "^7.8.12",

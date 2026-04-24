@@ -19,7 +19,7 @@
 import { randomUUID } from 'crypto';
 import { TRPCError } from '@trpc/server';
 import { and, eq, inArray } from 'drizzle-orm';
-import type { BetterSQLite3Database } from 'drizzle-orm/better-sqlite3';
+import type { LibSQLDatabase } from 'drizzle-orm/libsql';
 
 import { db as productionDb } from '../server/db';
 import * as schema from '../server/schema';
@@ -27,7 +27,7 @@ import { items } from '../server/schema/items';
 import { tasks } from '../server/schema/tasks';
 import { vaultActivity, vaultMembers } from '../server/schema/vaults';
 
-type Db = BetterSQLite3Database<typeof schema>;
+type Db = LibSQLDatabase<typeof schema>;
 type MemberRow = typeof vaultMembers.$inferSelect;
 
 async function getMembership(
