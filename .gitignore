@@ -59,6 +59,10 @@ GoogleService-Info.plist
 aws-exports.js
 secrets.json
 secrets.*.json
+my-keys.txt
+*keys*.txt
+*tokens*.txt
+*secrets*.txt
 
 # typescript
 *.tsbuildinfo
