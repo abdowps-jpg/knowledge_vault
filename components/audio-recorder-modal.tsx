@@ -64,7 +64,7 @@ function WebAudioRecorderFallback({ visible, onClose }: AudioRecorderModalProps)
       <View style={{ flex: 1, backgroundColor: "rgba(0,0,0,0.5)", justifyContent: "center", padding: 24 }}>
         <View style={{ backgroundColor: colors.surface, borderRadius: 12, padding: 20 }}>
           <Text style={{ color: colors.foreground, fontWeight: "700", fontSize: 16, marginBottom: 8 }}>
-            Voice notes aren't available on the web yet
+            Voice notes aren&apos;t available on the web yet
           </Text>
           <Text style={{ color: colors.muted, fontSize: 13, marginBottom: 16 }}>
             Please use the mobile app to record voice notes. You can still view and play back audio attachments here.

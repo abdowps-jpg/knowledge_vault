@@ -29,16 +29,16 @@ import { tasks } from '../server/schema/tasks';
 import { vaultActivity, vaultMembers, vaults } from '../server/schema/vaults';
 import { createTestDb } from './helpers/in-memory-db';
 
-type TestDb = ReturnType<typeof createTestDb>;
+type TestDb = Awaited<ReturnType<typeof createTestDb>>;
 
 const OWNER_ID = 'user-owner';
 const EDITOR_ID = 'user-editor';
 const VIEWER_ID = 'user-viewer';
 const OUTSIDER_ID = 'user-outsider';
 
-function seedVaultWithMembers(db: TestDb, vaultId: string) {
+async function seedVaultWithMembers(db: TestDb, vaultId: string) {
   const now = new Date();
-  db.insert(vaults)
+  await db.insert(vaults)
     .values({
       id: vaultId,
       ownerUserId: OWNER_ID,
@@ -49,7 +49,7 @@ function seedVaultWithMembers(db: TestDb, vaultId: string) {
       updatedAt: now,
     })
     .run();
-  db.insert(vaultMembers)
+  await db.insert(vaultMembers)
     .values([
       { id: randomUUID(), vaultId, userId: OWNER_ID, role: 'owner', invitedByUserId: null, joinedAt: now },
       { id: randomUUID(), vaultId, userId: EDITOR_ID, role: 'editor', invitedByUserId: OWNER_ID, joinedAt: now },
@@ -72,7 +72,7 @@ async function createItemInVault(
   await canWrite(actorUserId, vaultId, db);
   const id = randomUUID();
   const now = new Date();
-  db.insert(items)
+  await db.insert(items)
     .values({
       id,
       userId: actorUserId,
@@ -94,9 +94,9 @@ describe('vault plumbing (in-memory DB)', () => {
   let db: TestDb;
   const vaultId = 'vault-research';
 
-  beforeEach(() => {
-    db = createTestDb();
-    seedVaultWithMembers(db, vaultId);
+  beforeEach(async () => {
+    db = await createTestDb();
+    await seedVaultWithMembers(db, vaultId);
   });
 
   it('owner creates an item in a vault and lists it back', async () => {
@@ -106,7 +106,7 @@ describe('vault plumbing (in-memory DB)', () => {
     });
 
     await canRead(OWNER_ID, vaultId, db);
-    const listed = db
+    const listed = await db
       .select()
       .from(items)
       .where(and(eq(items.vaultId, vaultId), isNull(items.deletedAt)))
@@ -120,7 +120,7 @@ describe('vault plumbing (in-memory DB)', () => {
 
   it('editor creates an item in a vault successfully', async () => {
     const itemId = await createItemInVault(db, EDITOR_ID, vaultId, { title: 'Editor note' });
-    const row = db.select().from(items).where(eq(items.id, itemId)).all()[0];
+    const row = (await db.select().from(items).where(eq(items.id, itemId)).all())[0];
     expect(row).toBeDefined();
     expect(row.userId).toBe(EDITOR_ID);
     expect(row.vaultId).toBe(vaultId);
@@ -131,7 +131,7 @@ describe('vault plumbing (in-memory DB)', () => {
       createItemInVault(db, VIEWER_ID, vaultId, { title: 'Forbidden note' })
     ).rejects.toMatchObject({ code: 'FORBIDDEN' });
 
-    const rowsAfter = db.select().from(items).where(eq(items.vaultId, vaultId)).all();
+    const rowsAfter = await db.select().from(items).where(eq(items.vaultId, vaultId)).all();
     expect(rowsAfter).toHaveLength(0);
   });
 
@@ -146,14 +146,14 @@ describe('vault plumbing (in-memory DB)', () => {
     const insideB = randomUUID();
     const outside = randomUUID();
     const now = new Date();
-    db.insert(items)
+    await db.insert(items)
       .values([
         { id: insideA, userId: OWNER_ID, vaultId, type: 'note', title: 'A', createdAt: now, updatedAt: now },
         { id: insideB, userId: EDITOR_ID, vaultId, type: 'note', title: 'B', createdAt: now, updatedAt: now },
         { id: outside, userId: OWNER_ID, vaultId: null, type: 'note', title: 'C', createdAt: now, updatedAt: now },
       ])
       .run();
-    db.insert(tasks)
+    await db.insert(tasks)
       .values([
         { id: randomUUID(), userId: OWNER_ID, vaultId, title: 'T1', createdAt: now, updatedAt: now },
       ])
@@ -164,21 +164,21 @@ describe('vault plumbing (in-memory DB)', () => {
 
     // The router would delete the vault row itself after orphaning. Do that
     // here so the assertions cover the full cleanup path.
-    db.delete(vaultMembers).where(eq(vaultMembers.vaultId, vaultId)).run();
-    db.delete(vaults).where(eq(vaults.id, vaultId)).run();
+    await db.delete(vaultMembers).where(eq(vaultMembers.vaultId, vaultId)).run();
+    await db.delete(vaults).where(eq(vaults.id, vaultId)).run();
 
     // Items and tasks survive; their vault_id is now NULL.
-    const allItems = db.select().from(items).all();
+    const allItems = await db.select().from(items).all();
     expect(allItems).toHaveLength(3);
     for (const row of allItems) {
       expect(row.vaultId).toBeNull();
     }
-    const allTasks = db.select().from(tasks).all();
+    const allTasks = await db.select().from(tasks).all();
     expect(allTasks).toHaveLength(1);
     expect(allTasks[0].vaultId).toBeNull();
 
     // The vault itself is gone.
-    const vaultRows = db.select().from(vaults).where(eq(vaults.id, vaultId)).all();
+    const vaultRows = await db.select().from(vaults).where(eq(vaults.id, vaultId)).all();
     expect(vaultRows).toHaveLength(0);
   });
 
@@ -186,10 +186,10 @@ describe('vault plumbing (in-memory DB)', () => {
     const itemId = await createItemInVault(db, OWNER_ID, vaultId, { title: 'To be edited' });
 
     // Simulate an update: bump row then log.
-    db.update(items).set({ title: 'Edited', updatedAt: new Date() }).where(eq(items.id, itemId)).run();
+    await db.update(items).set({ title: 'Edited', updatedAt: new Date() }).where(eq(items.id, itemId)).run();
     await logVaultActivity(vaultId, OWNER_ID, 'item.updated', { kind: 'item', id: itemId }, undefined, db);
 
-    const activity = db
+    const activity = await db
       .select()
       .from(vaultActivity)
       .where(eq(vaultActivity.vaultId, vaultId))

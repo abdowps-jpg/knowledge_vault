@@ -44,12 +44,16 @@ jobs:
         env:
           NODE_ENV: test
           JWT_SECRET: ci-test-secret-long-enough-for-hs256-signing
+          TURSO_URL: ':memory:'
+          TURSO_TOKEN: 'test'
 
       - name: Run tests
         run: pnpm test
         env:
           NODE_ENV: test
           JWT_SECRET: ci-test-secret-long-enough-for-hs256-signing
+          TURSO_URL: ':memory:'
+          TURSO_TOKEN: 'test'
 
   audit:
     name: Security audit

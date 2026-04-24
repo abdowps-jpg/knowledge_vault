@@ -6,6 +6,11 @@ export default defineConfig({
     environment: 'node',
     globals: false,
     testTimeout: 10_000,
+    env: {
+      TURSO_URL: ':memory:',
+      TURSO_TOKEN: 'test',
+      NODE_ENV: 'test',
+    },
   },
   resolve: {
     alias: {

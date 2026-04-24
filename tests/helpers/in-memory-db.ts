@@ -1,22 +1,19 @@
-import Database from "better-sqlite3";
-import { drizzle, type BetterSQLite3Database } from "drizzle-orm/better-sqlite3";
+import { createClient, type Client } from "@libsql/client";
+import { drizzle } from "drizzle-orm/libsql";
 import * as schema from "../../server/schema";
 
 /**
  * Fresh in-memory SQLite instance with every migration applied. Each
  * integration test that imports from here gets a completely clean DB.
  */
-export function createTestDb(): BetterSQLite3Database<typeof schema> & { $raw: Database.Database } {
-  const sqlite = new Database(":memory:");
-  sqlite.pragma("foreign_keys = ON");
-  sqlite.pragma("journal_mode = MEMORY");
-  applyMigrations(sqlite);
-  const db = drizzle(sqlite, { schema });
-  return Object.assign(db, { $raw: sqlite });
+export async function createTestDb() {
+  const client = createClient({ url: ":memory:" });
+  await applyMigrations(client);
+  return drizzle(client, { schema });
 }
 
-function applyMigrations(sqlite: Database.Database): void {
-  sqlite.exec(`
+async function applyMigrations(client: Client): Promise<void> {
+  await client.executeMultiple(`
     CREATE TABLE IF NOT EXISTS users (
       id TEXT PRIMARY KEY,
       email TEXT NOT NULL UNIQUE,
