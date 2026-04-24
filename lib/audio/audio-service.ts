@@ -60,6 +60,12 @@ export class AudioService {
    * Request audio recording and playback permissions
    */
   async requestPermissions(): Promise<boolean> {
+    if (Platform.OS === "web") {
+      // expo-audio recording is not supported on web in SDK 54; the
+      // permission prompt would throw. Return false so callers take the
+      // "recording unavailable" UX path.
+      return false;
+    }
     try {
       const recordingPermission = await requestRecordingPermissionsAsync();
       return recordingPermission.granted;
@@ -82,6 +88,7 @@ export class AudioService {
    * Delete audio file
    */
   async deleteAudioFile(uri: string): Promise<void> {
+    if (Platform.OS === "web") return;
     try {
       await FileSystem.deleteAsync(uri, { idempotent: true });
     } catch (error) {
@@ -92,9 +99,10 @@ export class AudioService {
   /**
    * Get file size
    */
-  async getFileSize(uri: string): Promise<number> {
+  async getFileSize(_uri: string): Promise<number> {
+    if (Platform.OS === "web") return 0;
     try {
-      const fileInfo = await FileSystem.getInfoAsync(uri);
+      const fileInfo = await FileSystem.getInfoAsync(_uri);
       if (fileInfo.exists && !fileInfo.isDirectory) {
         // FileInfo doesn't have size property in legacy API
         // Return 0 as placeholder
@@ -111,6 +119,11 @@ export class AudioService {
    * Create audio recording directory
    */
   async createRecordingDirectory(): Promise<string> {
+    if (Platform.OS === "web") {
+      // No filesystem directory on web; recordings won't persist server-
+      // side from the web client anyway.
+      return "";
+    }
     try {
       const recordingDir = `${FileSystem.documentDirectory}recordings/`;
       const dirInfo = await FileSystem.getInfoAsync(recordingDir);
@@ -139,6 +152,7 @@ export class AudioService {
    * Clean up old recordings
    */
   async cleanupOldRecordings(daysOld: number = 7): Promise<void> {
+    if (Platform.OS === "web") return;
     try {
       const recordingDir = `${FileSystem.documentDirectory}recordings/`;
       const files = await FileSystem.readDirectoryAsync(recordingDir);

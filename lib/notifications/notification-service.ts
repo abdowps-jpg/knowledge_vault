@@ -63,6 +63,13 @@ export class NotificationService {
    */
   private async initializeNotifications(): Promise<void> {
     try {
+      if (Platform.OS === "web") {
+        // expo-notifications has no web transport in SDK 54. Settings still
+        // load (from AsyncStorage) so UI reflects user preferences, but
+        // scheduling and permission prompts are no-ops.
+        await this.loadSettings();
+        return;
+      }
       // Set notification handler
       Notifications.setNotificationHandler({
         handleNotification: async () => ({
@@ -88,6 +95,7 @@ export class NotificationService {
    * Request notification permissions
    */
   async requestPermissions(): Promise<boolean> {
+    if (Platform.OS === "web") return false;
     try {
       const { status } = await Notifications.requestPermissionsAsync();
       return status === "granted";
@@ -139,6 +147,7 @@ export class NotificationService {
     taskTitle: string,
     dueDate: Date
   ): Promise<string | null> {
+    if (Platform.OS === "web") return null;
     try {
       if (!this.settings.enabled || !this.settings.taskReminders) {
         return null;
@@ -185,6 +194,7 @@ export class NotificationService {
     itemTitle: string,
     nextReviewDate: Date
   ): Promise<string | null> {
+    if (Platform.OS === "web") return null;
     try {
       if (!this.settings.enabled || !this.settings.spacedRepetition) {
         return null;
@@ -224,6 +234,7 @@ export class NotificationService {
    * Cancel scheduled notification
    */
   async cancelNotification(notificationId: string): Promise<void> {
+    if (Platform.OS === "web") return;
     try {
       await Notifications.cancelScheduledNotificationAsync(notificationId);
     } catch (error) {
@@ -235,6 +246,7 @@ export class NotificationService {
    * Cancel all scheduled notifications
    */
   async cancelAllNotifications(): Promise<void> {
+    if (Platform.OS === "web") return;
     try {
       await Notifications.cancelAllScheduledNotificationsAsync();
     } catch (error) {
@@ -246,6 +258,7 @@ export class NotificationService {
    * Get all scheduled notifications
    */
   async getScheduledNotifications(): Promise<Notifications.NotificationRequest[]> {
+    if (Platform.OS === "web") return [];
     try {
       return await Notifications.getAllScheduledNotificationsAsync();
     } catch (error) {
@@ -260,6 +273,7 @@ export class NotificationService {
   onNotificationResponse(
     callback: (notification: Notifications.Notification) => void
   ): () => void {
+    if (Platform.OS === "web") return () => undefined;
     return Notifications.addNotificationResponseReceivedListener((response) => {
       callback(response.notification);
     }).remove;
@@ -271,6 +285,7 @@ export class NotificationService {
   onNotificationReceived(
     callback: (notification: Notifications.Notification) => void
   ): () => void {
+    if (Platform.OS === "web") return () => undefined;
     return Notifications.addNotificationReceivedListener((notification) => {
       callback(notification);
     }).remove;

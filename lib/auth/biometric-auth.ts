@@ -45,6 +45,12 @@ export class BiometricAuthService {
    */
   private async initializeBiometrics(): Promise<void> {
     try {
+      if (Platform.OS === "web") {
+        // LocalAuthentication is unavailable on web; PIN fallback still
+        // works because it reads/writes through SecureStore's web shim.
+        await this.loadSettings();
+        return;
+      }
       const compatible = await LocalAuthentication.hasHardwareAsync();
       if (!compatible) {
         console.warn("Device does not support biometric authentication");
@@ -79,6 +85,7 @@ export class BiometricAuthService {
    * Check if device supports biometric authentication
    */
   async isBiometricAvailable(): Promise<boolean> {
+    if (Platform.OS === "web") return false;
     try {
       return await LocalAuthentication.hasHardwareAsync();
     } catch (error) {
@@ -91,6 +98,7 @@ export class BiometricAuthService {
    * Get available biometric types
    */
   async getAvailableBiometricTypes(): Promise<BiometricType[]> {
+    if (Platform.OS === "web") return [];
     try {
       const types = await LocalAuthentication.supportedAuthenticationTypesAsync();
       const available: BiometricType[] = [];
@@ -116,6 +124,7 @@ export class BiometricAuthService {
    * Authenticate with biometric
    */
   async authenticate(_reason: string = "Authenticate to access Knowledge Vault"): Promise<boolean> {
+    if (Platform.OS === "web") return false;
     try {
       const compatible = await LocalAuthentication.hasHardwareAsync();
       if (!compatible) {

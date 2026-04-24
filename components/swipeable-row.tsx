@@ -1,5 +1,5 @@
 import React, { useRef } from "react";
-import { Pressable } from "react-native";
+import { Platform, Pressable } from "react-native";
 import ReanimatedSwipeable from "react-native-gesture-handler/ReanimatedSwipeable";
 import { MaterialIcons } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
@@ -21,7 +21,9 @@ function RenderAction({ action, side }: { action: SwipeAction; side: "left" | "r
   return (
     <Pressable
       onPress={() => {
-        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+        if (Platform.OS !== "web") {
+          Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+        }
         action.onPress();
       }}
       style={{

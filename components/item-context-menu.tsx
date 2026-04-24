@@ -1,5 +1,5 @@
 import React, { useState } from "react";
-import { View, Text, Pressable, Modal, Alert, ActivityIndicator } from "react-native";
+import { View, Text, Pressable, Modal, Alert, ActivityIndicator, Platform } from "react-native";
 import { MaterialIcons } from "@expo/vector-icons";
 import { useColors } from "@/hooks/use-colors";
 import { useInbox } from "@/lib/context/inbox-context";
@@ -26,7 +26,9 @@ export function ItemContextMenu({ item, isVisible, onClose }: ItemContextMenuPro
   const handleMoveToLibrary = async () => {
     try {
       setLoading(true);
-      await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+      if (Platform.OS !== "web") {
+        await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+      }
       await moveToLibrary(item.id);
       Alert.alert("Success", "Item moved to Library");
       onClose();
@@ -41,7 +43,9 @@ export function ItemContextMenu({ item, isVisible, onClose }: ItemContextMenuPro
   const handleConvertToTask = async () => {
     try {
       setLoading(true);
-      await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+      if (Platform.OS !== "web") {
+        await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+      }
       await convertToTask(item.id);
       Alert.alert("Success", "Item converted to Task");
       onClose();
@@ -61,7 +65,9 @@ export function ItemContextMenu({ item, isVisible, onClose }: ItemContextMenuPro
         onPress: async () => {
           try {
             setLoading(true);
-            await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+            if (Platform.OS !== "web") {
+              await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+            }
             await deleteItem(item.id);
             Alert.alert("Success", "Item deleted");
             onClose();

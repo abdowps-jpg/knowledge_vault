@@ -5,6 +5,7 @@ import {
   View,
   Pressable,
   Alert,
+  Platform,
   ScrollView,
   TextInput,
   ActivityIndicator,
@@ -45,7 +46,43 @@ function formatDuration(seconds: number): string {
 // Audio Recorder Modal
 // ============================================================================
 
-export function AudioRecorderModal({ visible, onClose, onSave }: AudioRecorderModalProps) {
+export function AudioRecorderModal(props: AudioRecorderModalProps) {
+  // expo-audio recording hooks (useAudioRecorder / useAudioRecorderState)
+  // are unsupported on web and throw at call time. The native modal below
+  // mounts those hooks, so we split the web path into a separate component
+  // that never imports them into its render tree.
+  if (Platform.OS === "web") {
+    return <WebAudioRecorderFallback {...props} />;
+  }
+  return <NativeAudioRecorderModal {...props} />;
+}
+
+function WebAudioRecorderFallback({ visible, onClose }: AudioRecorderModalProps) {
+  const colors = useColors();
+  return (
+    <Modal visible={visible} animationType="fade" transparent onRequestClose={onClose}>
+      <View style={{ flex: 1, backgroundColor: "rgba(0,0,0,0.5)", justifyContent: "center", padding: 24 }}>
+        <View style={{ backgroundColor: colors.surface, borderRadius: 12, padding: 20 }}>
+          <Text style={{ color: colors.foreground, fontWeight: "700", fontSize: 16, marginBottom: 8 }}>
+            Voice notes aren't available on the web yet
+          </Text>
+          <Text style={{ color: colors.muted, fontSize: 13, marginBottom: 16 }}>
+            Please use the mobile app to record voice notes. You can still view and play back audio attachments here.
+          </Text>
+          <Pressable
+            onPress={onClose}
+            style={{ alignSelf: "flex-end", paddingHorizontal: 16, paddingVertical: 8, borderRadius: 8, backgroundColor: colors.primary }}
+            accessibilityRole="button"
+          >
+            <Text style={{ color: "#ffffff", fontWeight: "700" }}>OK</Text>
+          </Pressable>
+        </View>
+      </View>
+    </Modal>
+  );
+}
+
+function NativeAudioRecorderModal({ visible, onClose, onSave }: AudioRecorderModalProps) {
   const colors = useColors();
   const [note, setNote] = useState("");
   const [loading, setLoading] = useState(false);
@@ -81,7 +118,9 @@ export function AudioRecorderModal({ visible, onClose, onSave }: AudioRecorderMo
       }
       setRecordedUri(null);
       setNote("");
-      await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+      if (Platform.OS !== "web") {
+        await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+      }
       await recorder.record();
     } catch (error) {
       console.error("[AudioRecorder] Failed to start:", error);
@@ -91,7 +130,9 @@ export function AudioRecorderModal({ visible, onClose, onSave }: AudioRecorderMo
 
   const handleStopRecording = async () => {
     try {
-      await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+      if (Platform.OS !== "web") {
+        await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+      }
       await recorder.stop();
       if (recorder.uri) {
         setRecordedUri(recorder.uri);
@@ -133,7 +174,9 @@ export function AudioRecorderModal({ visible, onClose, onSave }: AudioRecorderMo
     }
     try {
       setLoading(true);
-      await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      if (Platform.OS !== "web") {
+        await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      }
       const content =
         note.trim() || `Voice Note (${formatDuration(durationSeconds)})`;
       await onSave(content, recordedUri);

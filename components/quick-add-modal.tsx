@@ -1,5 +1,5 @@
 import React, { useState } from "react";
-import { View, Text, TextInput, Pressable, ScrollView, Modal, ActivityIndicator, Alert } from "react-native";
+import { View, Text, TextInput, Pressable, Platform, ScrollView, Modal, ActivityIndicator, Alert } from "react-native";
 import { MaterialIcons } from "@expo/vector-icons";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useRouter } from "expo-router";
@@ -222,7 +222,9 @@ export function QuickAddModal() {
   const handleSaveAudio = async (audioContent: string, audioUri?: string) => {
     try {
       setLoading(true);
-      await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      if (Platform.OS !== "web") {
+        await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      }
       const newItem = await addItem({
         type: ItemType.AUDIO,
         title: "Voice Note",
@@ -232,8 +234,10 @@ export function QuickAddModal() {
         isArchived: false,
       });
 
-      // Upload actual audio file as attachment if available
-      if (newItem?.id && audioUri) {
+      // Upload actual audio file as attachment if available.
+      // Skipped on web: expo-file-system/legacy throws there, and the
+      // audio-recorder fallback modal doesn't produce an audioUri anyway.
+      if (newItem?.id && audioUri && Platform.OS !== "web") {
         try {
           const fileInfo = await FileSystem.getInfoAsync(audioUri);
           if (fileInfo.exists) {
@@ -351,7 +355,9 @@ export function QuickAddModal() {
         });
       }
 
-      await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      if (Platform.OS !== "web") {
+        await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      }
 
       resetForm();
       closeQuickAdd();

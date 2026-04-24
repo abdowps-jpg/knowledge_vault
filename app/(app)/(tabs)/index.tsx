@@ -1,6 +1,6 @@
 import React, { Suspense, useMemo, useState } from "react";
 import { useRouter } from "expo-router";
-import { FlatList, Text, View, Pressable, RefreshControl, Modal, ActivityIndicator, TextInput } from "react-native";
+import { FlatList, Text, View, Pressable, Platform, RefreshControl, Modal, ActivityIndicator, TextInput } from "react-native";
 import { ScreenContainer } from "@/components/screen-container";
 import { SkeletonList } from "@/components/skeleton-loader";
 import { EmptyState } from "@/components/empty-state";
@@ -119,12 +119,16 @@ const InboxItem = React.memo(function InboxItem({
   });
 
   const handleDelete = async () => {
-    await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    if (Platform.OS !== "web") {
+      await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    }
     onDelete(item.id);
   };
 
   const handleLongPress = () => {
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    if (Platform.OS !== "web") {
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    }
     onLongPress(item);
   };
 
@@ -347,7 +351,9 @@ export default function InboxScreen() {
 
   // Handle quick add button
   const handleQuickAdd = () => {
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    if (Platform.OS !== "web") {
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    }
     openQuickAdd("note");
   };
 
