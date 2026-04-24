@@ -15,7 +15,7 @@ export function VaultSelector({ value, onChange, disabled, label = "Vault" }: Va
   const colors = useColors();
   const { data: vaults, isLoading } = trpc.vaults.listMine.useQuery();
 
-  const options: Array<{ id: string | undefined; name: string }> = [
+  const options: { id: string | undefined; name: string }[] = [
     { id: undefined, name: "Personal" },
     ...(vaults ?? []).map((v) => ({ id: v.id, name: v.name })),
   ];

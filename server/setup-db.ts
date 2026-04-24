@@ -605,6 +605,16 @@ db.exec(`
   CREATE INDEX IF NOT EXISTS idx_feedback_kind ON feedback(kind);
   CREATE INDEX IF NOT EXISTS idx_feedback_created_at ON feedback(created_at);
 `);
+try {
+  db.exec(`ALTER TABLE feedback ADD COLUMN addressed_at INTEGER;`);
+} catch {
+  // Column already exists.
+}
+try {
+  db.exec(`ALTER TABLE feedback ADD COLUMN addressed_note TEXT;`);
+} catch {
+  // Column already exists.
+}
 
 db.exec(`
   CREATE TABLE IF NOT EXISTS notification_prefs (

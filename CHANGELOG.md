@@ -37,6 +37,47 @@
   `SENTRY_DSN`, `EXPO_PUBLIC_SENTRY_DSN_WEB`, and the `/debug/throw`
   verification flow.
 
+### Vaults plumbing + admin telemetry (2026-04-23)
+
+**Shared Vaults (Phase 3 — 95%)**
+- `vaultId` foreign key added to `items` and `tasks` with idempotent
+  ALTER TABLE migrations and indexes
+- `lib/vault-permissions.ts` with `canRead` / `canWrite` / `canDelete`,
+  plus extracted `logVaultActivity` and `orphanVaultResources` helpers
+  (all accept an optional `dbOverride` for testing)
+- Items/tasks create-update-delete mutations gated by vault role when a
+  `vaultId` is set (editor writes, owner deletes); `items.update`
+  branches on vault scope before falling back to `ensureItemAccess`
+- `vaults.delete` orphans items and tasks back to personal scope
+  (`vault_id` → NULL) before tearing down members, activity, and the
+  vault row itself — deleting a vault never destroys user content
+- `item.created` / `item.updated` / `task.created` / `task.updated`
+  events now appear in `vault_activity` for every vault-scoped mutation
+- New `components/VaultSelector.tsx` chip picker wired into add-task
+  modal, quick-add modal, and item detail screen
+- New `app/(app)/vaults/[id].tsx` with Items / Tasks / Activity tabs;
+  viewer role hides create FAB and locks vault binding
+- Tests: `tests/vaults-plumbing.test.ts` covers owner/editor create,
+  viewer FORBIDDEN, non-member read FORBIDDEN, vault-delete orphaning,
+  and activity rows on create+update — 6/6 green alongside the
+  existing 55 (61 total)
+
+**Admin telemetry (Phase 5 — 70%)**
+- New procedures: `admin.userUsage({ userId })` — 30-day AI call buckets
+  from `audit_log` (`action LIKE 'ai.%'`) plus item/task counts and
+  attachment byte totals; `admin.systemTrends()` — `signups30d` and
+  `dau30d` (distinct users per day); `admin.failedWebhooks({ limit })`
+  — subscriptions where `failureCount > 0` OR `lastStatus >= 400`
+- Admin screen gets three new sections: user drill-down picker with
+  usage cards and an AI-calls LineChart, system trends panel with two
+  LineCharts (signups + DAU), and a failed webhooks list. All empty
+  states render friendly text instead of a zeroed chart.
+- New `admin.markFeedbackAddressed({ id, note })` procedure; "Mark as
+  addressed" button on each feedback card, with an addressed badge and
+  optional note visible after resolution
+- `feedback.addressedAt` + `feedback.addressedNote` columns added via
+  idempotent ALTER TABLE
+
 ### Phase 3 / 4 / 5 completion batch (2026-04-22)
 
 **Shared Vaults (Phase 3 — 85%)**

@@ -1,14 +1,59 @@
-import { and, count, desc, eq, gte, isNull } from 'drizzle-orm';
+import { and, count, desc, eq, gte, isNull, like, or, sql } from 'drizzle-orm';
 import { TRPCError } from '@trpc/server';
 import { z } from 'zod';
 import { db } from '../db';
+import { attachments } from '../schema/attachments';
 import { auditLog } from '../schema/audit_log';
 import { feedback } from '../schema/feedback';
 import { items } from '../schema/items';
 import { journal } from '../schema/journal';
 import { tasks } from '../schema/tasks';
 import { users } from '../schema/users';
+import { webhookSubscriptions } from '../schema/api_keys';
 import { protectedProcedure, router } from '../trpc';
+
+/**
+ * Turn a list of `{ createdAt, ... }` rows into a 30-slot array counting
+ * occurrences per calendar day ending today. Slot 0 is 29 days ago, slot
+ * 29 is today. Days with no activity stay at 0.
+ */
+function bucketBy30Days(rows: Array<{ createdAt: Date | null }>): number[] {
+  const buckets = new Array<number>(30).fill(0);
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const startMs = today.getTime() - 29 * 86400_000;
+  for (const row of rows) {
+    if (!row.createdAt) continue;
+    const rowDay = new Date(row.createdAt);
+    rowDay.setHours(0, 0, 0, 0);
+    const offset = Math.floor((rowDay.getTime() - startMs) / 86400_000);
+    if (offset >= 0 && offset < 30) {
+      buckets[offset] += 1;
+    }
+  }
+  return buckets;
+}
+
+/**
+ * Distinct users per day across the last 30 days — treating any audit_log
+ * entry as evidence of activity. Same slot semantics as `bucketBy30Days`.
+ */
+function dauBuckets(rows: Array<{ userId: string; createdAt: Date | null }>): number[] {
+  const perDay = Array.from({ length: 30 }, () => new Set<string>());
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const startMs = today.getTime() - 29 * 86400_000;
+  for (const row of rows) {
+    if (!row.createdAt) continue;
+    const rowDay = new Date(row.createdAt);
+    rowDay.setHours(0, 0, 0, 0);
+    const offset = Math.floor((rowDay.getTime() - startMs) / 86400_000);
+    if (offset >= 0 && offset < 30) {
+      perDay[offset].add(row.userId);
+    }
+  }
+  return perDay.map((s) => s.size);
+}
 
 async function requireAdmin(userId: string) {
   const rows = await db.select().from(users).where(eq(users.id, userId)).limit(1);
@@ -102,11 +147,116 @@ export const adminRouter = router({
       return db.select().from(feedback).orderBy(desc(feedback.createdAt)).limit(input?.limit ?? 50);
     }),
 
+  markFeedbackAddressed: protectedProcedure
+    .input(z.object({ id: z.string(), note: z.string().max(500).optional() }))
+    .mutation(async ({ ctx, input }) => {
+      await requireAdmin(ctx.user.id);
+      const rows = await db
+        .select({ id: feedback.id })
+        .from(feedback)
+        .where(eq(feedback.id, input.id))
+        .limit(1);
+      if (rows.length === 0) {
+        throw new TRPCError({ code: 'NOT_FOUND', message: 'Feedback not found' });
+      }
+      await db
+        .update(feedback)
+        .set({ addressedAt: new Date(), addressedNote: input.note?.trim() || null })
+        .where(eq(feedback.id, input.id));
+      return { success: true as const };
+    }),
+
   recentAuditEvents: protectedProcedure
     .input(z.object({ limit: z.number().int().min(1).max(500).default(100) }).optional())
     .query(async ({ ctx, input }) => {
       await requireAdmin(ctx.user.id);
       return db.select().from(auditLog).orderBy(desc(auditLog.createdAt)).limit(input?.limit ?? 100);
+    }),
+
+  userUsage: protectedProcedure
+    .input(z.object({ userId: z.string() }))
+    .query(async ({ ctx, input }) => {
+      await requireAdmin(ctx.user.id);
+
+      const thirtyDaysAgo = new Date(Date.now() - 30 * 86400_000);
+
+      const aiRows = await db
+        .select({ createdAt: auditLog.createdAt })
+        .from(auditLog)
+        .where(
+          and(
+            eq(auditLog.userId, input.userId),
+            like(auditLog.action, 'ai.%'),
+            gte(auditLog.createdAt, thirtyDaysAgo)
+          )
+        );
+
+      const [itemCountRow] = await db
+        .select({ total: count() })
+        .from(items)
+        .where(and(eq(items.userId, input.userId), isNull(items.deletedAt)));
+
+      const [taskCountRow] = await db
+        .select({ total: count() })
+        .from(tasks)
+        .where(and(eq(tasks.userId, input.userId), isNull(tasks.deletedAt)));
+
+      // Storage for this user = sum(attachment.file_size) for attachments
+      // attached to items the user owns. Journal attachments would need a
+      // separate join; left out intentionally.
+      const [storageRow] = await db
+        .select({
+          bytes: sql<number>`COALESCE(SUM(${attachments.fileSize}), 0)`,
+        })
+        .from(attachments)
+        .innerJoin(items, eq(items.id, attachments.itemId))
+        .where(eq(items.userId, input.userId));
+
+      return {
+        aiCalls30d: bucketBy30Days(aiRows),
+        storageBytes: Number(storageRow?.bytes ?? 0),
+        itemsCount: itemCountRow?.total ?? 0,
+        tasksCount: taskCountRow?.total ?? 0,
+      };
+    }),
+
+  systemTrends: protectedProcedure.query(async ({ ctx }) => {
+    await requireAdmin(ctx.user.id);
+
+    const thirtyDaysAgo = new Date(Date.now() - 30 * 86400_000);
+
+    const signupRows = await db
+      .select({ createdAt: users.createdAt })
+      .from(users)
+      .where(gte(users.createdAt, thirtyDaysAgo));
+
+    const activityRows = await db
+      .select({ userId: auditLog.userId, createdAt: auditLog.createdAt })
+      .from(auditLog)
+      .where(gte(auditLog.createdAt, thirtyDaysAgo));
+
+    return {
+      signups30d: bucketBy30Days(signupRows),
+      dau30d: dauBuckets(activityRows),
+    };
+  }),
+
+  failedWebhooks: protectedProcedure
+    .input(z.object({ limit: z.number().int().min(1).max(200).default(50) }).optional())
+    .query(async ({ ctx, input }) => {
+      await requireAdmin(ctx.user.id);
+      const rows = await db
+        .select()
+        .from(webhookSubscriptions)
+        .where(
+          or(
+            sql`${webhookSubscriptions.failureCount} > 0`,
+            sql`${webhookSubscriptions.lastStatus} >= 400`
+          )
+        )
+        .orderBy(desc(webhookSubscriptions.lastDeliveredAt))
+        .limit(input?.limit ?? 50);
+      return rows;
     }),
 });
 

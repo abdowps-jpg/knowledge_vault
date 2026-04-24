@@ -10,6 +10,8 @@ export const feedback = sqliteTable(
     body: text('body').notNull(),
     appVersion: text('app_version'),
     platform: text('platform'),
+    addressedAt: integer('addressed_at', { mode: 'timestamp' }),
+    addressedNote: text('addressed_note'),
     createdAt: integer('created_at', { mode: 'timestamp' }).$defaultFn(() => new Date()),
   },
   (table) => ({

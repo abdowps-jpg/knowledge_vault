@@ -6,6 +6,7 @@ import { db } from '../db';
 import { users } from '../schema/users';
 import { vaultActivity, vaultMembers, vaults } from '../schema/vaults';
 import { protectedProcedure, router } from '../trpc';
+import { orphanVaultResources } from '../../lib/vault-permissions';
 
 async function requireMember(vaultId: string, userId: string, allowed: ('owner' | 'editor' | 'viewer')[] = ['owner', 'editor', 'viewer']) {
   const rows = await db
@@ -115,6 +116,9 @@ export const vaultsRouter = router({
       if (vault.ownerUserId !== ctx.user.id) {
         throw new TRPCError({ code: 'FORBIDDEN', message: 'Only the vault owner can delete it' });
       }
+      // Orphan vault-scoped content (items + tasks) back to personal scope
+      // before tearing the vault down. Content survives; only the binding is removed.
+      await orphanVaultResources(input.id);
       await db.delete(vaultMembers).where(eq(vaultMembers.vaultId, input.id));
       await db.delete(vaultActivity).where(eq(vaultActivity.vaultId, input.id));
       await db.delete(vaults).where(eq(vaults.id, input.id));

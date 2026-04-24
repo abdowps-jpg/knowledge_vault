@@ -55,8 +55,14 @@ function applyMigrations(sqlite: Database.Database): void {
       vault_id TEXT,
       title TEXT NOT NULL,
       description TEXT,
-      priority TEXT DEFAULT 'medium',
       due_date TEXT,
+      blocked_by_task_id TEXT,
+      location_lat TEXT,
+      location_lng TEXT,
+      location_radius_meters INTEGER,
+      is_urgent INTEGER DEFAULT 0,
+      is_important INTEGER DEFAULT 0,
+      priority TEXT DEFAULT 'medium',
       is_completed INTEGER DEFAULT 0,
       completed_at INTEGER,
       recurrence TEXT,
@@ -77,6 +83,38 @@ function applyMigrations(sqlite: Database.Database): void {
       id TEXT PRIMARY KEY,
       item_id TEXT NOT NULL,
       tag_id TEXT NOT NULL,
+      created_at INTEGER DEFAULT (strftime('%s', 'now'))
+    );
+
+    CREATE TABLE IF NOT EXISTS vaults (
+      id TEXT PRIMARY KEY,
+      owner_user_id TEXT NOT NULL,
+      name TEXT NOT NULL,
+      description TEXT,
+      is_personal INTEGER NOT NULL DEFAULT 0,
+      created_at INTEGER DEFAULT (strftime('%s', 'now')),
+      updated_at INTEGER DEFAULT (strftime('%s', 'now'))
+    );
+
+    CREATE TABLE IF NOT EXISTS vault_members (
+      id TEXT PRIMARY KEY,
+      vault_id TEXT NOT NULL,
+      user_id TEXT NOT NULL,
+      role TEXT NOT NULL DEFAULT 'viewer',
+      invited_by_user_id TEXT,
+      joined_at INTEGER DEFAULT (strftime('%s', 'now'))
+    );
+    CREATE UNIQUE INDEX IF NOT EXISTS vault_members_unique
+      ON vault_members(vault_id, user_id);
+
+    CREATE TABLE IF NOT EXISTS vault_activity (
+      id TEXT PRIMARY KEY,
+      vault_id TEXT NOT NULL,
+      actor_user_id TEXT NOT NULL,
+      action TEXT NOT NULL,
+      resource_kind TEXT,
+      resource_id TEXT,
+      meta TEXT,
       created_at INTEGER DEFAULT (strftime('%s', 'now'))
     );
   `);

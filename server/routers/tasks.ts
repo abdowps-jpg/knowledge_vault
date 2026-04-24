@@ -5,7 +5,7 @@ import { z } from 'zod';
 import { db } from '../db';
 import { tasks } from '../schema/tasks';
 import { protectedProcedure, router } from '../trpc';
-import { canWrite, canDelete } from '../../lib/vault-permissions';
+import { canWrite, canDelete, logVaultActivity } from '../../lib/vault-permissions';
 
 const recurrenceSchema = z.enum(['daily', 'weekly', 'monthly']);
 
@@ -127,6 +127,12 @@ export const tasksRouter = router({
         };
 
         await db.insert(tasks).values(newTask);
+        if (input.vaultId) {
+          await logVaultActivity(input.vaultId, ctx.user.id, 'task.created', {
+            kind: 'task',
+            id: newTask.id,
+          });
+        }
         return newTask;
       } catch (error) {
         console.error('Error creating task:', error);
@@ -202,6 +208,14 @@ export const tasksRouter = router({
         }
 
         await db.update(tasks).set(updateData).where(eq(tasks.id, id));
+        const finalVaultId =
+          typeof input.vaultId !== 'undefined' ? input.vaultId : existingTask.vaultId;
+        if (finalVaultId) {
+          await logVaultActivity(finalVaultId, ctx.user.id, 'task.updated', {
+            kind: 'task',
+            id,
+          });
+        }
         return { success: true };
       } catch (error) {
         console.error('Error updating task:', error);

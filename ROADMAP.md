@@ -736,14 +736,25 @@ Use ICE scoring (Impact × Confidence × Ease):
 
 ---
 
-## Shipped Checkpoint — 2026-04-22 (phases 3/4/5 rounded out)
+## Shipped Checkpoint — 2026-04-23 (phases 3/4/5 rounded out)
 
-### Phase 3 — Collaboration (now ~85%)
+### Phase 3 — Collaboration (now ~95%)
 - `vaults` + `vault_members` + `vault_activity` tables
 - `vaultsRouter`: listMine / create / update / delete / listMembers / invite /
   removeMember / leave / feed / logEvent. Roles: owner / editor / viewer.
-- Still TODO: plumb vaultId through item/task queries for per-vault filtering
-  (additive, non-breaking)
+- `vaultId` plumbed through `items` and `tasks` (schema + idempotent
+  ALTER TABLE + index); list endpoints accept an optional `vaultId`
+  filter; create/update/delete mutations gated by `canRead` / `canWrite`
+  / `canDelete` from `lib/vault-permissions.ts`.
+- Vault-scoped mutations emit `item.created` / `item.updated` /
+  `task.created` / `task.updated` events into `vault_activity`.
+- `vaults.delete` orphans items + tasks back to personal scope
+  (`vault_id` → NULL) before tearing down the vault itself — content
+  always survives, only the binding is removed.
+- UI: `components/VaultSelector.tsx`, wired into add-task/quick-add/item
+  detail screens; `app/(app)/vaults/[id].tsx` with Items/Tasks/Activity
+  tabs and viewer-safe UI (no FAB, locked binding).
+- Still TODO: real-time sync (WebSocket) to replace comment polling.
 
 ### Phase 4 — Platform Expansion (now ~80%)
 - Browser extension (shipped earlier)
@@ -753,14 +764,21 @@ Use ICE scoring (Impact × Confidence × Ease):
   recentTasks / recipes + REST `/api/me` for key verification
 - Still TODO: a full interactive web app (flashcards/items UI beyond landing)
 
-### Phase 5 — Enterprise (now ~60%)
+### Phase 5 — Enterprise (now ~70%)
 - `users.isAdmin` column + idempotent ALTER TABLE
 - `adminRouter`: whoami / systemStats / listUsers / setUserActive /
   grantAdmin / listFeedback / recentAuditEvents
+- Admin telemetry additions: `userUsage` (30-day AI buckets, storage,
+  items/tasks counts), `systemTrends` (signups30d, dau30d from
+  `audit_log`), `failedWebhooks` (subscriptions in a bad state), and
+  `markFeedbackAddressed` with `feedback.addressedAt` + `addressedNote`.
+  Admin screen renders drill-down + two LineCharts + failed-webhook
+  list using the already-installed `react-native-chart-kit`.
 - `ssoRouter`: listProviders / allProviders / discovery (OIDC .well-known)
   driven by env vars (Google, GitHub, Apple, Microsoft, Okta, custom OIDC)
 - Still TODO: actual OAuth callback handlers, data residency policy,
-  SLA tiers (operational — not code)
+  SLA tiers (operational — not code), per-delivery webhook log table
+  (current `failedWebhooks` reads subscription state, not history).
 
 ## Shipped Checkpoint — 2026-04-22
 
@@ -801,5 +819,5 @@ Next big-ticket (unshipped):
 
 ---
 
-*Last updated: 2026-04-22*
+*Last updated: 2026-04-23*
 *Author: Knowledge Vault Product Team*

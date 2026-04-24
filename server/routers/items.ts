@@ -10,7 +10,7 @@ import { itemCategories } from '../schema/categories';
 import { ensureItemAccess, getItemAccessById } from '../lib/item-access';
 import { fetchLinkMetadata } from '../lib/link-metadata';
 import { itemVersions } from '../schema/item_versions';
-import { canWrite, canDelete } from '../../lib/vault-permissions';
+import { canWrite, canDelete, logVaultActivity } from '../../lib/vault-permissions';
 
 const LINK_META_WINDOW_MS = 60_000;
 const LINK_META_MAX = 20;
@@ -264,6 +264,13 @@ export const itemsRouter = router({
 
         await db.insert(items).values(newItem);
 
+        if (input.vaultId) {
+          await logVaultActivity(input.vaultId, ctx.user.id, 'item.created', {
+            kind: 'item',
+            id: newItem.id,
+          });
+        }
+
         // Background metadata enrichment for links: fire-and-forget. Only fills
         // blanks; never overwrites user-provided title/content.
         const urlForEnrich = (input.url || '').trim();
@@ -369,7 +376,16 @@ export const itemsRouter = router({
         .update(items)
         .set({ ...data, updatedAt: sql`(strftime('%s', 'now'))` })
         .where(eq(items.id, id));
-      
+
+      const finalVaultId =
+        typeof input.vaultId !== 'undefined' ? input.vaultId : currentVaultId;
+      if (finalVaultId) {
+        await logVaultActivity(finalVaultId, ctx.user.id, 'item.updated', {
+          kind: 'item',
+          id,
+        });
+      }
+
       return { success: true };
     }),
 
